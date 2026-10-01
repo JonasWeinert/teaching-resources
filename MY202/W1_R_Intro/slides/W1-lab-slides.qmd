@@ -14,19 +14,22 @@ format:
 
 ## Lab overview
 
+::: {.small-table}
 | Part | Topic | Functions | Data | Time |
 |---|---|---|---|---|
-| 1 | Summarising data | `count`, `mutate`, `group_by`, `summarise` | `agadullina2018`: 85 effect sizes, out-group entitativity and prejudice | 25 min |
-| 2 | Tidy data and reshaping | `pivot_longer`, `pivot_wider` | World Bank life expectancy, 1960–2024 | 32 min |
-| 3 | Iteration | `map`, `bind_rows` | `maldonado2020`: 1,268 effect sizes, age and executive functioning | 23 min |
+| 0 | R basics | objects, functions, vectors, data frames, lists | | 7 min |
+| 1 | Summarising data | `count`, `mutate`, `group_by`, `summarise` | `agadullina2018`: 85 effect sizes, out-group entitativity and prejudice | 23 min |
+| 2 | Tidy data and reshaping | `pivot_longer`, `pivot_wider` | World Bank life expectancy, 1960–2024 | 29 min |
+| 3 | Iteration | `map`, `bind_rows` | `maldonado2020`: 1,268 effect sizes, age and executive functioning | 21 min |
+:::
 
 Each part: a short demonstration, then exercises in the notebook.
 
 ::: {.notes}
-Timing: welcome and setup, 5 minutes in total, including the next slide.
+Timing: welcome and setup, 5 minutes including the next slide; then R basics, 7 minutes. Exercise times are shortened to fit 90 minutes in total.
 
 - Welcome. The aim today is to get fluent with the handful of verbs that make up about 80% of everyday data work in R.
-- Each block has the same rhythm: about 6 minutes of me showing you an idea, then about 20 minutes of you working through the notebook in pairs.
+- We start with the basic vocabulary of R, because the rest of the lab uses it. Then each part has the same rhythm: a short demonstration, then exercises in the notebook in pairs.
 - The completed notebook is released after class, so there's no need to copy everything down.
 :::
 
@@ -41,6 +44,8 @@ library("gt")
 library("psymetadata")
 library("tidyverse")
 ```
+
+The notebook mixes text and **code chunks** (the grey boxes). Run a chunk with the green ▶ button, or Ctrl/Cmd + Shift + Enter. The output appears below it.
 
 The **Functions Used** table at the top of the notebook is your reference sheet for today.
 :::
@@ -62,6 +67,135 @@ The **Functions Used** table at the top of the notebook is your reference sheet 
 ::: {.notes}
 - Open the student notebook now and run the setup chunk. If a package is missing, put your hand up straight away rather than at minute 40.
 - psymetadata is the package most likely to be missing on lab machines.
+:::
+
+# R basics {.divider background-color="#8C0014"}
+
+::: {.kicker}
+Before we start
+:::
+
+Objects · functions · vectors · data frames · lists
+
+## Objects, functions and packages
+
+```{=html}
+<div class="tracker"><span class="on">Setup</span><span>1 · dplyr</span><span>2 · tidyr</span><span>3 · purrr</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns}
+
+::: {.column width="48%"}
+```r
+x <- 5          # store 5 as object x
+x * 2           # returns 10
+
+round(3.14159, digits = 2)
+                # function: returns 3.14
+
+library("dplyr")  # load a package
+?round            # open the help page
+```
+:::
+
+::: {.column width="52%"}
+::: {.card .compact}
+[Object]{.ct}
+A named value stored in memory. `<-` assigns: it creates or overwrites the object. Nothing is kept unless you assign it.
+:::
+
+::: {.card .compact}
+[Function and arguments]{.ct}
+A function takes inputs, called **arguments**, inside `( )` and returns an output. Arguments can be named: `digits = 2`.
+:::
+
+::: {.card .compact}
+[Package]{.ct}
+A collection of functions written by others. Install once with `install.packages()`, load in every session with `library()`.
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: R basics, 7 minutes across this slide and the next two. Type the examples into the console live.
+
+- An object is anything with a name. If you run code without `<-`, R prints the result and then forgets it.
+- Functions always have brackets. Inside the brackets go the arguments. `?` followed by a function name opens the documentation, which lists every argument.
+- Names are case-sensitive: `X` and `x` are different objects.
+:::
+
+## Vectors, data frames and lists
+
+```{=html}
+<div class="tracker"><span class="on">Setup</span><span>1 · dplyr</span><span>2 · tidyr</span><span>3 · purrr</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<div class="structs">
+  <div class="struct">
+    <span class="sname">Vector</span>
+    <div class="vec"><i>39.5</i><i>49.3</i><i>56.3</i></div>
+    <code>c(39.5, 49.3, 56.3)</code>
+    <span class="sdesc">Several values of <b>one type</b> in a sequence. <code>c()</code> combines values into a vector.</span>
+  </div>
+  <div class="struct">
+    <span class="sname">Data frame · tibble</span>
+    <div class="df2"><b>country</b><b>lifeexp</b><i>Niger</i><i>57.1</i><i>Honduras</i><i>69.8</i><i>Suriname</i><i>69.6</i></div>
+    <code>tibble(country = ..., lifeexp = ...)</code>
+    <span class="sdesc">A table. Each <b>column</b> is a vector, all of the same length. Rows are observations, columns are variables. A tibble is a data frame that prints more neatly.</span>
+  </div>
+  <div class="struct">
+    <span class="sname">List</span>
+    <div class="lst"><i>a data frame</i><i>a vector</i><i>another data frame</i></div>
+    <code>list(df1, x, df2)</code>
+    <span class="sdesc">A container whose <b>elements</b> can be any kind of object, of any length. Used in Part 3.</span>
+  </div>
+</div>
+```
+
+::: {.notes}
+- Almost everything in R is a vector. A single number is a vector of length 1.
+- A data frame is a set of vectors of equal length, side by side. `df$lifeexp` extracts one column as a vector.
+- A list can hold different kinds of objects. Part 3 works with a list of data frames.
+:::
+
+## Types, missing values and comparisons
+
+```{=html}
+<div class="tracker"><span class="on">Setup</span><span>1 · dplyr</span><span>2 · tidyr</span><span>3 · purrr</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns}
+
+::: {.column width="50%"}
+| Type | Example | Note |
+|---|---|---|
+| numeric | `57.1` | numbers |
+| character | `"Niger"` | text, always in quotes |
+| logical | `TRUE`, `FALSE` | results of comparisons |
+| missing | `NA` | value not available |
+
+::: {.source-note}
+`"1970"` in quotes is text, not a number. `class()` tells you the type.
+:::
+:::
+
+::: {.column width="50%"}
+| Operator | Meaning | Example |
+|---|---|---|
+| `==` | equal to | `year == 1990` |
+| `!=` | not equal to | `design != "Experiment"` |
+| `>` `<` | greater, less than | `n > 100` |
+| `%in%` | is one of | `year %in% c(1970, 1990)` |
+:::
+
+::::
+
+::: {.notes}
+- `=` sets an argument; `==` tests whether two things are equal. Mixing them up is one of the most common errors.
+- `%in%` checks each value against a vector of allowed values. We use it in Part 2 to keep several countries and years.
+- `NA` is R's code for a missing value. Most calculations involving `NA` return `NA`.
 :::
 
 # Summarising data with dplyr {.divider background-color="#8C0014"}
@@ -94,7 +228,7 @@ glimpse(agadullina2018_tbl)
 ::: {.column width="48%"}
 ::: {.card}
 [Data]{.ct}
-A meta-analysis: **85 effect sizes** from 21 studies on out-group entitativity and prejudice
+A meta-analysis: **85 effect sizes** from 21 studies on out-group entitativity and prejudice. An effect size measures the strength of a relationship on a common scale.
 :::
 
 ::: {.card .line}
@@ -241,13 +375,13 @@ agadullina2018_tbl |>
 ::: {.notes}
 - Demonstrate live: `summarise` gives one number. Add `group_by(design)` before it and you get one number per design.
 - Key idea: `group_by` changes nothing visible on its own. It changes how the *next* verb behaves.
-- Hand over: "Work through Part 1 in pairs. You have 18 minutes. The timer is on the next slide."
+- Hand over: "Work through Part 1 in pairs. You have 16 minutes. The timer is on the next slide."
 :::
 
 ## Exercises: Part 1 {.yourturn}
 
 ```{=html}
-<div class="timer" data-minutes="18"></div>
+<div class="timer" data-minutes="16"></div>
 ```
 
 :::: {.yt}
@@ -295,7 +429,7 @@ df_tbl |>
 ::::
 
 ::: {.notes}
-Timing: 18 minutes. Click the timer (or press T) to start it.
+Timing: 16 minutes. Click the timer (or press T) to start it.
 
 - Circulate. Common problems: forgetting to assign the tibble; `summarise` returning one row because `group_by` was left out; typing `|>` by hand with a space in between.
 - Notebook numbering skips Q5, so the 10 tasks on this slide match notebook questions 1–4 and 6–11.
@@ -492,13 +626,13 @@ The file has a `2025` column with no values, so pivoting creates **263 rows of `
 ::: {.notes}
 - When you `pull(country_name)`, scroll through the list. Not every row is a country.
 - The final year column is empty. Notice what `pivot_longer` does with it.
-- Hand over: "Part 2, 25 minutes. Pick four countries you find interesting."
+- Hand over: "Part 2, 22 minutes. Pick four countries you find interesting."
 :::
 
 ## Exercises: Part 2 {.yourturn}
 
 ```{=html}
-<div class="timer" data-minutes="25"></div>
+<div class="timer" data-minutes="22"></div>
 ```
 
 :::: {.yt}
@@ -546,7 +680,7 @@ lifeexp |>
 ::::
 
 ::: {.notes}
-Timing: 25 minutes. Click the timer (or press T) to start it.
+Timing: 22 minutes. Click the timer (or press T) to start it.
 
 - Known issue: the notebook reads from `data/wb-life-exp.csv`. If the CSV sits next to the notebook, students need `read_csv("wb-life-exp.csv")`.
 - Common errors: `==` with a vector of countries silently recycles and returns the wrong rows; country names that don't match exactly.
@@ -725,13 +859,13 @@ Adds a column saying which piece each row came from
 
 ::: {.notes}
 - `bind_rows` stacks the pieces. `.id` keeps track of where each row came from, so no information is lost.
-- Hand over: "Part 3, 17 minutes."
+- Hand over: "Part 3, 15 minutes."
 :::
 
 ## Exercises: Part 3 {.yourturn}
 
 ```{=html}
-<div class="timer" data-minutes="17"></div>
+<div class="timer" data-minutes="15"></div>
 ```
 
 :::: {.yt}
@@ -773,7 +907,7 @@ map(split_data,
 ::::
 
 ::: {.notes}
-Timing: 17 minutes. Click the timer (or press T) to start it.
+Timing: 15 minutes. Click the timer (or press T) to start it.
 
 - If short of time, set the `map_dfr` bonus as homework.
 - `select()` with a column that only exists in some pieces will fail: `task` is only in inhibition and shifting, `n1` only in the other two. `author`, `yi`, `vi` work everywhere.
