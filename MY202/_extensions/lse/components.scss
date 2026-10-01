@@ -195,3 +195,14 @@
 
 // title slide logo
 #title-slide .logo-strip img { height: 72px; max-height: 72px; }
+
+// ---------- Drake meme ----------
+// Two picture cells cropped from the 2x2 template, text cells beside them
+.drake { display: grid; grid-template-columns: 200px 1fr; grid-template-rows: 200px 200px; border: 2px solid #E2E2E2; border-radius: 6px; overflow: hidden; background: #fff; }
+.dk-pic { overflow: hidden; }
+.reveal .dk-pic img { width: 200%; height: 200%; max-width: none; max-height: none; display: block; }
+.reveal .dk-pic.dk-bottom img { transform: translateY(-50%); }
+.dk-txt { display: flex; align-items: center; padding: 0 18px; border-left: 2px solid #E2E2E2; font-size: 0.6em; line-height: 1.5; }
+.dk-txt:nth-child(2) { border-bottom: 2px solid #E2E2E2; }
+.reveal .dk-txt code { color: #1A1A1A; font-size: 1em; }
+.drake.small-code .dk-txt { font-size: 0.48em; white-space: nowrap; }

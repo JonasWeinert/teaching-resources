@@ -247,6 +247,51 @@ Timing: R basics, 6 minutes across this slide and the next two. Type the example
 - `NA` is R's code for a missing value. Most calculations involving `NA` return `NA`.
 :::
 
+## `=` versus `==`
+
+```{=html}
+<div class="tracker"><span class="on">Setup</span><span>1 · dplyr</span><span>2 · tidyr</span><span>3 · purrr</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns}
+
+::: {.column width="56%"}
+```{=html}
+<div class="drake" role="img" aria-label="Drake meme: rejecting filter(year = 1990), approving filter(year == 1990)">
+  <div class="dk-pic"><img src="images/drake-template.jpg" alt=""></div>
+  <div class="dk-txt"><code>filter(year = 1990)</code></div>
+  <div class="dk-pic dk-bottom"><img src="images/drake-template.jpg" alt=""></div>
+  <div class="dk-txt"><code>filter(year == 1990)</code></div>
+</div>
+```
+
+:::
+
+::: {.column width="44%"}
+::: {.card .compact}
+[`=` sets an argument]{.ct}
+`round(3.14159, digits = 2)`
+:::
+
+::: {.card .compact}
+[`==` asks a question]{.ct}
+Is `year` equal to 1990? `TRUE` or `FALSE` for every row. `filter()` keeps the rows where the answer is `TRUE`.
+:::
+
+```
+Error in `filter()`:
+We detected a named input.
+This usually means that you've
+used `=` instead of `==`.
+```
+:::
+
+::::
+
+::: {.notes}
+- The most common error of the day. R's message says exactly what went wrong, so read error messages before asking for help.
+:::
+
 # Summarising data with dplyr {.divider background-color="#8C0014"}
 
 ::: {.kicker}
@@ -725,30 +770,33 @@ Part 2
 <div class="tracker"><span class="done">Setup</span><span class="done">1 · dplyr</span><span class="on">2 · tidyr</span><span>3 · purrr</span><span>Wrap-up</span></div>
 ```
 
-::: {.cards .c3}
-::: {.card}
-[1 · Variables are columns]{.ct}
-Country, year and life expectancy each get their own column
-:::
+![](images/tidydata_1.jpg){height="430px" fig-alt="Illustration: in tidy data, each variable forms a column, each observation forms a row, and each cell is a single measurement"}
 
-::: {.card}
-[2 · Observations are rows]{.ct}
-One row = one country in one year
+::: {.source-note}
+Illustration: Julia Lowndes and Allison Horst, [*Tidy Data for reproducibility, efficiency, and collaboration*](https://openscapes.org/blog/2020/10/12/tidy-data/), Openscapes blog, 2020. CC BY 4.0.
 :::
-
-::: {.card}
-[3 · Values are cells]{.ct}
-One number per cell, nothing hidden in the headers
-:::
-:::
-
-Most tidyverse functions expect data in this format.
 
 ::: {.notes}
 Timing: teaching moment 2 is about 6 minutes across this slide and the next three.
 
 - The World Bank file is a classic example of "human-friendly" data: easy to read, hard to analyse.
 - Tidy data is the format that `filter`, `group_by` and `ggplot` expect.
+:::
+
+## Messy data is messy in its own way
+
+```{=html}
+<div class="tracker"><span class="done">Setup</span><span class="done">1 · dplyr</span><span class="on">2 · tidyr</span><span>3 · purrr</span><span>Wrap-up</span></div>
+```
+
+![](images/tidydata_2.jpg){height="430px" fig-alt="Illustration: tidy datasets look alike and happy; messy datasets each have their own problem, such as values in column names or several variables in one column"}
+
+::: {.source-note}
+Illustration: Julia Lowndes and Allison Horst, [*Tidy Data for reproducibility, efficiency, and collaboration*](https://openscapes.org/blog/2020/10/12/tidy-data/), Openscapes blog, 2020. CC BY 4.0.
+:::
+
+::: {.notes}
+- The World Bank file is the first of the messy monsters: its column names are values (years).
 :::
 
 ## Wide and long formats
@@ -1256,6 +1304,40 @@ map(split_data, ~ select(.x, author, yi, vi))
 - Two ways to write the function: a plain name, or a formula with `~` where `.x` stands for the current element.
 :::
 
+## Why not copy and paste?
+
+```{=html}
+<div class="tracker"><span class="done">Setup</span><span class="done">1 · dplyr</span><span class="done">2 · tidyr</span><span class="on">3 · purrr</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns}
+
+::: {.column width="68%"}
+```{=html}
+<div class="drake small-code" role="img" aria-label="Drake meme: rejecting four copy-pasted select() calls, approving one map() call">
+  <div class="dk-pic"><img src="images/drake-template.jpg" alt=""></div>
+  <div class="dk-txt"><code>select(split_data$inhibition, author, yi, vi)<br>select(split_data$shifting, author, yi, vi)<br>select(split_data$updating, author, yi, vi)<br>select(split_data$`processing speed`, ...)</code></div>
+  <div class="dk-pic dk-bottom"><img src="images/drake-template.jpg" alt=""></div>
+  <div class="dk-txt"><code>map(split_data, ~ select(.x, author, yi, vi))</code></div>
+</div>
+```
+
+:::
+
+::: {.column width="32%"}
+::: {.card .compact}
+[Copy and paste]{.ct}
+Four lines to type, four places to fix a typo, and it breaks when a fifth piece appears.
+:::
+
+::: {.card .compact}
+[`map()`]{.ct}
+One line, whatever the number of pieces.
+:::
+:::
+
+::::
+
 ## Combining results with `bind_rows()`
 
 ```{=html}
@@ -1505,12 +1587,12 @@ Wrap-up, 3 minutes.
 ::: {.column width="40%"}
 ::: {.card .dark}
 [Week 2]{.ct}
-Topic to be confirmed
+Data visualisation with `ggplot`
 :::
 :::
 
 ::::
 
 ::: {.notes}
-Fill in the Week 2 topic once it's set.
+- Week 2 introduces `ggplot` for data visualisation.
 :::
