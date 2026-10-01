@@ -2,7 +2,9 @@
 title: "Working with Data in the Tidyverse"
 subtitle: "MY202 · Lab 1"
 author: "Jonas Weinert"
-institute: "London School of Economics and Political Science"
+institute:
+  - "Department of Methodology"
+  - "London School of Economics and Political Science"
 date: today
 date-format: "D MMMM YYYY"
 footer: "MY202 · Lab 1 · Tidyverse"
@@ -942,8 +944,8 @@ Wrap-up, 5 minutes.
 
 ::: {.column width="60%"}
 - Finish any part you didn't get to. The completed notebook goes up after class.
-- Read **R for Data Science (2e)**: chapters on data transformation, data tidying and iteration
-- Keep the **dplyr** and **tidyr** cheat sheets open while you code
+- Read [R for Data Science (2e)](https://r4ds.hadley.nz): chapters on data transformation, data tidying and iteration
+- Posit's two-page reference sheets for [dplyr](https://rstudio.github.io/cheatsheets/data-transformation.pdf) and [tidyr](https://rstudio.github.io/cheatsheets/tidyr.pdf) list every function with a small example. Also under *Help → Cheat Sheets* in RStudio.
 :::
 
 ::: {.column width="40%"}
