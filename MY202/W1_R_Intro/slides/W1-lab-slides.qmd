@@ -64,7 +64,13 @@ The **Functions Used** table at the top of the notebook is your reference sheet 
 - psymetadata is the package most likely to be missing on lab machines.
 :::
 
-# Part 1 · dplyr verbs {background-color="#E2001A"}
+# Summarising data with dplyr {.divider background-color="#8C0014"}
+
+::: {.kicker}
+Part 1
+:::
+
+`count()` · `mutate()` · `group_by()` · `summarise()`
 
 ## Inspecting a data set
 
@@ -340,7 +346,13 @@ Debrief, 2–3 minutes.
 - Is a simple mean of `yi` the right summary? No, because it ignores precision. This is a hook for later weeks.
 :::
 
-# Part 2 · Tidy data with tidyr {background-color="#E2001A"}
+# Tidy data and reshaping {.divider background-color="#8C0014"}
+
+::: {.kicker}
+Part 2
+:::
+
+`pivot_longer()` · `pivot_wider()` · `parse_number()`
 
 ## Tidy data
 
@@ -583,7 +595,13 @@ Debrief, 2–3 minutes.
 - Point out the full pipeline. That's the shape of most of the analysis work they'll do in this course.
 :::
 
-# Part 3 · Iteration with purrr {background-color="#E2001A"}
+# Iteration with purrr {.divider background-color="#8C0014"}
+
+::: {.kicker}
+Part 3
+:::
+
+`map()` · `bind_rows()` · `map_dfr()`
 
 ## Data stored as a list
 

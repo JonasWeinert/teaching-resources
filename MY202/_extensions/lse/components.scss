@@ -5,8 +5,10 @@
 // "your turn" layout, cheat sheets and timer are additions for labs.
 
 :root {
-  --navy: #{$analytics-dark};
-  --blue: #{$analytics-base};
+  // flipped for MY202: filled elements use the dark red, accents the bright red
+  --navy: #{$analytics-base};
+  --ink: #{$analytics-dark};   // text on light backgrounds stays dark
+  --blue: #{$analytics-dark};
   --cyan: #{$analytics-light};
   --pale: #{$analytics-tint};
   --red: #2E2E2E;
@@ -21,7 +23,7 @@
 .cards.c3 { grid-template-columns: repeat(3, 1fr); }
 .cards.c4 { grid-template-columns: repeat(4, 1fr); }
 .cards.c5 { grid-template-columns: repeat(5, 1fr); }
-.card { background: var(--pale); border-radius: 12px; padding: 22px 22px; color: var(--navy); display: flex; flex-direction: column; gap: 10px; font-size: 0.95em; line-height: 1.35; }
+.card { background: var(--pale); border-radius: 12px; padding: 22px 22px; color: var(--ink); display: flex; flex-direction: column; gap: 10px; font-size: 0.95em; line-height: 1.35; }
 .card p { margin: 0; }
 .card.dark { background: var(--blue); color: #fff; }
 .card.line { background: #fff; border: 2px solid var(--cyan); }
@@ -40,21 +42,21 @@
 .flow { display: flex; align-items: stretch; gap: 8px; margin: 0.3em 0; }
 .step { flex: 1 1 0; border-radius: 10px; padding: 20px 12px; font-size: 0.92em; line-height: 1.25; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 6px; }
 .step.you { background: var(--blue); color: #fff; }
-.step.ai { background: var(--pale); color: var(--navy); border: 2px solid var(--cyan); }
+.step.ai { background: var(--pale); color: var(--ink); border: 2px solid var(--cyan); }
 .step small { font-size: 0.8em; opacity: 0.85; }
 .reveal .step.you code { color: #fff; }
 .arrow { align-self: center; color: var(--blue); font-weight: 700; font-size: 1.1em; }
 .key { display: flex; gap: 8px; justify-content: flex-end; font-size: 0.6em; margin-top: 0.4em; }
 .key span { padding: 3px 10px; border-radius: 4px; }
 .key .you { background: var(--blue); color: #fff; }
-.key .ai { background: var(--pale); color: var(--navy); border: 1px solid var(--cyan); }
+.key .ai { background: var(--pale); color: var(--ink); border: 1px solid var(--cyan); }
 
 // ---------- big statement ----------
-.punch { font-family: "Montserrat", sans-serif; font-weight: 700; color: var(--navy); font-size: 1.1em; text-align: center; margin-top: 1.2em; }
+.punch { font-family: "Montserrat", sans-serif; font-weight: 700; color: var(--ink); font-size: 1.1em; text-align: center; margin-top: 1.2em; }
 
 // ---------- jobs (agenda) ----------
 .jobs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 0.5em; }
-.job { background: var(--pale); color: var(--navy); border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 8px; font-size: 0.72em; line-height: 1.3; }
+.job { background: var(--pale); color: var(--ink); border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 8px; font-size: 0.72em; line-height: 1.3; }
 .job.dark { background: var(--blue); color: #fff; }
 .job b { font-family: "Montserrat", sans-serif; font-size: 1.35em; }
 .reveal .job.dark b, .reveal .job.dark i, .reveal .job.dark code { color: #fff; }
@@ -66,13 +68,13 @@
 
 // ---------- big numbers ----------
 .bignums { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 0.8em; }
-.bignums div { background: var(--pale); border-radius: 12px; padding: 22px; text-align: center; color: var(--navy); }
+.bignums div { background: var(--pale); border-radius: 12px; padding: 22px; text-align: center; color: var(--ink); }
 .bignums b { display: block; font-family: "Montserrat", sans-serif; font-size: 2.2em; color: var(--blue); line-height: 1.1; }
 .bignums span { font-size: 0.7em; line-height: 1.3; display: block; margin-top: 8px; }
 
 // ---------- numbered checklist ----------
 .checks { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 0.6em; }
-.checks div { display: flex; gap: 14px; align-items: center; background: var(--pale); border-radius: 10px; padding: 14px 16px; font-size: 0.72em; color: var(--navy); line-height: 1.3; }
+.checks div { display: flex; gap: 14px; align-items: center; background: var(--pale); border-radius: 10px; padding: 14px 16px; font-size: 0.72em; color: var(--ink); line-height: 1.3; }
 .checks b { flex: 0 0 1.8em; height: 1.8em; border-radius: 50%; background: var(--blue); color: #fff; display: flex; align-items: center; justify-content: center; font-family: "Montserrat", sans-serif; }
 
 // ---------- section tracker ----------
@@ -84,30 +86,30 @@
 // ---------- mini data tables ----------
 .reveal table.mini { font-size: 0.74em; width: auto; margin: 0.3em 0; }
 .reveal table.mini td, .reveal table.mini th { padding: 0.3em 1em 0.3em 0; }
-.reveal table.mini td.hl { background: var(--pale); color: var(--navy); font-weight: 700; }
+.reveal table.mini td.hl { background: var(--pale); color: var(--ink); font-weight: 700; }
 .reveal table.mini th.hl { color: var(--blue); }
-.tbl-cap { font-family: "Montserrat", sans-serif; font-weight: 700; color: var(--navy); font-size: 0.7em; margin: 0.4em 0 0; }
+.tbl-cap { font-family: "Montserrat", sans-serif; font-weight: 700; color: var(--ink); font-size: 0.7em; margin: 0.4em 0 0; }
 .tbl-cap small { font-family: "Lato", sans-serif; font-weight: 400; color: var(--grey); }
 
 // ---------- horizontal bars ----------
 .bars { display: flex; flex-direction: column; gap: 10px; margin-top: 0.4em; font-size: 0.66em; }
-.bars div { display: grid; grid-template-columns: 7.5em 1fr 4em; align-items: center; gap: 10px; color: var(--navy); }
+.bars div { display: grid; grid-template-columns: 7.5em 1fr 4em; align-items: center; gap: 10px; color: var(--ink); }
 .bars i { display: block; height: 24px; border-radius: 4px; background: var(--cyan); }
 .bars i.hot { background: var(--blue); }
-.bars b { color: var(--navy); }
+.bars b { color: var(--ink); }
 
 // ---------- list-of-data-frames diagram ----------
 .listbox { border: 3px dashed var(--cyan); border-radius: 14px; padding: 14px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-.listbox .df { background: var(--pale); color: var(--navy); border-radius: 8px; padding: 12px 8px; text-align: center; font-size: 0.62em; line-height: 1.25; }
+.listbox .df { background: var(--pale); color: var(--ink); border-radius: 8px; padding: 12px 8px; text-align: center; font-size: 0.62em; line-height: 1.25; }
 .listbox .df b { display: block; font-family: "Montserrat", sans-serif; font-size: 1.6em; color: var(--blue); }
-.listlbl { font-family: "Montserrat", sans-serif; font-weight: 700; color: var(--navy); font-size: 0.6em; margin: 0 0 6px; }
+.listlbl { font-family: "Montserrat", sans-serif; font-weight: 700; color: var(--ink); font-size: 0.6em; margin: 0 0 6px; }
 
 // ---------- "your turn" slides ----------
 // Layout for independent coding time: tasks on the left, the syntax
 // students need on the right, a countdown in the heading row.
 .reveal .slides section.yourturn h2 { padding-right: 6.5em; }
 .yt { display: grid; grid-template-columns: 1fr 1.15fr; gap: 22px; margin-top: -0.2em; align-items: start; }
-.yt .tasks { background: var(--pale); border-radius: 12px; padding: 14px 20px 12px; color: var(--navy); }
+.yt .tasks { background: var(--pale); border-radius: 12px; padding: 14px 20px 12px; color: var(--ink); }
 .yt .tasks .lbl, .yt .cheat .lbl { display: block; font-family: "Montserrat", sans-serif; font-weight: 700; font-size: 0.6em; text-transform: uppercase; letter-spacing: .05em; color: var(--blue); margin-bottom: 4px; }
 .reveal .yt .tasks ol { font-size: 0.7em; line-height: 1.3; margin: 0; padding-left: 1.6em; }
 .reveal .yt .tasks li { margin-bottom: 0.4em; }
@@ -119,7 +121,7 @@
 .yt .stuck { border-left: 4px solid var(--red); background: #F4F4F4; border-radius: 0 8px 8px 0; padding: 10px 14px; font-size: 0.6em; line-height: 1.35; color: #1A1A1A; }
 .yt .stuck b { font-family: "Montserrat", sans-serif; }
 .yt .stuck p { margin: 0.15em 0; }
-.reveal .yt .stuck code { color: var(--navy); }
+.reveal .yt .stuck code { color: var(--ink); }
 
 // ---------- countdown timer ----------
 // Markup: <div class="timer" data-minutes="18"></div>; behaviour in timer.html
@@ -127,8 +129,20 @@
 .timer .t-time { font-size: 1.05em; font-weight: 700; font-variant-numeric: tabular-nums; min-width: 3.1em; text-align: right; }
 .timer .t-hint { font-size: 0.42em; line-height: 1.2; opacity: 0.85; max-width: 6.5em; }
 .timer .t-bar { position: absolute; left: 0; bottom: 0; height: 4px; border-radius: 0 0 0 10px; background: rgba(255,255,255,.7); }
-.timer.idle { background: var(--pale); color: var(--navy); border: 2px solid var(--cyan); }
+.timer.idle { background: var(--pale); color: var(--ink); border: 2px solid var(--cyan); }
 .timer.idle .t-bar { background: var(--cyan); }
 .timer.paused { background: #6B6B6B; }
 .timer.warn { background: var(--navy); }
 .timer.done { background: var(--red); }
+
+// ---------- section dividers ----------
+// Part slides: dark red, title centred vertically, a short line on what the part covers
+.reveal .slides section.divider {
+  justify-content: center;
+  padding: 0 0.4em;
+  h1 { font-size: 1.6em; margin: 0 0 0.35em 0; border-bottom: 4px solid $analytics-light; }
+  .kicker { order: -1; margin: 0 0 0.5em 0; }
+  .kicker p { font-family: "Montserrat", sans-serif; font-weight: 700; font-size: 0.75em; letter-spacing: .08em; text-transform: uppercase; color: $analytics-light; }
+  p { color: rgba(255,255,255,.88); font-size: 0.8em; margin: 0; }
+  code { color: #fff; background: rgba(255,255,255,.12); padding: 0.05em 0.3em; border-radius: 4px; }
+}
