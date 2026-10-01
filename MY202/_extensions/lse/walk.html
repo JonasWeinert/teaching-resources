@@ -1,0 +1,50 @@
+<script>
+// Code walkthroughs for solution slides.
+// Markup (see the .walk slides in the decks):
+//   .walk > .walk-code   one code block
+//         > .walk-out    one fragment per step, each with data-lines="1-3" (or "1,3-4")
+// Each click shows the next output, highlights the lines that step adds and dims the rest.
+(function () {
+  function parse(spec) {
+    var lines = [];
+    (spec || "").split(",").forEach(function (part) {
+      var r = part.trim().split("-").map(Number);
+      if (!r[0]) return;
+      for (var i = r[0]; i <= (r[1] || r[0]); i++) lines.push(i);
+    });
+    return lines;
+  }
+
+  function update(slide) {
+    if (!slide) return;
+    slide.querySelectorAll(".walk").forEach(function (walk) {
+      var lines = walk.querySelectorAll(".walk-code pre code > span");
+      var shown = walk.querySelectorAll(".walk-out > .fragment.visible");
+      var current = shown.length ? shown[shown.length - 1] : null;
+      var previous = shown.length > 1 ? shown[shown.length - 2] : null;
+      // only the latest step's output is shown (also when arriving from a later slide)
+      walk.querySelectorAll(".walk-out > .fragment").forEach(function (f) {
+        f.classList.toggle("walk-current", f === current);
+      });
+      var on = current ? parse(current.dataset.lines) : null;
+      var before = previous ? parse(previous.dataset.lines) : [];
+      lines.forEach(function (line, i) {
+        var n = i + 1, inStep = !!on && on.indexOf(n) !== -1;
+        line.classList.toggle("dim", !!on && !inStep);
+        // lines added by this step, compared with the previous one
+        line.classList.toggle("hl", inStep && before.indexOf(n) === -1);
+      });
+    });
+  }
+
+  function init() {
+    ["fragmentshown", "fragmenthidden", "slidechanged", "ready"].forEach(function (ev) {
+      Reveal.on(ev, function () { update(Reveal.getCurrentSlide()); });
+    });
+    update(Reveal.getCurrentSlide());
+  }
+
+  if (window.Reveal && Reveal.isReady && Reveal.isReady()) init();
+  else if (window.Reveal) Reveal.on("ready", init);
+})();
+</script>

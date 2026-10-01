@@ -6,7 +6,7 @@ contributes:
   formats:
     revealjs:
       theme: [default, lse.scss, layout-helpers.scss, components.scss]
-      include-after-body: timer.html
+      include-after-body: [timer.html, walk.html]
       template-partials:
         - title-slide.html
       transition: none
