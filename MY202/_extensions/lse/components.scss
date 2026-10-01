@@ -159,3 +159,6 @@
 .df2 b { font-family: "Montserrat", sans-serif; font-size: 0.9em; padding: 0 8px; }
 .lst { flex-direction: column; }
 .lst i { border-style: dashed; }
+
+// cards stacked outside a grid (e.g. inside a column) get the same gap as grid cards
+.reveal :not(.cards) > .card + .card { margin-top: 18px; }
