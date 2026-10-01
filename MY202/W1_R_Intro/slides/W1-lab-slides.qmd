@@ -40,6 +40,26 @@ split_data <-
          ~ select(.x, author, yi, vi, n1, n2, mean_age1, mean_age2))
 ```
 
+## Introductions
+
+```{=html}
+<div class="timer" data-minutes="10"></div>
+<div class="checks" style="grid-template-columns:1fr; font-size:1.3em; gap:12px">
+  <div><b>1</b>Your name</div>
+  <div><b>2</b>Your programme and year</div>
+  <div><b>3</b>Previous experience with R, statistics, machine learning, and coding with AI tools: none is a fine answer</div>
+  <div><b>4</b>One thing you are passionate about</div>
+</div>
+```
+
+::: {.notes}
+Timing: about 30 seconds per person; the timer is set to 10 minutes for a group of about 20. With a larger group, keep it to name, programme and experience.
+
+- Go first and model the length: name, role, your own route into R, one passion.
+- Note who has no R experience at all, and pair them with someone who has some for the exercises.
+- This time comes out of the 90 minutes. If you run over, set Part 3 as homework.
+:::
+
 ## Lab overview
 
 ::: {.small-table}
