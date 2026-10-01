@@ -1,0 +1,340 @@
+<script>
+// Components for self-paced lab guides (format: lse-html). Markup is documented in MY202/README.md.
+//   section.step     a step students tick off; progress is saved in this browser (localStorage)
+//   .walk            step through a pipeline: .walk-code (one code block) + .walk-step[data-lines] blocks
+//   .anatomy         one line of code; each .tok span is labelled by the matching item of the list below it
+//   .quiz            multiple choice: .opt blocks, the right one has class .right, each may hold a .fb
+//   .mod             a modifier key: shows "Ctrl" on Windows and "Cmd" on a Mac
+//   .glossary        a table of terms (bold) and meanings. Each term is underlined across the page; clicking it
+//                    opens a drawer with the meaning and the paragraph where the term is first explained. An empty span with match="…" in the term cell overrides the words matched: a
+//                    regular expression, with ; for "or"
+(function () {
+  var isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  var palette = ["#E2001A", "#1F4E79", "#1D7A46", "#8A5A00", "#6A3D9A", "#00838F", "#C2185B", "#5D4037"];
+
+  // ---------- modifier keys ----------
+  document.querySelectorAll(".mod").forEach(function (el) {
+    el.textContent = isMac ? "Cmd" : "Ctrl";
+  });
+  document.querySelectorAll(".opt-key").forEach(function (el) {
+    el.textContent = isMac ? "Option" : "Alt";
+  });
+
+  // ---------- progress ----------
+  var key = "guide-progress:" + location.pathname;
+  var store = {};
+  try { store = JSON.parse(localStorage.getItem(key) || "{}"); } catch (e) {}
+  function save() { try { localStorage.setItem(key, JSON.stringify(store)); } catch (e) {} }
+
+  var steps = Array.prototype.slice.call(document.querySelectorAll("section.step"));
+  var bar = null;
+  if (steps.length) {
+    bar = document.createElement("div");
+    bar.id = "guide-progress";
+    bar.innerHTML = '<span><b class="n">0</b> of ' + steps.length + ' steps done</span>' +
+      '<div class="bar"><div class="fill"></div></div><button type="button">reset</button>';
+    document.body.insertBefore(bar, document.body.firstChild);
+    bar.querySelector("button").addEventListener("click", function () {
+      if (!confirm("Clear your ticks on this page?")) return;
+      store = {}; save(); steps.forEach(render); count();
+    });
+  }
+  function count() {
+    if (!bar) return;
+    var n = steps.filter(function (s) { return store[s.id]; }).length;
+    bar.querySelector(".n").textContent = n;
+    bar.querySelector(".fill").style.width = (100 * n / steps.length) + "%";
+  }
+  function render(s) {
+    var box = s.querySelector(":scope > .step-done");
+    var done = !!store[s.id];
+    box.classList.toggle("is-done", done);
+    box.querySelector("button").textContent = done ? "✓ Done" : "Mark as done";
+    box.querySelector("span").textContent = done ? "Nice. Carry on below." : "Tick this off when you've done it in RStudio.";
+    var link = document.querySelector('#TOC a[href="#' + s.id + '"]');
+    if (link) link.classList.toggle("toc-done", done);
+  }
+  steps.forEach(function (s) {
+    var box = document.createElement("div");
+    box.className = "step-done";
+    box.innerHTML = '<button type="button"></button><span></span>';
+    // place before the next sub-section, so it ends this step's own content
+    var child = s.querySelector(":scope > section");
+    s.insertBefore(box, child || null);
+    box.querySelector("button").addEventListener("click", function () {
+      store[s.id] = !store[s.id]; save(); render(s); count();
+      // when a whole part is done, tick it in the table of contents too
+      document.querySelectorAll("section.level2").forEach(markPart);
+    });
+    render(s);
+  });
+  function markPart(sec) {
+    var inner = sec.querySelectorAll("section.step");
+    if (!inner.length) return;
+    var all = Array.prototype.every.call(inner, function (s) { return store[s.id]; });
+    var link = document.querySelector('#TOC a[href="#' + sec.id + '"]');
+    if (link) link.classList.toggle("toc-done", all);
+  }
+  document.querySelectorAll("section.level2").forEach(markPart);
+  count();
+
+  // ---------- anatomy ----------
+  document.querySelectorAll(".anatomy").forEach(function (box) {
+    var code = box.querySelector("p");
+    var list = box.querySelector("ol");
+    if (!code || !list) return;
+    code.classList.add("anat-code");
+    var toks = code.querySelectorAll(".tok");
+    var items = list.querySelectorAll(":scope > li");
+    toks.forEach(function (t, i) {
+      var c = palette[i % palette.length], li = items[i];
+      t.style.setProperty("--c", c); t.dataset.n = i + 1;
+      if (!li) return;
+      // wrap the item's content so the number badge and the text form two grid columns
+      var wrap = document.createElement("div");
+      while (li.firstChild) wrap.appendChild(li.firstChild);
+      li.appendChild(wrap);
+      li.style.setProperty("--c", c); li.dataset.n = i + 1;
+      function on() { box.querySelectorAll(".on").forEach(function (e) { e.classList.remove("on"); }); t.classList.add("on"); li.classList.add("on"); }
+      t.addEventListener("mouseenter", on); li.addEventListener("mouseenter", on);
+      t.addEventListener("click", on);
+    });
+  });
+
+  // ---------- quiz ----------
+  document.querySelectorAll(".quiz .opt").forEach(function (opt) {
+    opt.setAttribute("role", "button");
+    opt.tabIndex = 0;
+    function pick() { opt.classList.add("picked"); }
+    opt.addEventListener("click", pick);
+    opt.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } });
+  });
+
+  // ---------- glossary tooltips ----------
+  // Runs before the walks are built, because they copy each step's explanation into their own box.
+  var terms = [];
+  document.querySelectorAll(".glossary tbody tr").forEach(function (tr) {
+    var cells = tr.querySelectorAll("td"), strong = cells[0] && cells[0].querySelector("strong");
+    if (!strong || !cells[1]) return;
+    var word = strong.textContent.trim();
+    var custom = cells[0].querySelector("[data-match]");
+    var esc = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    var pattern = custom ? custom.dataset.match.replace(/;/g, "|") : esc + "(?:s|es)?";
+    // all-caps terms (NA, CSV) only match in capitals
+    var flags = word === word.toUpperCase() ? "g" : "gi";
+    terms.push({
+      word: word, def: cells[1].innerHTML,
+      re: new RegExp("(?<![\\w-])(?:" + pattern + ")(?![\\w-])", flags),
+      home: null
+    });
+  });
+
+  if (terms.length) {
+    var content = document.querySelector("#quarto-document-content") || document.querySelector("main");
+    var glossarySec = document.querySelector(".glossary").closest("section");
+    var skip = "pre, code, kbd, .kbd, h1, h2, h3, h4, h5, h6, a, strong, b, button, .anat-code, .glossary, " +
+      "#title-block-header, .walk-bar, .cell-output, .cell-output-display, .gl, .rstudio .fake, .chunk-demo";
+
+    // where each term is introduced: the first place it appears in bold, outside the glossary
+    content.querySelectorAll("strong").forEach(function (st) {
+      if (st.closest(".glossary, .legend")) return;
+      var text = st.textContent.trim();
+      terms.forEach(function (t) {
+        if (t.home) return;
+        t.re.lastIndex = 0;
+        var m = t.re.exec(text);
+        if ((m && m[0].length === text.length) || text.toLowerCase() === t.word.toLowerCase()) {
+          var sec = st.closest("section");
+          var h = sec && sec.querySelector(":scope > h2, :scope > h3");
+          if (sec && h) t.home = { id: sec.id, title: h.textContent.trim(), block: st.closest("p, li, td, dd") };
+        }
+      });
+    });
+
+    var walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT, {
+      acceptNode: function (n) {
+        var el = n.parentElement;
+        if (!n.nodeValue.trim() || !el || el.closest(skip) || (glossarySec && glossarySec.contains(el))) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    var nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+
+    // underline each term once per step (its first use there), and not in the paragraph that introduces it
+    var used = new WeakMap();
+    nodes.forEach(function (node) {
+      var block = node.parentElement.closest("p, li, td, th, dd, .callout-title-container, div");
+      var scope = node.parentElement.closest("section") || content;
+      var seen = used.get(scope) || {};
+      used.set(scope, seen);
+      var text = node.nodeValue, hits = [];
+      terms.forEach(function (t, k) {
+        if (seen[k] || (t.home && t.home.block === block)) return;
+        t.re.lastIndex = 0;
+        var m = t.re.exec(text);
+        if (m) hits.push({ k: k, start: m.index, end: m.index + m[0].length });
+      });
+      // keep the earliest, non-overlapping matches ("tidy data" before "data")
+      hits.sort(function (a, b) { return a.start - b.start || (b.end - b.start) - (a.end - a.start); });
+      var frag = document.createDocumentFragment(), pos = 0, any = false;
+      hits.forEach(function (h) {
+        if (h.start < pos) return;
+        frag.appendChild(document.createTextNode(text.slice(pos, h.start)));
+        var span = document.createElement("span");
+        span.className = "gl";
+        span.tabIndex = 0;
+        span.setAttribute("role", "button");
+        span.dataset.k = h.k;
+        span.textContent = text.slice(h.start, h.end);
+        frag.appendChild(span);
+        pos = h.end; seen[h.k] = true; any = true;
+      });
+      if (!any) return;
+      frag.appendChild(document.createTextNode(text.slice(pos)));
+      node.parentNode.replaceChild(frag, node);
+    });
+
+    // one shared drawer: a panel on the right on wide screens, a sheet from the bottom on phones
+    var drawer = document.createElement("aside");
+    drawer.id = "gl-drawer";
+    drawer.setAttribute("aria-live", "polite");
+    drawer.setAttribute("aria-hidden", "true");
+    drawer.innerHTML = '<div class="gl-head"><span class="gl-kicker">Word explained</span>' +
+      '<button type="button" class="gl-close" aria-label="Close">✕</button></div><div class="gl-body"></div>';
+    document.body.appendChild(drawer);
+    var bodyEl = drawer.querySelector(".gl-body"), current = null;
+
+    function openTerm(span) {
+      var t = terms[span.dataset.k];
+      if (!t) return;
+      if (current) current.classList.remove("gl-on");
+      current = span; span.classList.add("gl-on");
+      var html = "<h4>" + t.word + '</h4><div class="gl-def">' + t.def + "</div>";
+      if (t.home) {
+        var here = span.closest("section");
+        html += '<div class="gl-from"><span class="gl-kicker">Where it’s explained</span>' +
+          '<p class="gl-where">' + t.home.title + "</p>" +
+          (t.home.block ? '<div class="gl-quote"></div>' : "") +
+          (here && here.id === t.home.id ? "" : '<a class="gl-home" href="#' + t.home.id + '">Go to that step ↗</a>') + "</div>";
+      }
+      html += '<a class="gl-all" href="#glossary">All words in the glossary</a>';
+      bodyEl.innerHTML = html;
+      if (t.home && t.home.block) {
+        var q = t.home.block.cloneNode(true);
+        q.removeAttribute("id");
+        bodyEl.querySelector(".gl-quote").appendChild(q);
+      }
+      bodyEl.scrollTop = 0;
+      drawer.classList.add("on");
+      drawer.setAttribute("aria-hidden", "false");
+      document.body.classList.add("gl-open");
+      // on a phone, keep the tapped word visible above the sheet (not for words inside the drawer itself)
+      if (window.matchMedia("(max-width: 1100px)").matches && !drawer.contains(span)) {
+        var r = span.getBoundingClientRect(), sheetTop = window.innerHeight - drawer.offsetHeight;
+        if (r.bottom > sheetTop - 12) window.scrollBy({ top: r.bottom - sheetTop + 60, behavior: "smooth" });
+      }
+    }
+    function closeDrawer() {
+      drawer.classList.remove("on");
+      drawer.setAttribute("aria-hidden", "true");
+      document.body.classList.remove("gl-open");
+      if (current) { current.classList.remove("gl-on"); current.focus({ preventScroll: true }); current = null; }
+    }
+    drawer.querySelector(".gl-close").addEventListener("click", closeDrawer);
+    // links in the drawer: jump, and on a phone get the sheet out of the way
+    drawer.addEventListener("click", function (e) {
+      if (e.target.closest("a[href^='#']") && window.matchMedia("(max-width: 1100px)").matches) closeDrawer();
+    });
+    document.addEventListener("click", function (e) {
+      var g = e.target.closest(".gl");
+      if (g) { e.preventDefault(); if (g === current && drawer.classList.contains("on")) closeDrawer(); else openTerm(g); }
+      else if (drawer.classList.contains("on") && !e.target.closest("#gl-drawer")) closeDrawer();
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && drawer.classList.contains("on")) closeDrawer();
+      if ((e.key === "Enter" || e.key === " ") && e.target.classList && e.target.classList.contains("gl")) { e.preventDefault(); openTerm(e.target); }
+    });
+  }
+
+  // ---------- walk ----------
+  function parse(spec) {
+    var lines = [];
+    (spec || "").split(",").forEach(function (part) {
+      var r = part.trim().split("-").map(Number);
+      if (!r[0]) return;
+      for (var i = r[0]; i <= (r[1] || r[0]); i++) lines.push(i);
+    });
+    return lines;
+  }
+
+  document.querySelectorAll(".walk").forEach(function (walk) {
+    var codeBox = walk.querySelector(".walk-code");
+    var stepsEls = Array.prototype.slice.call(walk.querySelectorAll(":scope > .walk-step"));
+    if (!codeBox || !stepsEls.length) return;
+    var lines = codeBox.querySelectorAll("pre code > span");
+
+    // build: bar (label, dots, prev/next), body (code, explanation, output)
+    var barEl = document.createElement("div");
+    barEl.className = "walk-bar";
+    var dots = stepsEls.map(function (_, i) { return '<button type="button" aria-label="Step ' + (i + 1) + '">' + (i + 1) + '</button>'; }).join("");
+    barEl.innerHTML = '<span class="wlabel">Step through the code</span><span class="dots">' + dots +
+      '</span><button type="button" class="nav prev">◀ Back</button><button type="button" class="nav next">Start ▶</button>';
+    var body = document.createElement("div");
+    body.className = "walk-body";
+    var intro = walk.querySelector(":scope > .walk-intro");
+    var say = document.createElement("div");
+    say.className = "walk-say";
+    var outLabel = document.createElement("div");
+    outLabel.className = "walk-out-label";
+    outLabel.textContent = "Output after this step";
+
+    walk.insertBefore(barEl, walk.firstChild);
+    walk.insertBefore(body, barEl.nextSibling);
+    body.appendChild(codeBox);
+    body.appendChild(say);
+    body.appendChild(outLabel);
+    stepsEls.forEach(function (s) {
+      // keep explanation text (paragraphs and lists before the output) for the "say" box
+      s._say = Array.prototype.filter.call(s.children, function (c) { return c.matches("p, ul, ol"); })
+        .map(function (c) { return c.outerHTML; }).join("");
+      body.appendChild(s);
+    });
+    var introHTML = intro ? intro.innerHTML : "<p>Press <b>Start</b> to go through the code one step at a time. Each step highlights the new line(s) and shows what R gives back at that point.</p>";
+    if (intro) intro.remove();
+
+    var cur = -1, seen = {};
+    function show(i) {
+      cur = i;
+      walk.classList.toggle("started", i >= 0);
+      stepsEls.forEach(function (s, k) { s.classList.toggle("current", k === i); });
+      barEl.querySelectorAll(".dots button").forEach(function (b, k) {
+        b.classList.toggle("on", k === i);
+        b.classList.toggle("seen", !!seen[k]);
+      });
+      if (i >= 0) seen[i] = true;
+      var on = i >= 0 ? parse(stepsEls[i].dataset.lines) : [];
+      var before = i > 0 ? parse(stepsEls[i - 1].dataset.lines) : [];
+      lines.forEach(function (line, k) {
+        var n = k + 1, inStep = on.indexOf(n) !== -1;
+        line.classList.toggle("dim", i >= 0 && !inStep);
+        line.classList.toggle("hl", inStep && before.indexOf(n) === -1);
+      });
+      say.innerHTML = i >= 0
+        ? '<span class="say-step">Step ' + (i + 1) + " of " + stepsEls.length + "</span>" + stepsEls[i]._say
+        : introHTML;
+      outLabel.style.display = i >= 0 && stepsEls[i].querySelector(".cell") ? "" : "none";
+      // paged tables measure themselves on resize; they were hidden until now
+      window.dispatchEvent(new Event("resize"));
+      barEl.querySelector(".prev").disabled = i <= 0;
+      var next = barEl.querySelector(".next");
+      next.disabled = i >= stepsEls.length - 1;
+      next.textContent = i < 0 ? "Start ▶" : "Next ▶";
+    }
+    barEl.querySelector(".prev").addEventListener("click", function () { if (cur > 0) show(cur - 1); });
+    barEl.querySelector(".next").addEventListener("click", function () { if (cur < stepsEls.length - 1) show(cur + 1); });
+    barEl.querySelectorAll(".dots button").forEach(function (b, k) { b.addEventListener("click", function () { show(k); }); });
+    show(-1);
+  });
+})();
+</script>

@@ -1,3 +1,4 @@
 project:
   render:
     - "W*/slides/*.qmd"
+    - "W*/selfpaced/*.qmd"

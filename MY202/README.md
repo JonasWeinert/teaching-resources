@@ -19,6 +19,7 @@ Open the `.html` next to the `.qmd`. Press `S` for speaker notes (timing and scr
 | File | What |
 |---|---|
 | `W*/slides/*.qmd` | One deck per week |
+| `W*/selfpaced/*.qmd` | Self-paced lab guides for students working on their own (format `lse-html`) |
 | `W*/notebooksanddata/` | Lab notebooks and data. Local only (git-ignored) |
 | `_extensions/lse/` | Theme copied from `slidereference/`, plus `components.scss` (cards, "your turn" layout, mini tables), `timer.html` (countdowns), `walk.html` (solution walkthroughs) and `lse-logo.svg` (public domain, from Wikimedia Commons) |
 
@@ -55,3 +56,25 @@ Give a slide the `.yourturn` class and put a timer in it:
 ```
 
 Click the timer or press `T` to start or pause it. Double-click resets it. It turns dark red with 2 minutes left, and keeps running if you move to another slide.
+
+## Self-paced guides
+
+`W*/selfpaced/*.qmd` use `format: lse-html`: a single scrolling page that walks absolute beginners through the lab notebook step by step, with the real output of every step. Students run the code in RStudio; the page explains it and shows what they should see. Render like the decks:
+
+```bash
+quarto render W1_R_Intro/selfpaced/W1-selfpaced-lab.qmd
+```
+
+Styles are in `_extensions/lse/guide.scss`, behaviour in `_extensions/lse/guide.html`. Chunks are hidden by default (`echo: false`) and data frames print as paged tables, like RStudio's notebook output.
+
+| Markup | What it does |
+|---|---|
+| `### Title {.step}` | A step with a **Mark as done** button. Ticks are saved in the browser and drive the progress bar and the ticks in the table of contents |
+| `::: {.doit q="Part 1 · Q4"}` | Blue "Your turn" box: what to type and run in RStudio |
+| `::: {.expect}` | Labels the R output inside as "What you should see". `data-label="…"` changes the label |
+| `::: {.idea}` | "Big idea" box. `data-label="…"` changes the label |
+| `::: {.anatomy}` | One line of code made of `` [`part`]{.tok} `` spans, followed by a numbered list: item *n* explains token *n* |
+| `::::: {.walk}` | Step-through: a `.walk-code` block, then one `.walk-step lines="1-2"` per step holding the explanation and an R chunk. An optional `.walk-intro` replaces the default intro |
+| `::: {.quiz}` | Multiple choice: one `.opt` block per answer, the right one with `.right`, each with an optional `.fb` feedback block |
+| `::: {.glossary}` around a table | Terms in bold, meanings next to them. Each term is underlined across the page (once per step); clicking it opens a drawer (right side on wide screens, bottom sheet on phones) with the meaning and the paragraph where the term is first explained in bold. Add `[]{match="…"}` in a term's cell to control which words match: a regular expression, with `;` for "or" |
+| `[Ctrl]{.kbd .mod}` | A key. `.mod` shows Cmd on a Mac; `.opt-key` shows Option instead of Alt |

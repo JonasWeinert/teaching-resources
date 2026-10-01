@@ -27,3 +27,17 @@ contributes:
       fig-align: center
       fig-width: 8
       fig-height: 4.2
+    # Self-paced lab guides (format: lse-html). Components in guide.html, styles in guide.scss.
+    html:
+      theme: [cosmo, guide.scss]
+      include-after-body: [guide.html]
+      toc: true
+      toc-location: left
+      toc-depth: 3
+      toc-title: "Lab guide"
+      df-print: paged
+      code-copy: true
+      highlight-style: github
+      embed-resources: true
+      section-divs: true
+      fig-align: center

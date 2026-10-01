@@ -1,0 +1,331 @@
+/*-- scss:defaults --*/
+
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&family=Lato:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap');
+
+$analytics-dark:  #8C0014;
+$analytics-base:  #E2001A;
+$analytics-light: #F28A94;
+$analytics-tint:  #FCEBED;
+
+$primary: $analytics-dark;
+$body-color: #1A1A1A;
+$link-color: $analytics-base;
+$font-family-sans-serif: "Lato", -apple-system, "Segoe UI", sans-serif;
+$font-family-monospace: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+$headings-font-family: "Montserrat", -apple-system, "Segoe UI", sans-serif;
+$headings-color: $analytics-dark;
+$font-size-root: 18px;
+$line-height-base: 1.6;
+$code-color: $analytics-dark;
+$code-block-bg: #FBF7F7;
+
+/*-- scss:rules --*/
+
+:root {
+  --dark: #{$analytics-dark};
+  --base: #{$analytics-base};
+  --light: #{$analytics-light};
+  --tint: #{$analytics-tint};
+  --ink: #1A1A1A;
+  --grey: #6B6B6B;
+  --rule: #E2E2E2;
+  --ok: #1D7A46;
+  --ok-tint: #E6F4EC;
+  --do: #1F4E79;
+  --do-tint: #EAF1F8;
+}
+
+body { background: #fff; }
+
+// no ligatures: beginners must see the real characters they have to type (<- not an arrow)
+code, pre, kbd, .kbd, .anat-code { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
+
+// ---------- headings ----------
+h2 {
+  border-bottom: 4px solid var(--base);
+  padding-bottom: 0.2em;
+  margin-top: 2.6em;
+}
+h3 { margin-top: 2.2em; font-size: 1.3rem; }
+h3 .qtag {
+  display: inline-block; font-size: 0.68em; vertical-align: 0.15em;
+  background: var(--tint); color: var(--dark); border-radius: 6px;
+  padding: 2px 8px; margin-right: 6px; font-weight: 700;
+}
+.quarto-title .subtitle { color: var(--grey); }
+#title-block-header { border-bottom: 1px solid var(--rule); padding-bottom: 1em; }
+
+// ---------- inline code: softer than the default ----------
+p code:not(.sourceCode), li code:not(.sourceCode), td code:not(.sourceCode) {
+  background: var(--tint); color: var(--dark); padding: 0.1em 0.35em; border-radius: 4px;
+  font-size: 0.88em;
+}
+
+// code blocks
+div.sourceCode { border: 1px solid #EFE4E5; border-radius: 8px; }
+pre.sourceCode, div.sourceCode pre { font-size: 0.86em; line-height: 1.5; }
+
+// R output
+.cell-output pre, .output-box pre {
+  background: #fff; border: 1px solid var(--rule); border-left: 4px solid var(--light);
+  border-radius: 0 8px 8px 0; padding: 0.7em 1em; font-size: 0.8em; line-height: 1.45;
+  max-height: 420px; overflow: auto;
+}
+.cell-output pre code { white-space: pre; }
+
+// ---------- keyboard keys ----------
+.kbd {
+  display: inline-block; font-family: $font-family-monospace; font-size: 0.8em;
+  background: #fff; border: 1px solid #C9C9C9; border-bottom-width: 3px; border-radius: 6px;
+  padding: 0 0.45em; line-height: 1.6; color: var(--ink); white-space: nowrap;
+}
+
+// ---------- progress bar ----------
+#guide-progress {
+  position: sticky; top: 0; z-index: 1000; background: #fff;
+  border-bottom: 1px solid var(--rule); padding: 6px 16px;
+  display: flex; align-items: center; gap: 12px; font-size: 0.8rem; color: var(--grey);
+}
+#guide-progress .bar { flex: 1; height: 8px; background: #F1F1F1; border-radius: 4px; overflow: hidden; }
+#guide-progress .fill { height: 100%; width: 0; background: var(--base); transition: width .3s; }
+#guide-progress b { color: var(--dark); font-family: "Montserrat", sans-serif; }
+#guide-progress button {
+  border: 0; background: none; color: var(--grey); font-size: 0.75rem; text-decoration: underline; cursor: pointer;
+}
+
+// ---------- step "done" button ----------
+.step-done {
+  display: flex; align-items: center; gap: 10px; margin: 1.6em 0 0.4em;
+  padding-top: 0.9em; border-top: 1px dashed var(--rule);
+}
+.step-done button {
+  border: 2px solid var(--ok); color: var(--ok); background: #fff; border-radius: 999px;
+  padding: 0.3em 1.1em; font-weight: 700; cursor: pointer; font-size: 0.9rem;
+}
+.step-done button:hover { background: var(--ok-tint); }
+.step-done.is-done button { background: var(--ok); color: #fff; }
+.step-done span { font-size: 0.85rem; color: var(--grey); }
+#TOC a.toc-done::after { content: " ✓"; color: var(--ok); font-weight: 700; }
+
+// ---------- boxes ----------
+// "Do this in RStudio"
+.doit {
+  background: var(--do-tint); border-left: 5px solid var(--do); border-radius: 0 10px 10px 0;
+  padding: 0.9em 1.2em 0.4em; margin: 1.2em 0;
+}
+.doit::before {
+  content: "Your turn · " attr(data-q);
+  display: block; font-family: "Montserrat", sans-serif; font-weight: 700; font-size: 0.78rem;
+  text-transform: uppercase; letter-spacing: .05em; color: var(--do); margin-bottom: 0.4em;
+}
+.doit ol, .doit ul { padding-left: 1.3em; }
+.doit li { margin-bottom: 0.3em; }
+
+// "What you should see" wrapper around real R output
+.expect { margin: 1em 0 1.2em; }
+.expect::before {
+  content: "What you should see"; display: block; font-family: "Montserrat", sans-serif;
+  font-weight: 700; font-size: 0.72rem; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--grey); margin-bottom: 0.3em;
+}
+.expect[data-label]::before { content: attr(data-label); }
+
+// Plain-language "why" or "big idea"
+.idea {
+  background: var(--tint); border-radius: 12px; padding: 1em 1.3em 0.3em; margin: 1.2em 0;
+}
+.idea::before {
+  content: "Big idea"; display: block; font-family: "Montserrat", sans-serif; font-weight: 700;
+  font-size: 0.75rem; text-transform: uppercase; letter-spacing: .05em; color: var(--dark); margin-bottom: 0.3em;
+}
+.idea[data-label]::before { content: attr(data-label); }
+
+// Legend chips at the top
+.legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin: 1em 0; }
+.legend > div { border-radius: 10px; padding: 0.7em 0.9em; font-size: 0.9rem; line-height: 1.4; border: 1px solid var(--rule); }
+.legend b, .legend strong { display: block; font-family: "Montserrat", sans-serif; font-size: 0.8rem; text-transform: uppercase; letter-spacing: .04em; }
+.legend .l-do { background: var(--do-tint); border-color: transparent; } .legend .l-do strong { color: var(--do); }
+.legend .l-see strong { color: var(--grey); }
+.legend .l-idea { background: var(--tint); border-color: transparent; } .legend .l-idea strong { color: var(--dark); }
+.legend .l-quiz { background: #FFF8E5; border-color: transparent; } .legend .l-quiz strong { color: #8A5A00; }
+
+// ---------- anatomy: a line of code with numbered labels ----------
+.anatomy { margin: 1.2em 0; border: 1px solid var(--rule); border-radius: 12px; padding: 1em 1.2em 0.6em; }
+.anatomy::before {
+  content: "Anatomy of this line · hover or tap a part"; display: block; font-family: "Montserrat", sans-serif;
+  font-weight: 700; font-size: 0.72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--grey);
+}
+.anatomy .anat-code {
+  font-family: $font-family-monospace; font-size: 1.05rem; line-height: 1;
+  padding: 1.7em 0 0.9em; white-space: pre-wrap; word-break: break-word; margin: 0;
+}
+.anatomy .anat-code code { background: none; padding: 0; color: inherit; font-size: inherit; }
+.anatomy .tok {
+  position: relative; display: inline-block; padding: 0.3em 0.25em; border-radius: 6px;
+  border-bottom: 3px solid var(--c); background: color-mix(in srgb, var(--c) 12%, white); cursor: pointer;
+  margin: 0.9em 0.05em 0.2em;
+}
+.anatomy .tok::before {
+  content: attr(data-n); position: absolute; top: -1.55em; left: 50%; transform: translateX(-50%);
+  width: 1.45em; height: 1.45em; border-radius: 50%; background: var(--c); color: #fff;
+  font-family: "Montserrat", sans-serif; font-size: 0.65rem; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+.anatomy .tok.on, .anatomy .tok:hover { background: color-mix(in srgb, var(--c) 28%, white); }
+.anatomy ol { list-style: none; padding: 0; margin: 0.4em 0 0; display: grid; gap: 6px; }
+.anatomy ol li {
+  display: grid; grid-template-columns: 1.7em 1fr; gap: 10px; align-items: start;
+  padding: 0.4em 0.6em; border-radius: 8px; font-size: 0.95rem; line-height: 1.45;
+}
+.anatomy ol li::before {
+  content: attr(data-n); width: 1.6em; height: 1.6em; border-radius: 50%; background: var(--c); color: #fff;
+  font-family: "Montserrat", sans-serif; font-size: 0.75rem; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; margin-top: 0.1em;
+}
+.anatomy ol li.on { background: color-mix(in srgb, var(--c) 12%, white); }
+.anatomy ol li p { margin: 0; }
+
+// ---------- walk: step through a pipeline ----------
+.walk { border: 1px solid var(--rule); border-radius: 12px; margin: 1.4em 0; overflow: hidden; }
+.walk-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  background: #FAFAFA; border-bottom: 1px solid var(--rule); padding: 0.55em 0.9em;
+}
+.walk-bar .wlabel { font-family: "Montserrat", sans-serif; font-weight: 700; font-size: 0.72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--grey); margin-right: auto; }
+.walk-bar .dots { display: flex; gap: 5px; }
+.walk-bar .dots button {
+  width: 1.9em; height: 1.9em; border-radius: 50%; border: 2px solid var(--light); background: #fff;
+  color: var(--dark); font-weight: 700; font-size: 0.8rem; cursor: pointer; padding: 0;
+}
+.walk-bar .dots button.seen { background: var(--tint); }
+.walk-bar .dots button.on { background: var(--base); border-color: var(--base); color: #fff; }
+.walk-bar .nav { border: 0; border-radius: 999px; padding: 0.3em 0.9em; font-weight: 700; cursor: pointer; font-size: 0.85rem; }
+.walk-bar .prev { background: #EEE; color: var(--ink); }
+.walk-bar .next { background: var(--dark); color: #fff; }
+.walk-bar .nav:disabled { opacity: 0.35; cursor: default; }
+.walk-body { padding: 0.9em 1em 0.6em; }
+.walk-body div.sourceCode { margin: 0; }
+.walk .walk-code code > span { display: inline-block; width: 100%; border-radius: 3px; transition: opacity .15s; }
+.walk.started .walk-code code > span.dim { opacity: 0.28; }
+.walk .walk-code code > span.hl { background: #F9D9DD; box-shadow: -1em 0 0 #F9D9DD; }
+.walk-say {
+  margin: 0.8em 0; background: var(--tint); border-left: 4px solid var(--base);
+  border-radius: 0 8px 8px 0; padding: 0.7em 1em; line-height: 1.5;
+}
+.walk-say p:last-child { margin-bottom: 0; }
+.walk-say .say-step { display: block; font-family: "Montserrat", sans-serif; font-weight: 700; font-size: 0.72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--dark); margin-bottom: 0.2em; }
+.walk-step { display: none; }
+.walk-step.current { display: block; }
+.walk-step > p, .walk-step > ul { display: none; } // explanation text is moved into .walk-say
+.walk-out-label { font-family: "Montserrat", sans-serif; font-weight: 700; font-size: 0.72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--grey); margin: 0.4em 0 0.3em; }
+
+// ---------- quiz ----------
+.quiz { background: #FFF8E5; border-radius: 12px; padding: 1em 1.2em 0.8em; margin: 1.4em 0; }
+.quiz::before {
+  content: "Check yourself"; display: block; font-family: "Montserrat", sans-serif; font-weight: 700;
+  font-size: 0.75rem; text-transform: uppercase; letter-spacing: .05em; color: #8A5A00; margin-bottom: 0.3em;
+}
+.quiz .opt {
+  background: #fff; border: 2px solid #EADDBB; border-radius: 10px; padding: 0.5em 0.9em; margin: 0.45em 0;
+  cursor: pointer;
+}
+.quiz .opt:hover { border-color: #C9A85A; }
+.quiz .opt > p { margin: 0; }
+.quiz .opt .fb { display: none; margin-top: 0.4em; font-size: 0.92rem; }
+.quiz .opt .fb p { margin: 0; }
+.quiz .opt.picked .fb { display: block; }
+.quiz .opt.picked.right { border-color: var(--ok); background: var(--ok-tint); }
+.quiz .opt.picked:not(.right) { border-color: var(--base); background: var(--tint); }
+.quiz .opt.picked.right > p:first-child::before { content: "✓ Correct. "; color: var(--ok); font-weight: 700; }
+.quiz .opt.picked:not(.right) > p:first-child::before { content: "✗ Not quite. "; color: var(--base); font-weight: 700; }
+
+// ---------- RStudio window diagram ----------
+.rstudio {
+  display: grid; grid-template-columns: 1.15fr 1fr; grid-template-rows: auto auto; grid-auto-flow: column; gap: 6px;
+  background: #D9DEE3; border-radius: 10px; padding: 6px; margin: 1.2em 0; font-size: 0.88rem;
+}
+.rstudio > div { background: #fff; border-radius: 6px; padding: 0.7em 0.9em; min-height: 120px; }
+.rstudio b { display: block; font-family: "Montserrat", sans-serif; color: var(--dark); }
+.rstudio .pn { display: inline-flex; width: 1.5em; height: 1.5em; border-radius: 50%; background: var(--dark); color: #fff; align-items: center; justify-content: center; font-size: 0.75rem; margin-right: 6px; font-weight: 700; }
+.rstudio small { color: var(--grey); display: block; line-height: 1.4; margin-top: 0.3em; }
+.rstudio .fake { font-family: $font-family-monospace; font-size: 0.75rem; background: #F6F6F6; border-radius: 4px; padding: 4px 6px; margin-top: 6px; color: #444; white-space: pre; overflow: hidden; }
+@media (max-width: 640px) { .rstudio { grid-template-columns: 1fr; grid-auto-flow: row; } }
+
+// ---------- chunk diagram ----------
+.chunk-demo { border: 1px solid #DADADA; border-radius: 8px; overflow: hidden; margin: 1em 0; font-family: $font-family-monospace; font-size: 0.85rem; }
+.chunk-demo .ch-top { background: #F3F3F3; padding: 0.5em 0.8em; display: flex; justify-content: space-between; color: #777; }
+.chunk-demo .ch-top .run { color: #2E8B3A; font-weight: 700; font-family: "Lato", sans-serif; }
+.chunk-demo .ch-code { background: #F3F3F3; padding: 0 0.8em 0.6em; }
+.chunk-demo .ch-out { background: #fff; padding: 0.5em 0.8em; border-top: 1px solid #DADADA; color: #333; }
+
+// ---------- wide vs long mini tables ----------
+table.mini { font-size: 0.82rem; width: auto; margin: 0.3em 0; }
+table.mini td, table.mini th { padding: 0.25em 0.9em 0.25em 0; border-bottom: 1px solid #EEE; }
+table.mini .hl { background: var(--tint); color: var(--dark); font-weight: 700; }
+.twocol { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2em; align-items: start; }
+@media (max-width: 760px) { .twocol { grid-template-columns: 1fr; } }
+.cap { font-family: "Montserrat", sans-serif; font-weight: 700; font-size: 0.85rem; margin: 0.4em 0 0.2em; }
+.cap small { font-family: "Lato", sans-serif; font-weight: 400; color: var(--grey); }
+
+// ---------- list-of-data-frames diagram ----------
+.listbox { border: 3px dashed var(--light); border-radius: 14px; padding: 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin: 0.8em 0; }
+.listbox .df { background: var(--tint); border-radius: 8px; padding: 10px 8px; text-align: center; font-size: 0.85rem; line-height: 1.25; }
+.listbox .df b { display: block; font-family: "Montserrat", sans-serif; font-size: 1.4em; color: var(--dark); }
+
+// ---------- Drake meme (from the slides) ----------
+.drake { display: grid; grid-template-columns: 150px 1fr; grid-template-rows: 150px 150px; border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; max-width: 620px; margin: 1em 0; }
+.drake .dk-pic { overflow: hidden; }
+.drake .dk-pic img { width: 200%; height: 200%; max-width: none; display: block; border-radius: 0; }
+.drake .dk-bottom img { transform: translateY(-50%); }
+.drake .dk-txt { display: flex; align-items: center; padding: 0 1em; font-size: 1rem; border-left: 1px solid var(--rule); }
+.drake .dk-txt:nth-child(2) { border-bottom: 1px solid var(--rule); }
+.drake .dk-txt code { font-size: 0.9em; }
+
+// figures
+figure img, .figure img { border-radius: 10px; }
+.credit { font-size: 0.78rem; color: var(--grey); margin-top: -0.6em; }
+
+// gt tables inside output
+.cell-output-display .gt_table { margin-left: 0 !important; }
+.legend p { margin: 0; }
+
+// ---------- glossary terms and drawer ----------
+.gl {
+  text-decoration: underline dotted var(--base); text-decoration-thickness: 2px; text-underline-offset: 3px;
+  cursor: pointer; border-radius: 3px;
+}
+.gl:hover, .gl:focus-visible, .gl.gl-on { background: var(--tint); outline: none; }
+
+#gl-drawer {
+  position: fixed; z-index: 2000; background: #fff; display: flex; flex-direction: column;
+  box-shadow: 0 0 0 1px var(--rule), 0 10px 40px rgba(0,0,0,.16);
+  transition: transform .22s ease, visibility .22s;
+  visibility: hidden;
+  // wide screens: a panel on the right
+  top: 0; right: 0; bottom: 0; width: 400px; transform: translateX(105%);
+}
+#gl-drawer.on { transform: none; visibility: visible; }
+.gl-head { display: flex; align-items: center; justify-content: space-between; padding: 0.9em 1.2em 0.4em; }
+.gl-close { border: 0; background: #F1F1F1; border-radius: 50%; width: 2em; height: 2em; cursor: pointer; font-size: 0.9rem; }
+.gl-close:hover { background: var(--tint); }
+.gl-kicker { font-family: "Montserrat", sans-serif; font-weight: 700; font-size: 0.72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--grey); }
+.gl-body { overflow-y: auto; padding: 0 1.2em 1.4em; }
+.gl-body h4 { font-size: 1.5rem; margin: 0.1em 0 0.4em; color: var(--dark); }
+.gl-def { font-size: 1.05rem; line-height: 1.5; background: var(--tint); border-radius: 10px; padding: 0.7em 0.9em; }
+.gl-from { margin-top: 1.2em; }
+.gl-where { font-family: "Montserrat", sans-serif; font-weight: 700; margin: 0.2em 0 0.4em; }
+.gl-quote { border-left: 4px solid var(--light); padding: 0.1em 0 0.1em 0.9em; font-size: 0.95rem; color: #333; }
+.gl-quote > * { margin-bottom: 0.4em; }
+.gl-quote li { list-style: none; }
+.gl-home { display: inline-block; margin-top: 0.4em; font-weight: 700; }
+.gl-all { display: block; margin-top: 1.4em; font-size: 0.85rem; color: var(--grey); }
+
+// phones and tablets: a sheet from the bottom
+@media (max-width: 1100px) {
+  #gl-drawer {
+    top: auto; left: 0; width: auto; max-height: 60vh; border-radius: 16px 16px 0 0;
+    transform: translateY(105%);
+  }
+  .gl-head::before { content: ""; position: absolute; left: 50%; top: 6px; width: 40px; height: 4px; border-radius: 2px; background: #D5D5D5; transform: translateX(-50%); }
+}
+.glossary td:first-child { white-space: nowrap; }
