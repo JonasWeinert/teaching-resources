@@ -43,7 +43,7 @@ split_data <-
 ## Introductions
 
 ```{=html}
-<div class="timer" data-minutes="10"></div>
+<div class="timer" data-minutes="8"></div>
 <div class="checks" style="grid-template-columns:1fr; font-size:1.3em; gap:12px">
   <div><b>1</b>Your name</div>
   <div><b>2</b>Your programme and year</div>
@@ -53,11 +53,11 @@ split_data <-
 ```
 
 ::: {.notes}
-Timing: about 30 seconds per person; the timer is set to 10 minutes for a group of about 20. With a larger group, keep it to name, programme and experience.
+Timing: 8 minutes, about 25 seconds per person for a group of about 20. With a larger group, keep it to name, programme and experience.
 
 - Go first and model the length: name, role, your own route into R, one passion.
 - Note who has no R experience at all, and pair them with someone who has some for the exercises.
-- This time comes out of the 90 minutes. If you run over, set Part 3 as homework.
+- If you run over, set Part 3 as homework.
 :::
 
 ## Lab overview
@@ -65,16 +65,17 @@ Timing: about 30 seconds per person; the timer is set to 10 minutes for a group 
 ::: {.small-table}
 | Part | Topic | Functions | Data | Time |
 |---|---|---|---|---|
-| 0 | R basics | objects, functions, vectors, data frames, lists | | 7 min |
-| 1 | Summarising data | `count`, `mutate`, `group_by`, `summarise` | `agadullina2018`: 85 effect sizes, out-group entitativity and prejudice | 23 min |
-| 2 | Tidy data and reshaping | `pivot_longer`, `pivot_wider` | World Bank life expectancy, 1960–2024 | 29 min |
-| 3 | Iteration | `map`, `bind_rows` | `maldonado2020`: 1,268 effect sizes, age and executive functioning | 21 min |
+| | Introductions and setup | | | 11 min |
+| 0 | R basics | objects, functions, vectors, data frames, lists | | 6 min |
+| 1 | Summarising data | `count`, `mutate`, `group_by`, `summarise` | `agadullina2018`: 85 effect sizes, out-group entitativity and prejudice | 22 min |
+| 2 | Tidy data and reshaping | `pivot_longer`, `pivot_wider` | World Bank life expectancy, 1960–2024 | 25 min |
+| 3 | Iteration | `map`, `bind_rows` | `maldonado2020`: 1,268 effect sizes, age and executive functioning | 20 min |
 :::
 
-Each part: a short demonstration, then exercises in the notebook.
+Each part: a short demonstration, exercises in the notebook, then the solutions.
 
 ::: {.notes}
-Timing: welcome and setup, 5 minutes including the next slide; then R basics, 7 minutes. Exercise times are shortened to fit 90 minutes in total.
+Timing (90 minutes): introductions 8, welcome and setup 3, R basics 6, Part 1 22, Part 2 25, Part 3 20, wrap-up 3; about 3 minutes spare. Each part is roughly 6 minutes of demonstration, the exercise timer, then 4 minutes of solutions and results.
 
 - Welcome. The aim today is to get fluent with the handful of verbs that make up about 80% of everyday data work in R.
 - We start with the basic vocabulary of R, because the rest of the lab uses it. Then each part has the same rhythm: a short demonstration, then exercises in the notebook in pairs.
@@ -166,7 +167,7 @@ A collection of functions written by others. Install once with `install.packages
 ::::
 
 ::: {.notes}
-Timing: R basics, 7 minutes across this slide and the next two. Type the examples into the console live.
+Timing: R basics, 6 minutes across this slide and the next two. Type the examples into the console live.
 
 - An object is anything with a name. If you run code without `<-`, R prints the result and then forgets it.
 - Functions always have brackets. Inside the brackets go the arguments. `?` followed by a function name opens the documentation, which lists every argument.
@@ -292,7 +293,7 @@ Exam tip: never print a whole data frame. Use the tibble print or `glimpse()`.
 :::
 
 ::: {.notes}
-Timing: teaching moment 1 is about 7 minutes across this slide and the next three. Live-code it if you can.
+Timing: teaching moment 1 is about 6 minutes across this slide and the next three. Live-code it if you can.
 
 - The first thing to do with any new dataset is to find out what it is: `?` gives the documentation, and `class()` gives the type.
 - Each row is an effect size from a published study. `yi` is the effect size and `vi` its variance.
@@ -423,13 +424,13 @@ agadullina2018_tbl |>
 ::: {.notes}
 - Demonstrate live: `summarise` gives one number. Add `group_by(design)` before it and you get one number per design.
 - Key idea: `group_by` changes nothing visible on its own. It changes how the *next* verb behaves.
-- Hand over: "Work through Part 1 in pairs. You have 16 minutes. The timer is on the next slide."
+- Hand over: "Work through Part 1 in pairs. You have 12 minutes. The timer is on the next slide."
 :::
 
 ## Exercises: Part 1 {.yourturn}
 
 ```{=html}
-<div class="timer" data-minutes="16"></div>
+<div class="timer" data-minutes="12"></div>
 ```
 
 :::: {.yt}
@@ -477,7 +478,7 @@ df_tbl |>
 ::::
 
 ::: {.notes}
-Timing: 16 minutes. Click the timer (or press T) to start it.
+Timing: 12 minutes. Click the timer (or press T) to start it.
 
 - Circulate. Common problems: forgetting to assign the tibble; `summarise` returning one row because `group_by` was left out; typing `|>` by hand with a space in between.
 - Notebook numbering skips Q5, so the 10 tasks on this slide match notebook questions 1–4 and 6–11.
@@ -704,7 +705,7 @@ An unweighted mean gives every effect size equal weight. Meta-analytic estimates
 ::::
 
 ::: {.notes}
-Debrief, 2–3 minutes.
+Debrief, 1–2 minutes, after the solution slides.
 
 - Ask 2–3 pairs: which design has the larger average effect? Why might correlational designs show bigger effects than experiments?
 - Is a simple mean of `yi` the right summary? No, because it ignores precision. This is a hook for later weeks.
@@ -744,7 +745,7 @@ One number per cell, nothing hidden in the headers
 Most tidyverse functions expect data in this format.
 
 ::: {.notes}
-Timing: teaching moment 2 is about 7 minutes across this slide and the next three.
+Timing: teaching moment 2 is about 6 minutes across this slide and the next three.
 
 - The World Bank file is a classic example of "human-friendly" data: easy to read, hard to analyse.
 - Tidy data is the format that `filter`, `group_by` and `ggplot` expect.
@@ -856,13 +857,13 @@ The file has a `2025` column with no values, so pivoting creates **263 rows of `
 ::: {.notes}
 - When you `pull(country_name)`, scroll through the list. Not every row is a country.
 - The final year column is empty. Notice what `pivot_longer` does with it.
-- Hand over: "Part 2, 22 minutes. Pick four countries you find interesting."
+- Hand over: "Part 2, 15 minutes. Pick four countries you find interesting."
 :::
 
 ## Exercises: Part 2 {.yourturn}
 
 ```{=html}
-<div class="timer" data-minutes="22"></div>
+<div class="timer" data-minutes="15"></div>
 ```
 
 :::: {.yt}
@@ -910,7 +911,7 @@ lifeexp |>
 ::::
 
 ::: {.notes}
-Timing: 22 minutes. Click the timer (or press T) to start it.
+Timing: 15 minutes. Click the timer (or press T) to start it.
 
 - Known issue: the notebook reads from `data/wb-life-exp.csv`. If the CSV sits next to the notebook, students need `read_csv("wb-life-exp.csv")`.
 - Common errors: `==` with a vector of countries silently recycles and returns the wrong rows; country names that don't match exactly.
@@ -1167,7 +1168,7 @@ Niger shows the largest gain (+21.2 years); most of it occurred after 1990
 ::::
 
 ::: {.notes}
-Debrief, 2–3 minutes.
+Debrief, 1–2 minutes, after the solution slides.
 
 - Ask: which countries did you pick? Who found the biggest gain, or a dip (conflict, HIV/AIDS era)?
 - Point out the full pipeline. That's the shape of most of the analysis work they'll do in this course.
@@ -1210,7 +1211,7 @@ One file per year, one sheet per region, one table per survey wave
 :::
 
 ::: {.notes}
-Timing: teaching moment 3 is about 6 minutes across this slide and the next two.
+Timing: teaching moment 3 is about 5 minutes across this slide and the next two.
 
 - Sometimes your data arrives in pieces. Copy-pasting the same code four times is error-prone.
 - The code that builds `split_data` is deliberately advanced: they don't need to understand it today, only run it.
@@ -1303,13 +1304,13 @@ Adds a column saying which piece each row came from
 
 ::: {.notes}
 - `bind_rows` stacks the pieces. `.id` keeps track of where each row came from, so no information is lost.
-- Hand over: "Part 3, 15 minutes."
+- Hand over: "Part 3, 12 minutes."
 :::
 
 ## Exercises: Part 3 {.yourturn}
 
 ```{=html}
-<div class="timer" data-minutes="15"></div>
+<div class="timer" data-minutes="12"></div>
 ```
 
 :::: {.yt}
@@ -1351,7 +1352,7 @@ map(split_data,
 ::::
 
 ::: {.notes}
-Timing: 15 minutes. Click the timer (or press T) to start it.
+Timing: 12 minutes. Click the timer (or press T) to start it.
 
 - If short of time, set the `map_dfr` bonus as homework.
 - `select()` with a column that only exists in some pieces will fail: `task` is only in inhibition and shifting, `n1` only in the other two. `author`, `yi`, `vi` work everywhere.
@@ -1485,7 +1486,7 @@ Each click highlights the next step of the code, shows the result up to that ste
 **Question:** is the data you plan to use for your own project in tidy format? If not, which rule does it break?
 
 ::: {.notes}
-Wrap-up, 5 minutes.
+Wrap-up, 3 minutes.
 
 - Recap each part in one sentence.
 - Take 2–3 answers to the exit question, or collect them on sticky notes or in the chat.

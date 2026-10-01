@@ -1069,7 +1069,7 @@ margin-right: 0; }
 </section>
 <section id="introductions" class="slide level2">
 <h2>Introductions</h2>
-<div class="timer" data-minutes="10"></div>
+<div class="timer" data-minutes="8"></div>
 <div class="checks" style="grid-template-columns:1fr; font-size:1.3em; gap:12px">
   <div><b>1</b>Your name</div>
   <div><b>2</b>Your programme and year</div>
@@ -1077,11 +1077,11 @@ margin-right: 0; }
   <div><b>4</b>One thing you are passionate about</div>
 </div>
 <aside class="notes">
-<p>Timing: about 30 seconds per person; the timer is set to 10 minutes for a group of about 20. With a larger group, keep it to name, programme and experience.</p>
+<p>Timing: 8 minutes, about 25 seconds per person for a group of about 20. With a larger group, keep it to name, programme and experience.</p>
 <ul>
 <li>Go first and model the length: name, role, your own route into R, one passion.</li>
 <li>Note who has no R experience at all, and pair them with someone who has some for the exercises.</li>
-<li>This time comes out of the 90 minutes. If you run over, set Part 3 as homework.</li>
+<li>If you run over, set Part 3 as homework.</li>
 </ul>
 <style type="text/css">
 span.MJX_Assistive_MathML {
@@ -1117,39 +1117,46 @@ display:block!important;
 </thead>
 <tbody>
 <tr class="odd">
+<td></td>
+<td>Introductions and setup</td>
+<td></td>
+<td></td>
+<td>11 min</td>
+</tr>
+<tr class="even">
 <td>0</td>
 <td>R basics</td>
 <td>objects, functions, vectors, data frames, lists</td>
 <td></td>
-<td>7 min</td>
+<td>6 min</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td>1</td>
 <td>Summarising data</td>
 <td><code>count</code>, <code>mutate</code>, <code>group_by</code>, <code>summarise</code></td>
 <td><code>agadullina2018</code>: 85 effect sizes, out-group entitativity and prejudice</td>
-<td>23 min</td>
+<td>22 min</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td>2</td>
 <td>Tidy data and reshaping</td>
 <td><code>pivot_longer</code>, <code>pivot_wider</code></td>
 <td>World Bank life expectancy, 1960–2024</td>
-<td>29 min</td>
+<td>25 min</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td>3</td>
 <td>Iteration</td>
 <td><code>map</code>, <code>bind_rows</code></td>
 <td><code>maldonado2020</code>: 1,268 effect sizes, age and executive functioning</td>
-<td>21 min</td>
+<td>20 min</td>
 </tr>
 </tbody>
 </table>
 </div>
-<p>Each part: a short demonstration, then exercises in the notebook.</p>
+<p>Each part: a short demonstration, exercises in the notebook, then the solutions.</p>
 <aside class="notes">
-<p>Timing: welcome and setup, 5 minutes including the next slide; then R basics, 7 minutes. Exercise times are shortened to fit 90 minutes in total.</p>
+<p>Timing (90 minutes): introductions 8, welcome and setup 3, R basics 6, Part 1 22, Part 2 25, Part 3 20, wrap-up 3; about 3 minutes spare. Each part is roughly 6 minutes of demonstration, the exercise timer, then 4 minutes of solutions and results.</p>
 <ul>
 <li>Welcome. The aim today is to get fluent with the handful of verbs that make up about 80% of everyday data work in R.</li>
 <li>We start with the basic vocabulary of R, because the rest of the lab uses it. Then each part has the same rhythm: a short demonstration, then exercises in the notebook in pairs.</li>
@@ -1235,7 +1242,7 @@ display:block!important;
 </div>
 </div></div>
 <aside class="notes">
-<p>Timing: R basics, 7 minutes across this slide and the next two. Type the examples into the console live.</p>
+<p>Timing: R basics, 6 minutes across this slide and the next two. Type the examples into the console live.</p>
 <ul>
 <li>An object is anything with a name. If you run code without <code>&lt;-</code>, R prints the result and then forgets it.</li>
 <li>Functions always have brackets. Inside the brackets go the arguments. <code>?</code> followed by a function name opens the documentation, which lists every argument.</li>
@@ -1415,7 +1422,7 @@ display:block!important;
 <p>Exam tip: never print a whole data frame. Use the tibble print or <code>glimpse()</code>.</p>
 </div>
 <aside class="notes">
-<p>Timing: teaching moment 1 is about 7 minutes across this slide and the next three. Live-code it if you can.</p>
+<p>Timing: teaching moment 1 is about 6 minutes across this slide and the next three. Live-code it if you can.</p>
 <ul>
 <li>The first thing to do with any new dataset is to find out what it is: <code>?</code> gives the documentation, and <code>class()</code> gives the type.</li>
 <li>Each row is an effect size from a published study. <code>yi</code> is the effect size and <code>vi</code> its variance.</li>
@@ -1545,7 +1552,7 @@ display:block!important;
 <ul>
 <li>Demonstrate live: <code>summarise</code> gives one number. Add <code>group_by(design)</code> before it and you get one number per design.</li>
 <li>Key idea: <code>group_by</code> changes nothing visible on its own. It changes how the <em>next</em> verb behaves.</li>
-<li>Hand over: “Work through Part 1 in pairs. You have 16 minutes. The timer is on the next slide.”</li>
+<li>Hand over: “Work through Part 1 in pairs. You have 12 minutes. The timer is on the next slide.”</li>
 </ul>
 <style type="text/css">
 span.MJX_Assistive_MathML {
@@ -1561,7 +1568,7 @@ display:block!important;
 </section>
 <section id="exercises-part-1" class="slide level2 yourturn">
 <h2>Exercises: Part 1</h2>
-<div class="timer" data-minutes="16"></div>
+<div class="timer" data-minutes="12"></div>
 <div class="yt">
 <div class="tasks">
 <p><span class="lbl">Part 1 · notebook Q1–11</span></p>
@@ -1601,7 +1608,7 @@ display:block!important;
 </div>
 </div>
 <aside class="notes">
-<p>Timing: 16 minutes. Click the timer (or press T) to start it.</p>
+<p>Timing: 12 minutes. Click the timer (or press T) to start it.</p>
 <ul>
 <li>Circulate. Common problems: forgetting to assign the tibble; <code>summarise</code> returning one row because <code>group_by</code> was left out; typing <code>|&gt;</code> by hand with a space in between.</li>
 <li>Notebook numbering skips Q5, so the 10 tasks on this slide match notebook questions 1–4 and 6–11.</li>
@@ -1863,7 +1870,7 @@ display:block!important;
 </div>
 </div></div>
 <aside class="notes">
-<p>Debrief, 2–3 minutes.</p>
+<p>Debrief, 1–2 minutes, after the solution slides.</p>
 <ul>
 <li>Ask 2–3 pairs: which design has the larger average effect? Why might correlational designs show bigger effects than experiments?</li>
 <li>Is a simple mean of <code>yi</code> the right summary? No, because it ignores precision. This is a hook for later weeks.</li>
@@ -1904,7 +1911,7 @@ display:block!important;
 </div>
 <p>Most tidyverse functions expect data in this format.</p>
 <aside class="notes">
-<p>Timing: teaching moment 2 is about 7 minutes across this slide and the next three.</p>
+<p>Timing: teaching moment 2 is about 6 minutes across this slide and the next three.</p>
 <ul>
 <li>The World Bank file is a classic example of “human-friendly” data: easy to read, hard to analyse.</li>
 <li>Tidy data is the format that <code>filter</code>, <code>group_by</code> and <code>ggplot</code> expect.</li>
@@ -2072,7 +2079,7 @@ display:block!important;
 <ul>
 <li>When you <code>pull(country_name)</code>, scroll through the list. Not every row is a country.</li>
 <li>The final year column is empty. Notice what <code>pivot_longer</code> does with it.</li>
-<li>Hand over: “Part 2, 22 minutes. Pick four countries you find interesting.”</li>
+<li>Hand over: “Part 2, 15 minutes. Pick four countries you find interesting.”</li>
 </ul>
 <style type="text/css">
 span.MJX_Assistive_MathML {
@@ -2088,7 +2095,7 @@ display:block!important;
 </section>
 <section id="exercises-part-2" class="slide level2 yourturn">
 <h2>Exercises: Part 2</h2>
-<div class="timer" data-minutes="22"></div>
+<div class="timer" data-minutes="15"></div>
 <div class="yt">
 <div class="tasks">
 <p><span class="lbl">Part 2 · notebook Q1–8</span></p>
@@ -2128,7 +2135,7 @@ display:block!important;
 </div>
 </div>
 <aside class="notes">
-<p>Timing: 22 minutes. Click the timer (or press T) to start it.</p>
+<p>Timing: 15 minutes. Click the timer (or press T) to start it.</p>
 <ul>
 <li>Known issue: the notebook reads from <code>data/wb-life-exp.csv</code>. If the CSV sits next to the notebook, students need <code>read_csv(&quot;wb-life-exp.csv&quot;)</code>.</li>
 <li>Common errors: <code>==</code> with a vector of countries silently recycles and returns the wrong rows; country names that don’t match exactly.</li>
@@ -2352,20 +2359,20 @@ display:block!important;
 </div>
 <div class="cell">
 <div class="cell-output-display">
-<div id="ssuhpsbqgn" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
-<style>#ssuhpsbqgn table {
+<div id="anrdtwnpug" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
+<style>#anrdtwnpug table {
 font-family: system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
 -webkit-font-smoothing: antialiased;
 -moz-osx-font-smoothing: grayscale;
 }
-#ssuhpsbqgn thead, #ssuhpsbqgn tbody, #ssuhpsbqgn tfoot, #ssuhpsbqgn tr, #ssuhpsbqgn td, #ssuhpsbqgn th {
+#anrdtwnpug thead, #anrdtwnpug tbody, #anrdtwnpug tfoot, #anrdtwnpug tr, #anrdtwnpug td, #anrdtwnpug th {
 border-style: none;
 }
-#ssuhpsbqgn p {
+#anrdtwnpug p {
 margin: 0;
 padding: 0;
 }
-#ssuhpsbqgn .gt_table {
+#anrdtwnpug .gt_table {
 display: table;
 border-collapse: collapse;
 line-height: normal;
@@ -2390,11 +2397,11 @@ border-left-style: none;
 border-left-width: 2px;
 border-left-color: #D3D3D3;
 }
-#ssuhpsbqgn .gt_caption {
+#anrdtwnpug .gt_caption {
 padding-top: 4px;
 padding-bottom: 4px;
 }
-#ssuhpsbqgn .gt_title {
+#anrdtwnpug .gt_title {
 color: #333333;
 font-size: 125%;
 font-weight: initial;
@@ -2405,7 +2412,7 @@ padding-right: 5px;
 border-bottom-color: #FFFFFF;
 border-bottom-width: 0;
 }
-#ssuhpsbqgn .gt_subtitle {
+#anrdtwnpug .gt_subtitle {
 color: #333333;
 font-size: 85%;
 font-weight: initial;
@@ -2416,7 +2423,7 @@ padding-right: 5px;
 border-top-color: #FFFFFF;
 border-top-width: 0;
 }
-#ssuhpsbqgn .gt_heading {
+#anrdtwnpug .gt_heading {
 background-color: #FFFFFF;
 text-align: center;
 border-bottom-color: #FFFFFF;
@@ -2427,12 +2434,12 @@ border-right-style: none;
 border-right-width: 1px;
 border-right-color: #D3D3D3;
 }
-#ssuhpsbqgn .gt_bottom_border {
+#anrdtwnpug .gt_bottom_border {
 border-bottom-style: solid;
 border-bottom-width: 2px;
 border-bottom-color: #D3D3D3;
 }
-#ssuhpsbqgn .gt_col_headings {
+#anrdtwnpug .gt_col_headings {
 border-top-style: solid;
 border-top-width: 2px;
 border-top-color: #D3D3D3;
@@ -2446,7 +2453,7 @@ border-right-style: none;
 border-right-width: 1px;
 border-right-color: #D3D3D3;
 }
-#ssuhpsbqgn .gt_col_heading {
+#anrdtwnpug .gt_col_heading {
 color: #333333;
 background-color: #FFFFFF;
 font-size: 100%;
@@ -2465,7 +2472,7 @@ padding-left: 5px;
 padding-right: 5px;
 overflow-x: hidden;
 }
-#ssuhpsbqgn .gt_column_spanner_outer {
+#anrdtwnpug .gt_column_spanner_outer {
 color: #333333;
 background-color: #FFFFFF;
 font-size: 100%;
@@ -2476,13 +2483,13 @@ padding-bottom: 0;
 padding-left: 4px;
 padding-right: 4px;
 }
-#ssuhpsbqgn .gt_column_spanner_outer:first-child {
+#anrdtwnpug .gt_column_spanner_outer:first-child {
 padding-left: 0;
 }
-#ssuhpsbqgn .gt_column_spanner_outer:last-child {
+#anrdtwnpug .gt_column_spanner_outer:last-child {
 padding-right: 0;
 }
-#ssuhpsbqgn .gt_column_spanner {
+#anrdtwnpug .gt_column_spanner {
 border-bottom-style: solid;
 border-bottom-width: 2px;
 border-bottom-color: #D3D3D3;
@@ -2493,10 +2500,10 @@ overflow-x: hidden;
 display: inline-block;
 width: 100%;
 }
-#ssuhpsbqgn .gt_spanner_row {
+#anrdtwnpug .gt_spanner_row {
 border-bottom-style: hidden;
 }
-#ssuhpsbqgn .gt_group_heading {
+#anrdtwnpug .gt_group_heading {
 padding-top: 8px;
 padding-bottom: 8px;
 padding-left: 5px;
@@ -2521,7 +2528,7 @@ border-right-color: #D3D3D3;
 vertical-align: middle;
 text-align: left;
 }
-#ssuhpsbqgn .gt_empty_group_heading {
+#anrdtwnpug .gt_empty_group_heading {
 padding: 0.5px;
 color: #333333;
 background-color: #FFFFFF;
@@ -2535,13 +2542,13 @@ border-bottom-width: 2px;
 border-bottom-color: #D3D3D3;
 vertical-align: middle;
 }
-#ssuhpsbqgn .gt_from_md > :first-child {
+#anrdtwnpug .gt_from_md > :first-child {
 margin-top: 0;
 }
-#ssuhpsbqgn .gt_from_md > :last-child {
+#anrdtwnpug .gt_from_md > :last-child {
 margin-bottom: 0;
 }
-#ssuhpsbqgn .gt_row {
+#anrdtwnpug .gt_row {
 padding-top: 8px;
 padding-bottom: 8px;
 padding-left: 5px;
@@ -2559,7 +2566,7 @@ border-right-color: #D3D3D3;
 vertical-align: middle;
 overflow-x: hidden;
 }
-#ssuhpsbqgn .gt_stub {
+#anrdtwnpug .gt_stub {
 color: #333333;
 background-color: #FFFFFF;
 font-size: 100%;
@@ -2571,7 +2578,7 @@ border-right-color: #D3D3D3;
 padding-left: 5px;
 padding-right: 5px;
 }
-#ssuhpsbqgn .gt_stub_row_group {
+#anrdtwnpug .gt_stub_row_group {
 color: #333333;
 background-color: #FFFFFF;
 font-size: 100%;
@@ -2584,13 +2591,13 @@ padding-left: 5px;
 padding-right: 5px;
 vertical-align: top;
 }
-#ssuhpsbqgn .gt_row_group_first td {
+#anrdtwnpug .gt_row_group_first td {
 border-top-width: 2px;
 }
-#ssuhpsbqgn .gt_row_group_first th {
+#anrdtwnpug .gt_row_group_first th {
 border-top-width: 2px;
 }
-#ssuhpsbqgn .gt_summary_row {
+#anrdtwnpug .gt_summary_row {
 color: #333333;
 background-color: #FFFFFF;
 text-transform: inherit;
@@ -2599,14 +2606,14 @@ padding-bottom: 8px;
 padding-left: 5px;
 padding-right: 5px;
 }
-#ssuhpsbqgn .gt_first_summary_row {
+#anrdtwnpug .gt_first_summary_row {
 border-top-style: solid;
 border-top-color: #D3D3D3;
 }
-#ssuhpsbqgn .gt_first_summary_row.thick {
+#anrdtwnpug .gt_first_summary_row.thick {
 border-top-width: 2px;
 }
-#ssuhpsbqgn .gt_last_summary_row {
+#anrdtwnpug .gt_last_summary_row {
 padding-top: 8px;
 padding-bottom: 8px;
 padding-left: 5px;
@@ -2615,7 +2622,7 @@ border-bottom-style: solid;
 border-bottom-width: 2px;
 border-bottom-color: #D3D3D3;
 }
-#ssuhpsbqgn .gt_grand_summary_row {
+#anrdtwnpug .gt_grand_summary_row {
 color: #333333;
 background-color: #FFFFFF;
 text-transform: inherit;
@@ -2624,7 +2631,7 @@ padding-bottom: 8px;
 padding-left: 5px;
 padding-right: 5px;
 }
-#ssuhpsbqgn .gt_first_grand_summary_row {
+#anrdtwnpug .gt_first_grand_summary_row {
 padding-top: 8px;
 padding-bottom: 8px;
 padding-left: 5px;
@@ -2633,7 +2640,7 @@ border-top-style: double;
 border-top-width: 6px;
 border-top-color: #D3D3D3;
 }
-#ssuhpsbqgn .gt_last_grand_summary_row_top {
+#anrdtwnpug .gt_last_grand_summary_row_top {
 padding-top: 8px;
 padding-bottom: 8px;
 padding-left: 5px;
@@ -2642,10 +2649,10 @@ border-bottom-style: double;
 border-bottom-width: 6px;
 border-bottom-color: #D3D3D3;
 }
-#ssuhpsbqgn .gt_striped {
+#anrdtwnpug .gt_striped {
 background-color: rgba(128, 128, 128, 0.05);
 }
-#ssuhpsbqgn .gt_table_body {
+#anrdtwnpug .gt_table_body {
 border-top-style: solid;
 border-top-width: 2px;
 border-top-color: #D3D3D3;
@@ -2653,7 +2660,7 @@ border-bottom-style: solid;
 border-bottom-width: 2px;
 border-bottom-color: #D3D3D3;
 }
-#ssuhpsbqgn .gt_footnotes {
+#anrdtwnpug .gt_footnotes {
 color: #333333;
 background-color: #FFFFFF;
 border-bottom-style: none;
@@ -2666,7 +2673,7 @@ border-right-style: none;
 border-right-width: 2px;
 border-right-color: #D3D3D3;
 }
-#ssuhpsbqgn .gt_footnote {
+#anrdtwnpug .gt_footnote {
 margin: 0px;
 font-size: 90%;
 padding-top: 4px;
@@ -2674,7 +2681,7 @@ padding-bottom: 4px;
 padding-left: 5px;
 padding-right: 5px;
 }
-#ssuhpsbqgn .gt_sourcenotes {
+#anrdtwnpug .gt_sourcenotes {
 color: #333333;
 background-color: #FFFFFF;
 border-bottom-style: none;
@@ -2687,64 +2694,64 @@ border-right-style: none;
 border-right-width: 2px;
 border-right-color: #D3D3D3;
 }
-#ssuhpsbqgn .gt_sourcenote {
+#anrdtwnpug .gt_sourcenote {
 font-size: 90%;
 padding-top: 4px;
 padding-bottom: 4px;
 padding-left: 5px;
 padding-right: 5px;
 }
-#ssuhpsbqgn .gt_left {
+#anrdtwnpug .gt_left {
 text-align: left;
 }
-#ssuhpsbqgn .gt_center {
+#anrdtwnpug .gt_center {
 text-align: center;
 }
-#ssuhpsbqgn .gt_right {
+#anrdtwnpug .gt_right {
 text-align: right;
 font-variant-numeric: tabular-nums;
 }
-#ssuhpsbqgn .gt_font_normal {
+#anrdtwnpug .gt_font_normal {
 font-weight: normal;
 }
-#ssuhpsbqgn .gt_font_bold {
+#anrdtwnpug .gt_font_bold {
 font-weight: bold;
 }
-#ssuhpsbqgn .gt_font_italic {
+#anrdtwnpug .gt_font_italic {
 font-style: italic;
 }
-#ssuhpsbqgn .gt_super {
+#anrdtwnpug .gt_super {
 font-size: 65%;
 }
-#ssuhpsbqgn .gt_footnote_marks {
+#anrdtwnpug .gt_footnote_marks {
 font-size: 75%;
 vertical-align: 0.4em;
 position: initial;
 }
-#ssuhpsbqgn .gt_asterisk {
+#anrdtwnpug .gt_asterisk {
 font-size: 100%;
 vertical-align: 0;
 }
-#ssuhpsbqgn .gt_indent_1 {
+#anrdtwnpug .gt_indent_1 {
 text-indent: 5px;
 }
-#ssuhpsbqgn .gt_indent_2 {
+#anrdtwnpug .gt_indent_2 {
 text-indent: 10px;
 }
-#ssuhpsbqgn .gt_indent_3 {
+#anrdtwnpug .gt_indent_3 {
 text-indent: 15px;
 }
-#ssuhpsbqgn .gt_indent_4 {
+#anrdtwnpug .gt_indent_4 {
 text-indent: 20px;
 }
-#ssuhpsbqgn .gt_indent_5 {
+#anrdtwnpug .gt_indent_5 {
 text-indent: 25px;
 }
-#ssuhpsbqgn .katex-display {
+#anrdtwnpug .katex-display {
 display: inline-flex !important;
 margin-bottom: 0.75em !important;
 }
-#ssuhpsbqgn div.Reactable > div.rt-table > div.rt-thead > div.rt-tr.rt-tr-group-header > div.rt-th-group:after {
+#anrdtwnpug div.Reactable > div.rt-table > div.rt-thead > div.rt-tr.rt-tr-group-header > div.rt-th-group:after {
 height: 0px !important;
 }
 </style>
@@ -2864,7 +2871,7 @@ display:block!important;
 </div>
 </div></div>
 <aside class="notes">
-<p>Debrief, 2–3 minutes.</p>
+<p>Debrief, 1–2 minutes, after the solution slides.</p>
 <ul>
 <li>Ask: which countries did you pick? Who found the biggest gain, or a dip (conflict, HIV/AIDS era)?</li>
 <li>Point out the full pipeline. That’s the shape of most of the analysis work they’ll do in this course.</li>
@@ -2908,7 +2915,7 @@ display:block!important;
 </div>
 </div>
 <aside class="notes">
-<p>Timing: teaching moment 3 is about 6 minutes across this slide and the next two.</p>
+<p>Timing: teaching moment 3 is about 5 minutes across this slide and the next two.</p>
 <ul>
 <li>Sometimes your data arrives in pieces. Copy-pasting the same code four times is error-prone.</li>
 <li>The code that builds <code>split_data</code> is deliberately advanced: they don’t need to understand it today, only run it.</li>
@@ -2991,7 +2998,7 @@ display:block!important;
 <aside class="notes">
 <ul>
 <li><code>bind_rows</code> stacks the pieces. <code>.id</code> keeps track of where each row came from, so no information is lost.</li>
-<li>Hand over: “Part 3, 15 minutes.”</li>
+<li>Hand over: “Part 3, 12 minutes.”</li>
 </ul>
 <style type="text/css">
 span.MJX_Assistive_MathML {
@@ -3007,7 +3014,7 @@ display:block!important;
 </section>
 <section id="exercises-part-3" class="slide level2 yourturn">
 <h2>Exercises: Part 3</h2>
-<div class="timer" data-minutes="15"></div>
+<div class="timer" data-minutes="12"></div>
 <div class="yt">
 <div class="tasks">
 <p><span class="lbl">Part 3 · notebook Q1–5</span></p>
@@ -3041,7 +3048,7 @@ display:block!important;
 </div>
 </div>
 <aside class="notes">
-<p>Timing: 15 minutes. Click the timer (or press T) to start it.</p>
+<p>Timing: 12 minutes. Click the timer (or press T) to start it.</p>
 <ul>
 <li>If short of time, set the <code>map_dfr</code> bonus as homework.</li>
 <li><code>select()</code> with a column that only exists in some pieces will fail: <code>task</code> is only in inhibition and shifting, <code>n1</code> only in the other two. <code>author</code>, <code>yi</code>, <code>vi</code> work everywhere.</li>
@@ -3213,7 +3220,7 @@ display:block!important;
 </div>
 <p><strong>Question:</strong> is the data you plan to use for your own project in tidy format? If not, which rule does it break?</p>
 <aside class="notes">
-<p>Wrap-up, 5 minutes.</p>
+<p>Wrap-up, 3 minutes.</p>
 <ul>
 <li>Recap each part in one sentence.</li>
 <li>Take 2–3 answers to the exit question, or collect them on sticky notes or in the chat.</li>
