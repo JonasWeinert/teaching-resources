@@ -466,6 +466,7 @@ Timing: 16 minutes. Click the timer (or press T) to start it.
 
 
 
+
 ## Solutions: Part 1 · Q2–4 {.solution}
 
 :::: {.walk}
@@ -477,11 +478,19 @@ class(agadullina2018)
 agadullina2018_tbl <- as_tibble(agadullina2018)
 agadullina2018_tbl
 ```
+
+::: {.walk-say}
+Find out what kind of object the data is, then convert it to a tibble and look at it.
+:::
 :::
 
 ::: {.walk-out}
 
 ::: {.fragment fragment-index=0 lines="1"}
+::: {.say}
+`class()` asks R what kind of object this is. `"data.frame"` means it is a table.
+:::
+
 ```{r}
 #| echo: false
 class(agadullina2018)
@@ -489,6 +498,10 @@ class(agadullina2018)
 :::
 
 ::: {.fragment fragment-index=1 lines="3-4"}
+::: {.say}
+`as_tibble()` converts the data frame to a tibble, and `<-` saves it under a new name. Typing the name prints it: 85 rows and 9 columns, with each column's type under its name.
+:::
+
 ```{r}
 #| echo: false
 agadullina2018_tbl <- as_tibble(agadullina2018)
@@ -500,7 +513,7 @@ agadullina2018_tbl
 ::::
 
 ::: {.notes}
-Each click highlights the next step of the code and shows the result up to that step.
+Each click highlights the next step of the code, shows the result up to that step, and explains it below the code.
 :::
 
 ## Solutions: Part 1 · Q5–7 {.solution}
@@ -513,11 +526,19 @@ agadullina2018_tbl |>
   count(design) |>
   mutate(pct = (n / sum(n)) * 100)
 ```
+
+::: {.walk-say}
+Count how many effect sizes come from each study design, then express the counts as percentages.
+:::
 :::
 
 ::: {.walk-out}
 
 ::: {.fragment fragment-index=0 lines="1"}
+::: {.say}
+Start with the data: one row per effect size.
+:::
+
 ```{r}
 #| echo: false
 agadullina2018_tbl
@@ -525,6 +546,10 @@ agadullina2018_tbl
 :::
 
 ::: {.fragment fragment-index=1 lines="1-2"}
+::: {.say}
+`count(design)` counts the rows for each value of `design`. The result is a new, small table with the counts in a column called `n`: 71 cross-sectional, 14 experiments.
+:::
+
 ```{r}
 #| echo: false
 agadullina2018_tbl |>
@@ -533,6 +558,10 @@ count(design)
 :::
 
 ::: {.fragment fragment-index=2 lines="1-3"}
+::: {.say}
+`mutate()` adds a column. `pct` divides each count by the total and multiplies by 100: 83.5% and 16.5%.
+:::
+
 ```{r}
 #| echo: false
 agadullina2018_tbl |>
@@ -549,7 +578,7 @@ Q5, `count(agadullina2018_tbl, design)`, is the same as the first two lines with
 :::
 
 ::: {.notes}
-Each click highlights the next step of the code and shows the result up to that step.
+Each click highlights the next step of the code, shows the result up to that step, and explains it below the code.
 :::
 
 ## Solutions: Part 1 · Q8–9 {.solution}
@@ -562,11 +591,19 @@ agadullina2018_tbl |>
   group_by(design) |>
   summarise(yi = mean(yi))
 ```
+
+::: {.walk-say}
+Calculate the average effect size separately for each study design.
+:::
 :::
 
 ::: {.walk-out}
 
 ::: {.fragment fragment-index=0 lines="1"}
+::: {.say}
+Start with the data: one row per effect size.
+:::
+
 ```{r}
 #| echo: false
 agadullina2018_tbl
@@ -574,6 +611,10 @@ agadullina2018_tbl
 :::
 
 ::: {.fragment fragment-index=1 lines="1-2"}
+::: {.say}
+`group_by(design)` sorts the rows into groups, one per design. The data look the same: only the "Groups" line in the output shows that something changed.
+:::
+
 ```{r}
 #| echo: false
 agadullina2018_tbl |>
@@ -582,6 +623,10 @@ group_by(design)
 :::
 
 ::: {.fragment fragment-index=2 lines="1-3"}
+::: {.say}
+`summarise()` collapses each group into one row and computes the mean of `yi` within it. Cross-sectional studies average 0.468, experiments 0.111.
+:::
+
 ```{r}
 #| echo: false
 agadullina2018_tbl |>
@@ -594,11 +639,11 @@ summarise(yi = mean(yi))
 ::::
 
 ::: {.source-note}
-Q8 is the same without line 2: one row for all 85 effect sizes. After line 2 nothing changes except the "Groups" line in the output.
+Q8 is the same without line 2: one row, the mean of all 85 effect sizes.
 :::
 
 ::: {.notes}
-Each click highlights the next step of the code and shows the result up to that step.
+Each click highlights the next step of the code, shows the result up to that step, and explains it below the code.
 :::
 
 ## Part 1: results
@@ -854,6 +899,7 @@ Timing: 22 minutes. Click the timer (or press T) to start it.
 
 
 
+
 ## Solutions: Part 2 · Q1–2 {.solution}
 
 :::: {.walk}
@@ -866,11 +912,19 @@ lifeexp <- read_csv("wb-life-exp.csv") |>
 pull(lifeexp, country_name) |>
   head(12)
 ```
+
+::: {.walk-say}
+Load the World Bank file, give the first column a usable name, and check which rows it contains.
+:::
 :::
 
 ::: {.walk-out}
 
 ::: {.fragment fragment-index=0 lines="1"}
+::: {.say}
+`read_csv()` reads the file into a tibble. The first column is called `Country Name`, with a space, which is awkward to use in code.
+:::
+
 ```{r}
 #| echo: false
 read_csv("wb-life-exp.csv")
@@ -878,6 +932,10 @@ read_csv("wb-life-exp.csv")
 :::
 
 ::: {.fragment fragment-index=1 lines="1-2"}
+::: {.say}
+`rename()` takes `new name = old column`; here the old column is given by its position, 1. `<-` saves the result as `lifeexp`.
+:::
+
 ```{r}
 #| echo: false
 lifeexp <- read_csv("wb-life-exp.csv") |>
@@ -887,6 +945,10 @@ lifeexp
 :::
 
 ::: {.fragment fragment-index=2 lines="4-5"}
+::: {.say}
+`pull()` extracts one column as a vector, and `head(12)` keeps the first 12 values. Some are regions, such as "Arab World": not every row is a country.
+:::
+
 ```{r}
 #| echo: false
 pull(lifeexp, country_name) |>
@@ -902,7 +964,7 @@ The path assumes the CSV sits next to the notebook. `head(12)` shortens the list
 :::
 
 ::: {.notes}
-Each click highlights the next step of the code and shows the result up to that step.
+Each click highlights the next step of the code, shows the result up to that step, and explains it below the code.
 :::
 
 ## Solutions: Part 2 · Q3–7 {.solution}
@@ -925,11 +987,19 @@ lifeexp |>
               values_from = lifeexp) |>
   gt()
 ```
+
+::: {.walk-say}
+Reshape the table from wide to long, keep four countries and three years, then present them as a table.
+:::
 :::
 
 ::: {.walk-out}
 
 ::: {.fragment fragment-index=0 lines="1-1"}
+::: {.say}
+The wide table: one row per country, one column per year.
+:::
+
 ```{r}
 #| echo: false
 lifeexp
@@ -937,6 +1007,10 @@ lifeexp
 :::
 
 ::: {.fragment fragment-index=1 lines="1-4"}
+::: {.say}
+`pivot_longer()` stacks every column except `country_name` into two columns: `year` holds the old column names, `lifeexp` the values. The table now has 17,358 rows, one per country and year.
+:::
+
 ```{r}
 #| echo: false
 lifeexp |>
@@ -947,6 +1021,10 @@ pivot_longer(-country_name,
 :::
 
 ::: {.fragment fragment-index=2 lines="1-6"}
+::: {.say}
+`mutate()` changes two columns: `parse_number()` turns `year` from text into a number, and `round()` keeps one decimal of life expectancy.
+:::
+
 ```{r}
 #| echo: false
 lifeexp |>
@@ -959,6 +1037,10 @@ mutate(year = parse_number(year),
 :::
 
 ::: {.fragment fragment-index=3 lines="1-9"}
+::: {.say}
+`filter()` keeps rows where the country is one of four names and the year is one of three. `%in%` checks whether each value is in the vector. 12 rows remain.
+:::
+
 ```{r}
 #| echo: false
 lifeexp |>
@@ -974,6 +1056,10 @@ filter(country_name %in% c("Burkina Faso",
 :::
 
 ::: {.fragment fragment-index=4 lines="1-12"}
+::: {.say}
+`pivot_wider()` does the opposite of `pivot_longer()`: one column per year again, so the result is easy to read. One row per country.
+:::
+
 ```{r}
 #| echo: false
 lifeexp |>
@@ -992,6 +1078,10 @@ pivot_wider(id_cols = country_name,
 :::
 
 ::: {.fragment fragment-index=5 lines="1-13"}
+::: {.say}
+`gt()` turns the tibble into a formatted table, ready for a report.
+:::
+
 ```{r}
 #| echo: false
 lifeexp |>
@@ -1018,7 +1108,7 @@ The completed notebook builds this pipeline one question at a time: Q3 pivot, Q4
 :::
 
 ::: {.notes}
-Each click highlights the next step of the code and shows the result up to that step.
+Each click highlights the next step of the code, shows the result up to that step, and explains it below the code.
 :::
 
 ## Part 2: results
@@ -1249,6 +1339,7 @@ Timing: 15 minutes. Click the timer (or press T) to start it.
 
 
 
+
 ## Solutions: Part 3 · Q3 {.solution}
 
 :::: {.walk}
@@ -1257,11 +1348,19 @@ Timing: 15 minutes. Click the timer (or press T) to start it.
 ```r
 map(split_data, colnames)
 ```
+
+::: {.walk-say}
+Apply the same function to each of the four data frames in the list.
+:::
 :::
 
 ::: {.walk-out}
 
 ::: {.fragment fragment-index=0 lines="1"}
+::: {.say}
+`map()` runs `colnames()` on each element of `split_data` and returns a list with one result per element. The pieces have different columns: only `author`, `yi` and `vi` appear in all four.
+:::
+
 ```{r}
 #| echo: false
 map(split_data, colnames)
@@ -1276,7 +1375,7 @@ Q2, `map(split_data, ~ head(.x, 5))`, prints the first five rows of each of the 
 :::
 
 ::: {.notes}
-Each click highlights the next step of the code and shows the result up to that step.
+Each click highlights the next step of the code, shows the result up to that step, and explains it below the code.
 :::
 
 ## Solutions: Part 3 · Q4–5 {.solution}
@@ -1293,11 +1392,19 @@ map(
 ) |>
   bind_rows(.id = "domain")
 ```
+
+::: {.walk-say}
+Keep the same three columns in every piece of the list, then stack the pieces into one table.
+:::
 :::
 
 ::: {.walk-out}
 
 ::: {.fragment fragment-index=0 lines="1-6"}
+::: {.say}
+For each piece, `.x` stands for that data frame: convert it to a tibble and keep three columns. The result is still a list of four tibbles.
+:::
+
 ```{r}
 #| echo: false
 local({
@@ -1314,6 +1421,10 @@ local({
 :::
 
 ::: {.fragment fragment-index=1 lines="1-7"}
+::: {.say}
+`bind_rows()` stacks the four tibbles into one table with 1,268 rows. `.id = "domain"` adds a column recording which piece each row came from.
+:::
+
 ```{r}
 #| echo: false
 map(
@@ -1334,7 +1445,7 @@ Q5: `map_dfr(split_data, ~ ..., .id = "domain")` returns the same tibble in one 
 :::
 
 ::: {.notes}
-Each click highlights the next step of the code and shows the result up to that step.
+Each click highlights the next step of the code, shows the result up to that step, and explains it below the code.
 :::
 
 ## Summary

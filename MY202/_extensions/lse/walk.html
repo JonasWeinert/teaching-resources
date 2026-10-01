@@ -3,6 +3,8 @@
 // Markup (see the .walk slides in the decks):
 //   .walk > .walk-code   one code block
 //         > .walk-out    one fragment per step, each with data-lines="1-3" (or "1,3-4")
+//                        and a hidden .say div explaining the step
+//   .walk-code > .walk-say   shows the current step's explanation (slide intro before the first click)
 // Each click shows the next output, highlights the lines that step adds and dims the rest.
 (function () {
   function parse(spec) {
@@ -26,6 +28,14 @@
       walk.querySelectorAll(".walk-out > .fragment").forEach(function (f) {
         f.classList.toggle("walk-current", f === current);
       });
+      // plain-language explanation under the code: the current step's, or the slide intro
+      var say = walk.querySelector(".walk-say");
+      if (say) {
+        if (say._intro === undefined) say._intro = say.innerHTML;
+        var text = current && current.querySelector(".say");
+        say.innerHTML = text ? text.innerHTML : say._intro;
+        say.classList.toggle("intro", !text);
+      }
       var on = current ? parse(current.dataset.lines) : null;
       var before = previous ? parse(previous.dataset.lines) : [];
       lines.forEach(function (line, i) {

@@ -181,6 +181,11 @@
 .reveal .walk .walk-code code > span.dim { opacity: 0.35; }
 .reveal .walk .walk-code code > span.hl { background: #F9D9DD; box-shadow: -0.9em 0 0 #F9D9DD; }
 .walk-out { display: grid; }
+.walk-out .say { display: none; }
+.walk-say { margin-top: 14px; background: var(--pale); border-left: 4px solid var(--blue); border-radius: 0 8px 8px 0; padding: 10px 14px; font-size: 0.66em; line-height: 1.4; color: var(--ink); }
+.walk-say p { margin: 0; }
+.walk-say.intro { background: #fff; border: 2px solid var(--cyan); border-left-width: 4px; }
+.reveal .walk-say code { color: var(--blue); font-size: 0.95em; }
 .walk-out > .fragment { grid-area: 1 / 1; }
 .reveal .walk-out > .fragment.visible:not(.walk-current) { opacity: 0 !important; visibility: hidden; }
 .reveal .walk-out .cell-output pre { border-left-color: var(--cyan); background: #fff; }
