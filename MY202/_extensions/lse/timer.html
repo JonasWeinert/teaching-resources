@@ -1,0 +1,59 @@
+<script>
+// Countdown timers for coding slides.
+// <div class="timer" data-minutes="18"></div>
+// Click (or press T on the slide) to start / pause. Double-click to reset.
+// Timers keep running when you move to another slide.
+(function () {
+  function fmt(s) {
+    var m = Math.floor(s / 60), r = s % 60;
+    return m + ":" + (r < 10 ? "0" : "") + r;
+  }
+
+  function setup(el) {
+    var total = Math.round(parseFloat(el.dataset.minutes || "10") * 60);
+    var left = total, tick = null, endAt = null;
+    el.innerHTML = '<span class="t-time"></span><span class="t-hint"></span><span class="t-bar"></span>';
+    var tTime = el.querySelector(".t-time"), tHint = el.querySelector(".t-hint"), tBar = el.querySelector(".t-bar");
+
+    function draw() {
+      tTime.textContent = left > 0 ? fmt(left) : "0:00";
+      tBar.style.width = (100 * left / total) + "%";
+      el.classList.remove("idle", "paused", "warn", "done");
+      if (left <= 0) { el.classList.add("done"); tHint.textContent = "time's up"; }
+      else if (!tick && left === total) { el.classList.add("idle"); tHint.textContent = "click to start"; }
+      else if (!tick) { el.classList.add("paused"); tHint.textContent = "paused"; }
+      else { if (left <= 120) el.classList.add("warn"); tHint.textContent = left <= 120 ? "wrap up" : "minutes left"; }
+    }
+    function step() {
+      left = Math.max(0, Math.round((endAt - Date.now()) / 1000));
+      if (left <= 0) { clearInterval(tick); tick = null; }
+      draw();
+    }
+    function toggle() {
+      if (left <= 0) return;
+      if (tick) { clearInterval(tick); tick = null; draw(); }
+      else { endAt = Date.now() + left * 1000; tick = setInterval(step, 250); draw(); }
+    }
+    function reset() { clearInterval(tick); tick = null; left = total; draw(); }
+
+    el.addEventListener("click", function (e) { e.stopPropagation(); toggle(); });
+    el.addEventListener("dblclick", function (e) { e.stopPropagation(); reset(); });
+    el._toggle = toggle;
+    draw();
+  }
+
+  function init() {
+    document.querySelectorAll(".timer[data-minutes]").forEach(setup);
+    if (window.Reveal && Reveal.addKeyBinding) {
+      Reveal.addKeyBinding({ keyCode: 84, key: "T", description: "Start / pause timer" }, function () {
+        var t = Reveal.getCurrentSlide().querySelector(".timer");
+        if (t && t._toggle) t._toggle();
+      });
+    }
+  }
+
+  if (window.Reveal && Reveal.isReady && Reveal.isReady()) init();
+  else if (window.Reveal) Reveal.on("ready", init);
+  else document.addEventListener("DOMContentLoaded", init);
+})();
+</script>

@@ -1,0 +1,808 @@
+---
+title: "Working with Data in the Tidyverse"
+subtitle: "MY202 · Lab 1"
+author: "Jonas Weinert"
+institute: "London School of Economics and Political Science"
+date: today
+date-format: "D MMMM YYYY"
+footer: "MY202 · Lab 1 · Tidyverse"
+
+format:
+  lse-revealjs:
+    embed-resources: true
+---
+
+## Lab overview
+
+| Part | Topic | Functions | Data | Time |
+|---|---|---|---|---|
+| 1 | Summarising data | `count`, `mutate`, `group_by`, `summarise` | `agadullina2018`: 85 effect sizes, out-group entitativity and prejudice | 25 min |
+| 2 | Tidy data and reshaping | `pivot_longer`, `pivot_wider` | World Bank life expectancy, 1960–2024 | 32 min |
+| 3 | Iteration | `map`, `bind_rows` | `maldonado2020`: 1,268 effect sizes, age and executive functioning | 23 min |
+
+Each part: a short demonstration, then exercises in the notebook.
+
+::: {.notes}
+Timing: welcome and setup, 5 minutes in total, including the next slide.
+
+- Welcome. The aim today is to get fluent with the handful of verbs that make up about 80% of everyday data work in R.
+- Each block has the same rhythm: about 6 minutes of me showing you an idea, then about 20 minutes of you working through the notebook in pairs.
+- The completed notebook is released after class, so there's no need to copy everything down.
+:::
+
+## Setup
+
+:::: {.columns}
+
+::: {.column width="55%"}
+```r
+library("ggsci")
+library("gt")
+library("psymetadata")
+library("tidyverse")
+```
+
+The **Functions Used** table at the top of the notebook is your reference sheet for today.
+:::
+
+::: {.column width="45%"}
+::: {.card .line}
+[Missing package]{.ct}
+`install.packages("psymetadata")`, then run the chunk again
+:::
+
+::: {.card}
+[Conflict messages]{.ct}
+`tidyverse` reports functions it masks, such as `filter()`. These can be ignored.
+:::
+:::
+
+::::
+
+::: {.notes}
+- Open the student notebook now and run the setup chunk. If a package is missing, put your hand up straight away rather than at minute 40.
+- psymetadata is the package most likely to be missing on lab machines.
+:::
+
+# Part 1 · dplyr verbs {background-color="#E2001A"}
+
+## Inspecting a data set
+
+```{=html}
+<div class="tracker"><span class="done">Setup</span><span class="on">1 · dplyr</span><span>2 · tidyr</span><span>3 · purrr</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns}
+
+::: {.column width="52%"}
+```r
+?agadullina2018          # documentation
+class(agadullina2018)    # "data.frame"
+
+agadullina2018_tbl <- as_tibble(agadullina2018)
+agadullina2018_tbl       # prints 10 rows + types
+glimpse(agadullina2018_tbl)
+```
+:::
+
+::: {.column width="48%"}
+::: {.card}
+[Data]{.ct}
+A meta-analysis: **85 effect sizes** from 21 studies on out-group entitativity and prejudice
+:::
+
+::: {.card .line}
+[Key variables]{.ct}
+`yi` is the effect size (Fisher's z), `vi` is its variance
+:::
+:::
+
+::::
+
+::: {.source-note}
+Exam tip: never print a whole data frame. Use the tibble print or `glimpse()`.
+:::
+
+::: {.notes}
+Timing: teaching moment 1 is about 7 minutes across this slide and the next three. Live-code it if you can.
+
+- The first thing to do with any new dataset is to find out what it is: `?` gives the documentation, and `class()` gives the type.
+- Each row is an effect size from a published study. `yi` is the effect size and `vi` its variance.
+- Tibbles are data frames with better manners: they print only the first rows, show column types, and never silently convert strings.
+:::
+
+## The pipe operator `|>`
+
+```{=html}
+<div class="tracker"><span class="done">Setup</span><span class="on">1 · dplyr</span><span>2 · tidyr</span><span>3 · purrr</span><span>Wrap-up</span></div>
+```
+
+::: {.cards .c2}
+::: {.card .line}
+[Nested]{.ct}
+
+```r
+mutate(count(agadullina2018_tbl, design),
+       pct = n / sum(n) * 100)
+```
+
+<span class="foot">Read from the inside out</span>
+:::
+
+::: {.card}
+[Piped]{.ct}
+
+```r
+agadullina2018_tbl |>
+  count(design) |>
+  mutate(pct = n / sum(n) * 100)
+```
+
+<span class="foot">Read top to bottom: each step passes its result to the next</span>
+:::
+:::
+
+::: {.source-note}
+Keyboard shortcut: Ctrl + Shift + M (Windows), Cmd + Shift + M (Mac).
+:::
+
+::: {.notes}
+- The pipe takes what's on the left and feeds it in as the first argument on the right.
+- With one step it makes no difference. With three or more, it lets you read code like a recipe.
+- We use the native `|>`. You'll see `%>%` online; for today they do the same thing. If the shortcut gives `%>%`, tick "Use native pipe operator" in RStudio's Global Options under Code.
+:::
+
+## Core `dplyr` verbs
+
+```{=html}
+<div class="tracker"><span class="done">Setup</span><span class="on">1 · dplyr</span><span>2 · tidyr</span><span>3 · purrr</span><span>Wrap-up</span></div>
+```
+
+::: {.cards .c5}
+::: {.card}
+[count]{.ct}
+How often does each value appear?
+
+<span class="foot">`count(design)`</span>
+:::
+
+::: {.card}
+[mutate]{.ct}
+Add or change a column
+
+<span class="foot">`mutate(pct = ...)`</span>
+:::
+
+::: {.card}
+[summarise]{.ct}
+Collapse many rows into one
+
+<span class="foot">`summarise(yi = mean(yi))`</span>
+:::
+
+::: {.card .dark}
+[group_by]{.ct}
+Do the next step once per group
+
+<span class="foot">`group_by(design)`</span>
+:::
+
+::: {.card}
+[filter · select]{.ct}
+Keep some rows · keep some columns
+
+<span class="foot">`filter(n > 100)`</span>
+:::
+:::
+
+Each verb takes a data frame as its first argument and returns a data frame.
+
+## Grouped summaries with `group_by()`
+
+```{=html}
+<div class="tracker"><span class="done">Setup</span><span class="on">1 · dplyr</span><span>2 · tidyr</span><span>3 · purrr</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns}
+
+::: {.column width="50%"}
+```r
+agadullina2018_tbl |>
+  summarise(yi = mean(yi))
+```
+
+```{=html}
+<table class="mini"><tr><th>yi</th></tr><tr><td class="hl">0.409</td></tr></table>
+<p class="tbl-cap">One row <small>for the whole data set</small></p>
+```
+:::
+
+::: {.column width="50%"}
+```r
+agadullina2018_tbl |>
+  group_by(design) |>
+  summarise(yi = mean(yi))
+```
+
+```{=html}
+<table class="mini"><tr><th>design</th><th>yi</th></tr><tr><td>Cross-sectional</td><td class="hl">0.468</td></tr><tr><td>Experiment</td><td class="hl">0.111</td></tr></table>
+<p class="tbl-cap">One row per group <small>same code, one extra line</small></p>
+```
+:::
+
+::::
+
+::: {.notes}
+- Demonstrate live: `summarise` gives one number. Add `group_by(design)` before it and you get one number per design.
+- Key idea: `group_by` changes nothing visible on its own. It changes how the *next* verb behaves.
+- Hand over: "Work through Part 1 in pairs. You have 18 minutes. The timer is on the next slide."
+:::
+
+## Exercises: Part 1 {.yourturn}
+
+```{=html}
+<div class="timer" data-minutes="18"></div>
+```
+
+:::: {.yt}
+
+::: {.tasks}
+[Part 1 · notebook Q1–11]{.lbl}
+
+1. `?agadullina2018`: read the documentation
+2. `class()`: what kind of object is it?
+3. Print it (just this once)
+4. `as_tibble()` with a new name, then print
+5. `count()` the frequencies of `design`
+6. Rewrite step 5 with a pipe `|>`
+7. Pipe into `mutate()`: add a percentage column
+8. `summarise()` the mean of `yi`
+9. Add `group_by(design)` before `summarise()`
+10. What have we found out?
+:::
+
+::: {.cheat}
+[Syntax you need]{.lbl}
+
+```r
+df_tbl <- as_tibble(df)          # assign with <-
+
+df_tbl |>
+  count(design) |>               # n per group
+  mutate(pct = n / sum(n) * 100) # new column
+
+df_tbl |>
+  group_by(design) |>            # per group...
+  summarise(yi = mean(yi))       # ...one row each
+```
+
+::: {.stuck}
+**Stuck?**
+
+- *object not found*: did you run the line with `<-`?
+- *could not find function*: run the setup chunk
+- Only one row? You forgot `group_by()`
+- Done early? Try `glimpse()`, or `filter(n > 200)` first
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 18 minutes. Click the timer (or press T) to start it.
+
+- Circulate. Common problems: forgetting to assign the tibble; `summarise` returning one row because `group_by` was left out; typing `|>` by hand with a space in between.
+- Notebook numbering skips Q5, so the 10 tasks on this slide match notebook questions 1–4 and 6–11.
+- At about 2 minutes left, the timer turns dark red: give a verbal 2-minute warning.
+:::
+
+## Part 1: results
+
+```{=html}
+<div class="tracker"><span class="done">Setup</span><span class="on">1 · dplyr</span><span>2 · tidyr</span><span>3 · purrr</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns}
+
+::: {.column width="50%"}
+```{=html}
+<p class="tbl-cap">How many effect sizes per design?</p>
+<div class="bars">
+  <div><span>Cross-sectional</span><i class="hot" style="width:84%"></i><b>71 · 84%</b></div>
+  <div><span>Experiment</span><i style="width:16%"></i><b>14 · 16%</b></div>
+</div>
+<p class="tbl-cap" style="margin-top:1.2em">Mean effect size (<code>yi</code>)</p>
+<div class="bars">
+  <div><span>Cross-sectional</span><i class="hot" style="width:94%"></i><b>0.468</b></div>
+  <div><span>Experiment</span><i style="width:22%"></i><b>0.111</b></div>
+</div>
+```
+:::
+
+::: {.column width="50%"}
+::: {.card}
+[Result]{.ct}
+84% of effect sizes come from cross-sectional designs, which report a larger mean effect than experiments (0.468 vs 0.111)
+:::
+
+::: {.card .line}
+[Caveat]{.ct}
+An unweighted mean gives every effect size equal weight. Meta-analytic estimates weight by precision (`vi`), covered later in the course.
+:::
+:::
+
+::::
+
+::: {.notes}
+Debrief, 2–3 minutes.
+
+- Ask 2–3 pairs: which design has the larger average effect? Why might correlational designs show bigger effects than experiments?
+- Is a simple mean of `yi` the right summary? No, because it ignores precision. This is a hook for later weeks.
+:::
+
+# Part 2 · Tidy data with tidyr {background-color="#E2001A"}
+
+## Tidy data
+
+```{=html}
+<div class="tracker"><span class="done">Setup</span><span class="done">1 · dplyr</span><span class="on">2 · tidyr</span><span>3 · purrr</span><span>Wrap-up</span></div>
+```
+
+::: {.cards .c3}
+::: {.card}
+[1 · Variables are columns]{.ct}
+Country, year and life expectancy each get their own column
+:::
+
+::: {.card}
+[2 · Observations are rows]{.ct}
+One row = one country in one year
+:::
+
+::: {.card}
+[3 · Values are cells]{.ct}
+One number per cell, nothing hidden in the headers
+:::
+:::
+
+Most tidyverse functions expect data in this format.
+
+::: {.notes}
+Timing: teaching moment 2 is about 7 minutes across this slide and the next three.
+
+- The World Bank file is a classic example of "human-friendly" data: easy to read, hard to analyse.
+- Tidy data is the format that `filter`, `group_by` and `ggplot` expect.
+:::
+
+## Wide and long formats
+
+```{=html}
+<div class="tracker"><span class="done">Setup</span><span class="done">1 · dplyr</span><span class="on">2 · tidyr</span><span>3 · purrr</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns}
+
+::: {.column width="48%"}
+```{=html}
+<p class="tbl-cap">Wide <small>263 rows × 67 columns</small></p>
+<table class="mini">
+<tr><th>country_name</th><th class="hl">1970</th><th class="hl">1990</th><th class="hl">2010</th><th>…</th></tr>
+<tr><td>Burkina Faso</td><td>39.5</td><td>49.3</td><td>56.3</td><td>…</td></tr>
+<tr><td>Honduras</td><td>54.4</td><td>65.2</td><td>69.8</td><td>…</td></tr>
+<tr><td>Niger</td><td>35.9</td><td>41.7</td><td>57.1</td><td>…</td></tr>
+</table>
+```
+
+::: {.card .err .compact}
+**Year** is a variable, but it's stuck in the headers. You can't `filter(year == 1990)`.
+:::
+:::
+
+::: {.column width="52%"}
+```{=html}
+<p class="tbl-cap">Long (tidy) <small>17,358 rows × 3 columns</small></p>
+<table class="mini">
+<tr><th>country_name</th><th class="hl">year</th><th>lifeexp</th></tr>
+<tr><td>Burkina Faso</td><td class="hl">1970</td><td>39.5</td></tr>
+<tr><td>Burkina Faso</td><td class="hl">1990</td><td>49.3</td></tr>
+<tr><td>Burkina Faso</td><td class="hl">2010</td><td>56.3</td></tr>
+<tr><td>Honduras</td><td class="hl">1970</td><td>54.4</td></tr>
+<tr><td>…</td><td>…</td><td>…</td></tr>
+</table>
+```
+:::
+
+::::
+
+Wide format suits presentation tables; long format suits analysis.
+
+::: {.notes}
+- One row per country, one column per year. Year is a variable, but here it's hidden in the column names.
+- Long format has one row per country-year, so you can filter by year, group by year, or plot over time.
+:::
+
+## Reshaping with `pivot_longer()` and `pivot_wider()`
+
+```{=html}
+<div class="tracker"><span class="done">Setup</span><span class="done">1 · dplyr</span><span class="on">2 · tidyr</span><span>3 · purrr</span><span>Wrap-up</span></div>
+```
+
+```r
+lifeexp |>
+  pivot_longer(-country_name,          # 1. which columns to stack? all but country
+               names_to  = "year",     # 2. where do the old headers go?
+               values_to = "lifeexp") |>  # 3. where do the numbers go?
+  mutate(year = parse_number(year))    # "1970" (text) -> 1970 (number)
+```
+
+::: {.cards .c2}
+::: {.card}
+[`pivot_longer()`]{.ct}
+Wide → long, for analysis
+:::
+
+::: {.card .dark}
+[`pivot_wider()`]{.ct}
+Long → wide, for a results table: `names_from = year, values_from = lifeexp`
+:::
+:::
+
+::: {.notes}
+- `pivot_longer` asks three questions: which columns get stacked (everything except the country), where the old column names go, and where the values go.
+- After pivoting, `year` is text ("1960"). `parse_number()` turns it into a number.
+- `pivot_wider` reverses it.
+:::
+
+## Data quality issues in the World Bank file
+
+```{=html}
+<div class="tracker"><span class="done">Setup</span><span class="done">1 · dplyr</span><span class="on">2 · tidyr</span><span>3 · purrr</span><span>Wrap-up</span></div>
+```
+
+::: {.cards .c2}
+::: {.card .err}
+[Aggregates]{.ct}
+
+About 46 rows are regional or income-group **aggregates** ("World", "High income", "Euro area").
+
+<span class="foot">Exclude them before averaging across countries.</span>
+:::
+
+::: {.card .err}
+[Empty column]{.ct}
+
+The file has a `2025` column with no values, so pivoting creates **263 rows of `NA`**.
+
+<span class="foot">Remove with `drop_na()` or `values_drop_na = TRUE`.</span>
+:::
+:::
+
+::: {.notes}
+- When you `pull(country_name)`, scroll through the list. Not every row is a country.
+- The final year column is empty. Notice what `pivot_longer` does with it.
+- Hand over: "Part 2, 25 minutes. Pick four countries you find interesting."
+:::
+
+## Exercises: Part 2 {.yourturn}
+
+```{=html}
+<div class="timer" data-minutes="25"></div>
+```
+
+:::: {.yt}
+
+::: {.tasks}
+[Part 2 · notebook Q1–8]{.lbl}
+
+1. `read_csv()` the file, `rename()` column 1 to `country_name`
+2. `pull()` the countries: spot the non-countries
+3. `pivot_longer()` everything except `country_name`
+4. `parse_number()` the `year` column
+5. `filter()` four countries in 1970, 1990, 2010
+6. `pivot_wider()` back to one column per year
+7. `gt()` it into a formatted table
+8. What have you found out?
+:::
+
+::: {.cheat}
+[Syntax you need]{.lbl}
+
+```r
+lifeexp <- read_csv("data/wb-life-exp.csv") |>
+  rename(country_name = 1)
+
+lifeexp |>
+  pivot_longer(-country_name, names_to = "year",
+               values_to = "lifeexp") |>
+  mutate(year = parse_number(year)) |>
+  filter(country_name %in% c("Niger", "Honduras"),
+         year %in% c(1970, 1990, 2010)) |>
+  pivot_wider(names_from = year,
+              values_from = lifeexp) |>
+  gt()
+```
+
+::: {.stuck}
+**Stuck?**
+
+- *does not exist in current working directory*: check the path. Is the CSV in a `data/` folder?
+- Use `%in%` with a vector, not `==`
+- A country returns nothing? Copy its exact spelling from `pull()`
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 25 minutes. Click the timer (or press T) to start it.
+
+- Known issue: the notebook reads from `data/wb-life-exp.csv`. If the CSV sits next to the notebook, students need `read_csv("wb-life-exp.csv")`.
+- Common errors: `==` with a vector of countries silently recycles and returns the wrong rows; country names that don't match exactly.
+- Fast finishers: plot the four countries with `ggplot()` and `ggsci::scale_color_npg()`, or round with `mutate(lifeexp = round(lifeexp, 1))`.
+:::
+
+## Part 2: results
+
+```{=html}
+<div class="tracker"><span class="done">Setup</span><span class="done">1 · dplyr</span><span class="on">2 · tidyr</span><span>3 · purrr</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns}
+
+::: {.column width="52%"}
+```{=html}
+<table class="mini" style="font-size:0.8em">
+<tr><th>country_name</th><th>1970</th><th>1990</th><th>2010</th><th class="hl">gain</th></tr>
+<tr><td>Niger</td><td>35.9</td><td>41.7</td><td>57.1</td><td class="hl">+21.2</td></tr>
+<tr><td>Burkina Faso</td><td>39.5</td><td>49.3</td><td>56.3</td><td class="hl">+16.8</td></tr>
+<tr><td>Honduras</td><td>54.4</td><td>65.2</td><td>69.8</td><td class="hl">+15.4</td></tr>
+<tr><td>Suriname</td><td>59.5</td><td>62.1</td><td>69.6</td><td class="hl">+10.1</td></tr>
+</table>
+<p class="source-note">Life expectancy at birth, years. Source: World Bank, <code>wb-life-exp.csv</code>.</p>
+```
+:::
+
+::: {.column width="48%"}
+::: {.card}
+[Workflow]{.ct}
+read → rename → pivot longer → parse → filter → pivot wider → table
+:::
+
+::: {.card .line}
+[Result]{.ct}
+Niger shows the largest gain (+21.2 years); most of it occurred after 1990
+:::
+:::
+
+::::
+
+::: {.notes}
+Debrief, 2–3 minutes.
+
+- Ask: which countries did you pick? Who found the biggest gain, or a dip (conflict, HIV/AIDS era)?
+- Point out the full pipeline. That's the shape of most of the analysis work they'll do in this course.
+:::
+
+# Part 3 · Iteration with purrr {background-color="#E2001A"}
+
+## Data stored as a list
+
+```{=html}
+<div class="tracker"><span class="done">Setup</span><span class="done">1 · dplyr</span><span class="done">2 · tidyr</span><span class="on">3 · purrr</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="listlbl"><code>split_data</code>: a list of 4 data frames, one per cognitive domain</p>
+<div class="listbox">
+  <div class="df"><b>289</b>inhibition</div>
+  <div class="df"><b>270</b>processing speed</div>
+  <div class="df"><b>208</b>shifting</div>
+  <div class="df"><b>501</b>updating</div>
+</div>
+```
+
+::: {.cards .c2}
+::: {.card}
+[Data]{.ct}
+1,268 effect sizes from 431 studies on age differences in executive functioning
+:::
+
+::: {.card .line}
+[Common examples]{.ct}
+One file per year, one sheet per region, one table per survey wave
+:::
+:::
+
+::: {.notes}
+Timing: teaching moment 3 is about 6 minutes across this slide and the next two.
+
+- Sometimes your data arrives in pieces. Copy-pasting the same code four times is error-prone.
+- The code that builds `split_data` is deliberately advanced: they don't need to understand it today, only run it.
+:::
+
+## Iterating with `map()`
+
+```{=html}
+<div class="tracker"><span class="done">Setup</span><span class="done">1 · dplyr</span><span class="done">2 · tidyr</span><span class="on">3 · purrr</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<div class="flow">
+  <div class="step ai"><b>A list</b><small>4 data frames</small></div><span class="arrow">→</span>
+  <div class="step you"><b><code>map(list, f)</code></b><small>apply f to each element</small></div><span class="arrow">→</span>
+  <div class="step ai"><b>A list</b><small>4 results</small></div>
+</div>
+```
+
+::: {.cards .c2}
+::: {.card}
+[A function by name]{.ct}
+
+```r
+map(split_data, colnames)
+```
+:::
+
+::: {.card}
+[Your own steps, with `~` and `.x`]{.ct}
+
+```r
+map(split_data, ~ select(.x, author, yi, vi))
+```
+:::
+:::
+
+`.x` refers to the current list element.
+
+::: {.notes}
+- `map()` applies one function to every element and gives back a list of the same length.
+- Two ways to write the function: a plain name, or a formula with `~` where `.x` stands for the current element.
+:::
+
+## Combining results with `bind_rows()`
+
+```{=html}
+<div class="tracker"><span class="done">Setup</span><span class="done">1 · dplyr</span><span class="done">2 · tidyr</span><span class="on">3 · purrr</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns}
+
+::: {.column width="50%"}
+**Two steps**
+
+```r
+map(split_data,
+    ~ .x |>
+      as_tibble() |>
+      select(author, yi, vi)) |>
+  bind_rows(.id = "domain")
+```
+:::
+
+::: {.column width="50%"}
+**One step**
+
+```r
+map_dfr(split_data,
+        ~ .x |>
+          as_tibble() |>
+          select(author, yi, vi),
+        .id = "domain")
+```
+:::
+
+::::
+
+::: {.cards .c2}
+::: {.card .dark}
+[`.id = "domain"`]{.ct}
+Adds a column saying which piece each row came from
+:::
+
+::: {.card .line}
+[Newer purrr]{.ct}
+`map_dfr()` is superseded by `map() |> list_rbind()`, but you'll still see it everywhere
+:::
+:::
+
+::: {.notes}
+- `bind_rows` stacks the pieces. `.id` keeps track of where each row came from, so no information is lost.
+- Hand over: "Part 3, 17 minutes."
+:::
+
+## Exercises: Part 3 {.yourturn}
+
+```{=html}
+<div class="timer" data-minutes="17"></div>
+```
+
+:::: {.yt}
+
+::: {.tasks}
+[Part 3 · notebook Q1–5]{.lbl}
+
+1. Run the chunk that builds `split_data` (don't worry how it works)
+2. `map()` with `head(.x, 5)`: look at each piece
+3. `map()` with `colnames`, `as_tibble`, then `select()` four variables
+4. Combine 3. into one `map()` with a pipe inside
+5. `bind_rows(.id = "domain")` the result into one tibble
+6. Bonus: do steps 4 and 5 in one go with `map_dfr()`
+:::
+
+::: {.cheat}
+[Syntax you need]{.lbl}
+
+```r
+map(split_data, colnames)          # by name
+map(split_data, ~ head(.x, 5))     # .x = each piece
+
+map(split_data,
+    ~ .x |>
+      as_tibble() |>
+      select(author, yi, vi)) |>
+  bind_rows(.id = "domain")        # back to one table
+```
+
+::: {.stuck}
+**Stuck?**
+
+- *object '.x' not found*: you forgot the `~`
+- `select()` fails on one piece? Each piece has different columns. Check with `map(split_data, colnames)`
+- Lost track of the domain? Add `.id = "domain"`
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 17 minutes. Click the timer (or press T) to start it.
+
+- If short of time, set the `map_dfr` bonus as homework.
+- `select()` with a column that only exists in some pieces will fail: `task` is only in inhibition and shifting, `n1` only in the other two. `author`, `yi`, `vi` work everywhere.
+:::
+
+## Summary
+
+```{=html}
+<div class="tracker"><span class="done">Setup</span><span class="done">1 · dplyr</span><span class="done">2 · tidyr</span><span class="done">3 · purrr</span><span class="on">Wrap-up</span></div>
+```
+
+```{=html}
+<div class="checks" style="grid-template-columns:1fr">
+  <div><b>1</b><code>dplyr</code> verbs (<code>count</code>, <code>mutate</code>, <code>group_by</code>, <code>summarise</code>) chained with <code>|&gt;</code> cover most descriptive summaries</div>
+  <div><b>2</b>Tidy data has one variable per column and one observation per row; <code>pivot_longer()</code> and <code>pivot_wider()</code> convert between formats</div>
+  <div><b>3</b><code>map()</code> applies a function to each element of a list; <code>bind_rows()</code> combines the results</div>
+</div>
+```
+
+**Question:** is the data you plan to use for your own project in tidy format? If not, which rule does it break?
+
+::: {.notes}
+Wrap-up, 5 minutes.
+
+- Recap each part in one sentence.
+- Take 2–3 answers to the exit question, or collect them on sticky notes or in the chat.
+:::
+
+## Further reading {.closing}
+
+:::: {.columns}
+
+::: {.column width="60%"}
+- Finish any part you didn't get to. The completed notebook goes up after class.
+- Read **R for Data Science (2e)**: chapters on data transformation, data tidying and iteration
+- Keep the **dplyr** and **tidyr** cheat sheets open while you code
+:::
+
+::: {.column width="40%"}
+::: {.card .dark}
+[Week 2]{.ct}
+Topic to be confirmed
+:::
+:::
+
+::::
+
+::: {.notes}
+Fill in the Week 2 topic once it's set.
+:::

@@ -1,0 +1,9 @@
+# Local-only course materials (notebooks, data)
+notebooksanddata/
+
+# macOS
+.DS_Store
+
+# Local tooling and reference material from other work
+.claude/
+slidereference/
