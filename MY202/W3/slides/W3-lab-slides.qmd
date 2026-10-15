@@ -1,0 +1,2130 @@
+---
+title: "Linear Regression: our first algorithm"
+subtitle: "MY202 · Lab 3"
+author: "Jonas Weinert"
+institute:
+  - "Department of Methodology"
+  - "London School of Economics and Political Science"
+date: today
+date-format: "D MMMM YYYY"
+footer: "MY202 · Lab 3 · Linear regression"
+
+logos:
+  - "../../_extensions/lse/lse-logo.svg"
+
+format:
+  lse-revealjs:
+    embed-resources: true
+    fragments: true
+
+execute:
+  echo: true
+  message: false
+  warning: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+# Solution slides run the real code. The data lives next to the notebooks.
+library("ggsci")
+library("MASS")
+library("scales")
+library("tidymodels")
+library("tidyverse")
+library("patchwork")
+knitr::opts_knit$set(root.dir = "../notebooksanddata")
+options(width = 50, tibble.print_min = 4, tibble.print_max = 4, pillar.max_extra_cols = 4)
+
+# Theme functions from Lab 2, as in the notebook's setup chunk, with larger text for the screen
+theme_histogram <- function() {
+  theme_minimal(base_size = 15) +
+    theme(panel.grid.minor = element_blank(), panel.grid.major.x = element_blank())
+}
+theme_boxplot <- function() {
+  theme_minimal(base_size = 15) +
+    theme(panel.grid.minor = element_blank(), panel.grid.major.x = element_blank(), legend.position = "none")
+}
+theme_bar <- function() {
+  theme_minimal(base_size = 15) +
+    theme(panel.grid.minor = element_blank(), panel.grid.major.y = element_blank())
+}
+theme_scatter <- function() {
+  theme_minimal(base_size = 15) +
+    theme(panel.grid.minor = element_blank(), legend.position = "bottom")
+}
+red <- "#E2001A"; dark <- "#8C0014"; pink <- "#F28A94"; grey <- "#6B6B6B"
+```
+
+```{r}
+#| label: data
+#| include: false
+students <- read_csv("data/students-data-cleaned.csv")
+adv <- read_csv("advertising.csv")
+
+# Concept block: sales ~ TV
+ols <- linear_reg() |> fit(sales ~ TV, data = adv)
+b0 <- coef(ols$fit)[[1]]; b1 <- coef(ols$fit)[[2]]
+adv_aug <- augment(ols, new_data = adv)
+rss_ols <- sum(adv_aug$.resid^2)
+rss_mean <- sum((adv$sales - mean(adv$sales))^2)
+first <- adv_aug[1, ]
+
+# Lab: split, fit, lasso
+set.seed(123)
+students_split <- initial_split(students, prop = 0.75)
+students_train <- training(students_split)
+students_test <- testing(students_split)
+mv_model <- linear_reg() |> fit(final_grade ~ ., data = students_train)
+reg_metrics <- metric_set(rsq, rmse)
+lasso_model <-
+  linear_reg(penalty = 0.1, mixture = 1) |>
+  set_engine("glmnet") |>
+  fit(final_grade ~ ., data = students_train)
+
+# ---- Step-by-step visuals for the concept slides. Each helper draws the plot up to step k; the slide
+# ---- stacks one version per step, so every click adds one element to the picture.
+adv_base <- function(pts = TRUE) {
+  p <- ggplot(adv, aes(TV, sales)) +
+    coord_cartesian(xlim = c(0, 300), ylim = c(0, 28)) +
+    theme_scatter() +
+    labs(x = "TV advertising budget ($1,000s)", y = "Sales (1,000s of units)")
+  if (pts) p <- p + geom_point(alpha = 0.55, colour = grey)
+  p
+}
+lines3 <- tibble(line = c("A", "B", "C"), intercept = c(11, b0, 2), slope = c(0.02, b1, 0.08),
+                 col = c("#1F4E79", red, "#1D7A46"))
+line_step <- function(k) {
+  p <- adv_base()
+  if (k >= 2) {
+    p <- p +
+      geom_abline(data = lines3, aes(intercept = intercept, slope = slope, colour = line), linewidth = 1.2) +
+      annotate("label", x = 292, y = lines3$intercept + lines3$slope * 292, label = lines3$line,
+               colour = lines3$col, fontface = "bold", size = 5) +
+      scale_colour_manual(values = c(A = "#1F4E79", B = red, C = "#1D7A46"), guide = "none")
+  }
+  p
+}
+resid_step <- function(k) {
+  p <- adv_base(pts = FALSE)
+  if (k >= 5) p <- p + geom_segment(data = adv_aug, aes(xend = TV, yend = .pred), colour = pink, alpha = 0.7)
+  p <- p + geom_point(alpha = 0.55, colour = grey) +
+    geom_abline(intercept = b0, slope = b1, colour = red, linewidth = 1.2)
+  if (k >= 2) p <- p + geom_point(data = first, colour = dark, size = 4) +
+    annotate("label", x = first$TV, y = first$sales + 2.4, label = paste0("budget ", first$TV, ", sold ", first$sales),
+             colour = dark, fontface = "bold", size = 3.8)
+  if (k >= 3) p <- p + geom_point(data = first, aes(y = .pred), colour = red, size = 4, shape = 21, fill = "white", stroke = 1.5) +
+    annotate("label", x = first$TV, y = first$.pred - 2.4, label = paste0("line says ", sprintf("%.1f", first$.pred)),
+             colour = red, fontface = "bold", size = 3.8)
+  if (k >= 4) p <- p + geom_segment(data = first, aes(xend = TV, yend = .pred), colour = dark, linewidth = 1.6) +
+    annotate("label", x = first$TV - 8, y = (first$sales + first$.pred) / 2, label = paste0("residual = +", round(first$.resid, 1)),
+             hjust = 1, colour = dark, fontface = "bold", size = 3.8)
+  p
+}
+flat_step <- function(k) {
+  p <- adv_base(pts = FALSE)
+  if (k >= 2) p <- p + geom_segment(data = adv, aes(xend = TV, yend = mean(sales)), colour = pink, alpha = 0.6)
+  p + geom_point(alpha = 0.5, colour = grey, size = 1.2) +
+    geom_hline(yintercept = mean(adv$sales), colour = "#1F4E79", linewidth = 1.2) +
+    labs(x = "TV budget", y = "Sales")
+}
+cand <- tibble(slope = c(0.01, 0.07, 0.03, b1)) |>
+  mutate(intercept = mean(adv$sales) - slope * mean(adv$TV),
+         rss = map2_dbl(intercept, slope, ~ sum((adv$sales - (.x + .y * adv$TV))^2)),
+         lab = paste0("slope ", round(slope, 3), "\nRSS ", format(round(rss), big.mark = ",")),
+         best = slope == b1)
+bowl <- tibble(slope = seq(0, 0.1, by = 0.0005)) |>
+  mutate(intercept = mean(adv$sales) - slope * mean(adv$TV),
+         rss = map2_dbl(intercept, slope, ~ sum((adv$sales - (.x + .y * adv$TV))^2)))
+bowl_step <- function(k) {
+  c_k <- cand[seq_len(min(k, 4)), ]
+  cols <- scale_colour_manual(values = c(`TRUE` = red, `FALSE` = "#1F4E79"), guide = "none")
+  left <- ggplot(adv, aes(TV, sales)) +
+    geom_point(alpha = 0.35, colour = grey, size = 1.2) +
+    geom_abline(data = c_k, aes(intercept = intercept, slope = slope, colour = best), linewidth = 1.1) +
+    geom_label(data = c_k, aes(x = 2, y = intercept, label = lab, colour = best),
+               hjust = 0, size = 3.2, label.size = 0, fontface = "bold") +
+    cols + coord_cartesian(xlim = c(0, 300), ylim = c(0, 30)) + theme_scatter() + labs(x = "TV budget", y = "Sales")
+  right <- ggplot(bowl, aes(slope, rss)) +
+    (if (k >= 5) geom_line(colour = "#1F4E79", linewidth = 1.2)) +
+    geom_point(data = c_k, aes(colour = best), size = 3.5) +
+    (if (k >= 5) geom_vline(xintercept = b1, linetype = "dashed", colour = red)) +
+    (if (k >= 5) annotate("label", x = b1, y = max(bowl$rss) * 0.85, label = paste0("smallest RSS\nslope = ", round(b1, 4)),
+                          colour = red, fontface = "bold", size = 3.6)) +
+    cols + scale_y_continuous(labels = label_comma()) +
+    coord_cartesian(xlim = c(0, 0.1), ylim = range(bowl$rss)) + theme_scatter() + labs(x = "Slope of the line", y = "RSS")
+  left + right
+}
+r2_step <- function(k) {
+  p <- adv_base(pts = FALSE)
+  if (k == 1) {
+    p + geom_segment(data = adv, aes(xend = TV, yend = mean(sales)), colour = pink, alpha = 0.6) +
+      geom_point(alpha = 0.5, colour = grey, size = 1.2) +
+      geom_hline(yintercept = mean(adv$sales), colour = "#1F4E79", linewidth = 1.2) +
+      labs(title = paste0("Flat line: TSS = ", format(round(rss_mean), big.mark = ",")))
+  } else {
+    p + geom_segment(data = adv_aug, aes(xend = TV, yend = .pred), colour = pink, alpha = 0.6) +
+      geom_point(alpha = 0.5, colour = grey, size = 1.2) +
+      geom_abline(intercept = b0, slope = b1, colour = red, linewidth = 1.2) +
+      labs(title = paste0("Line B: RSS = ", format(round(rss_ols), big.mark = ",")))
+  }
+}
+dial <- map_dfr(c(0, 0.1, 1), function(p) {
+  linear_reg(penalty = p, mixture = 1) |>
+    set_engine("glmnet") |>
+    fit(final_grade ~ ., data = students_train) |>
+    tidy() |>
+    filter(term != "(Intercept)") |>
+    mutate(penalty = p)
+})
+dial_lab <- dial |>
+  group_by(penalty) |>
+  summarise(n = sum(estimate != 0)) |>
+  mutate(label = paste0("penalty = ", penalty, if_else(penalty == 0, " (OLS)", ""), "\n", n, " of 67 coefficients non-zero"))
+dial_step <- function(k) {
+  dial |>
+    left_join(dial_lab, by = "penalty") |>
+    mutate(label = factor(label, levels = dial_lab$label), term = fct_reorder(term, abs(estimate))) |>
+    filter(penalty <= c(0, 0.1, 1)[k]) |>
+    ggplot(aes(abs(estimate), term, fill = estimate == 0)) +
+    geom_col() +
+    facet_wrap(~ label, drop = FALSE) +
+    scale_fill_manual(values = c(`FALSE` = red, `TRUE` = grey), guide = "none") +
+    coord_cartesian(xlim = c(0, 2.2)) +
+    theme_bar() +
+    theme(axis.text.y = element_blank(), strip.text = element_text(face = "bold", size = 13)) +
+    labs(x = "Size of the coefficient", y = "One bar per coefficient (67)")
+}
+pen_step <- function(k) {
+  d <- tibble(beta = seq(-1.5, 1.5, by = 0.01)) |>
+    mutate(Lasso = abs(beta), Ridge = beta^2) |>
+    pivot_longer(-beta, names_to = "penalty", values_to = "cost")
+  if (k < 2) d <- filter(d, penalty == "Lasso")
+  ggplot(d, aes(beta, cost, colour = penalty)) +
+    geom_line(linewidth = 1.4) +
+    scale_colour_manual(values = c(Lasso = red, Ridge = "#1F4E79"), limits = c("Lasso", "Ridge"), drop = FALSE) +
+    annotate("label", x = 0, y = 1.45, label = "the kink: the push toward 0\nnever lets up", colour = red, size = 3.6, fontface = "bold") +
+    (if (k >= 2) annotate("label", x = 0, y = -0.2, label = "flat: the push fades to nothing", colour = "#1F4E79", size = 3.6, fontface = "bold")) +
+    coord_cartesian(ylim = c(-0.3, 1.6)) +
+    theme_scatter() +
+    labs(x = "A coefficient β", y = "Rent charged", colour = NULL)
+}
+```
+
+## Lab overview
+
+::: {.small-table}
+| Part | Topic | Functions | Mode | Time |
+|---|---|---|---|---|
+| | Welcome, setup chunk | | together | 2 min |
+| | Concept: three warm-up questions, then our first algorithm | `~`, `linear_reg()`, `fit()` | slides | 15 min |
+| 1 | Exploring the data | `ggplot`, `geom_histogram`, `geom_boxplot` | your turn | 12 min |
+| 2 | Hypothesis testing | `extract_fit_engine`, `summary`, `~ .` | together | 8 min |
+| 3 | The machine learning approach | `initial_split`, `training`, `testing`, `augment`, `metric_set` | together | 18 min |
+| 4 | Where do we make errors? | `.pred`, `.resid`, `geom_hline` | together | 8 min |
+| 5 | Lasso | `penalty`, `mixture`, `set_engine`, `tidy` | step 1 together, then your turn | 22 min |
+:::
+
+::: {.source-note}
+**Together**: we type the code line by line, the slide explains each piece, and a notebook line number says where to type. **Your turn**: a timer, tasks and a syntax sheet, then the solutions.
+:::
+
+::: {.notes}
+Timing (90 minutes): welcome 2, concept 15 (three warm-up questions, then the algorithm), Part 1 12, Part 2 8, Part 3 18, Part 4 8, Part 5 22, wrap-up 4; 1 minute spare. Checkpoints: Part 1 by 0:17, Part 2 by 0:29, Part 3 by 0:37, Part 4 by 0:55, Part 5 by 1:03, wrap-up by 1:25. If behind, skip in this order: the bonus sweep slide, the parameters slide (say it on the dial slide), running the simulated-data chunks in Part 4 (the plots are on the slides), then shorten the Part 5 timer to 8.
+
+- Last week you made plots. Today you make predictions. We meet the first algorithm of the course and the workflow we'll use for every model from now on: split, fit, evaluate.
+- Two data sets: a small advertising data set on the slides, to see the algorithm with one predictor, and the students data in the notebook, with 30 predictors.
+- Same rhythm as before: I show, you do, we go through the solutions.
+- Open the Week 3 notebook on Nuvolos and run the setup chunk now. The packages and the data are already there. tidymodels prints a long list of packages when it loads; that's normal.
+:::
+
+# Our first algorithm {.divider background-color="#8C0014"}
+
+::: {.kicker}
+Concept
+:::
+
+Three warm-up questions · what a model is · how a line is chosen · how we judge it
+
+## Warm-up 1 of 3
+
+```{=html}
+<div class="tracker"><span class="on">Concept</span><span>1 · EDA</span><span>2 · Hypothesis</span><span>3 · ML</span><span>4 · Residuals</span><span>5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+::: {.ask}
+A rule predicts a grade as **10 + 0.5 × hours of study**. A student studies 4 hours a week. What grade does the rule predict?
+:::
+
+```{=html}
+<div class="mcq">
+  <div class="opt"><b>A</b>10.5</div>
+  <div class="opt right"><b>B</b>12</div>
+  <div class="opt"><b>C</b>14</div>
+  <div class="opt"><b>D</b>I'm not sure how to read the rule</div>
+  <div class="fragment why"><b>B.</b> 10 + 0.5 × 4 = 10 + 2 = 12. Reading a rule like this is all the arithmetic we need today.</div>
+</div>
+```
+
+::: {.notes}
+Timing: the concept block is 15 minutes; the three warm-up questions take the first 3. Hands up for each option, then click to reveal. Don't explain beyond the one line on the slide; the concept block does that.
+
+- Gauge: if a good share pick A, C or D, go slowly through "What is a model?" and "The equation, piece by piece", and click through every arithmetic line. If nearly everyone says B, those two slides can be brisk.
+:::
+
+## Warm-up 2 of 3
+
+```{=html}
+<div class="tracker"><span class="on">Concept</span><span>1 · EDA</span><span>2 · Hypothesis</span><span>3 · ML</span><span>4 · Residuals</span><span>5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+::: {.ask}
+Linear regression draws a line through a cloud of points. How does it choose *which* line?
+:::
+
+```{=html}
+<div class="mcq">
+  <div class="opt"><b>A</b>The line that passes through the most points</div>
+  <div class="opt"><b>B</b>The line that makes the gaps between points and line add up to zero</div>
+  <div class="opt right"><b>C</b>The line that makes the squared gaps between points and line as small as possible</div>
+  <div class="opt"><b>D</b>I've never thought about it</div>
+  <div class="fragment why"><b>C.</b> Ordinary least squares: the smallest sum of squared residuals. B is a trap: the gaps add up to zero for many bad lines too. We build this from scratch in the next ten minutes.</div>
+</div>
+```
+
+::: {.notes}
+- Gauge: this is the core of the concept block. If most pick C and can say why, move faster through "Add them up?" and "the bowl" and spend the time on the equation and the code instead. If B or D dominate, take the full twelve minutes.
+:::
+
+## Warm-up 3 of 3
+
+```{=html}
+<div class="tracker"><span class="on">Concept</span><span>1 · EDA</span><span>2 · Hypothesis</span><span>3 · ML</span><span>4 · Residuals</span><span>5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+::: {.ask}
+A house-price model has R² = 0.65. What does that mean?
+:::
+
+```{=html}
+<div class="mcq">
+  <div class="opt"><b>A</b>65% of the model's predictions are correct</div>
+  <div class="opt right"><b>B</b>The features (such as floor area) explain 65% of the variation in house prices</div>
+  <div class="opt"><b>C</b>The model's error is 65% smaller than a perfect model's</div>
+  <div class="opt"><b>D</b>I haven't met R² before</div>
+  <div class="fragment why"><b>B.</b> R² is about variation, not about how many predictions are "right": a regression prediction is almost never exactly right. The remaining 35% is left in the residuals.</div>
+</div>
+```
+
+::: {.notes}
+- Gauge: R² and RMSE come up in every lab from now on. If most pick B, the two "How good is the line?" slides are a quick reminder. If A is popular (the classic misreading) or D, slow down there and keep the word "variation" in the room.
+- Three answers, three dials: arithmetic (slides 5 and 10), least squares (slides 6 to 9), fit measures (slides 11 and 12).
+:::
+
+## What is a model?
+
+```{=html}
+<div class="tracker"><span class="on">Concept</span><span>1 · EDA</span><span>2 · Hypothesis</span><span>3 · ML</span><span>4 · Residuals</span><span>5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="58%"}
+A model is a **rule** that turns inputs into a prediction. Made up for now: a grade from study hours and past failures.
+
+```{=html}
+<div class="calc sm">
+  <div class="hl"><span class="cl">The rule</span><span class="cx">grade = 10 + 0.5 × hours − 2 × failures</span></div>
+  <div class="fragment"><span class="cl">One student</span><span class="cx">6 hours a week, 1 past failure</span></div>
+  <div class="fragment"><span class="cl">Plug in</span><span class="cx">10 + 0.5 × 6 − 2 × 1 = 10 + 3 − 2</span></div>
+  <div class="fragment hl"><span class="cl">Prediction</span><span class="cx">= 11</span></div>
+  <div class="fragment"><span class="cl">Actual grade</span><span class="cx">13</span></div>
+  <div class="fragment hl"><span class="cl">Residual</span><span class="cx">13 − 11 = +2 <small>the rule guessed 2 points too low</small></span></div>
+</div>
+```
+:::
+
+::: {.column width="42%"}
+::: {.fragment}
+::: {.card .dark}
+[Where do 10, 0.5 and −2 come from?]{.ct}
+The numbers in the rule are its **coefficients**. Someone has to choose them.
+
+An **algorithm** is a recipe for choosing them from data. Today's: **ordinary least squares**, built from scratch in the next five slides.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: concept block, 12 minutes across this slide and the next ten. Click through the arithmetic one line at a time and ask the questions before showing the answers.
+
+- A model is nothing more than a rule. Numbers in, prediction out. I made this rule up; nobody has fitted anything yet.
+- One student, plug in, prediction 11, actual 13, residual +2. Make sure everyone can follow the arithmetic: nothing harder than this happens all day.
+- The numbers in the rule are the coefficients. Someone had to pick them. The recipe for picking them from data is the algorithm, and that is what we build now.
+- The notebook has the same idea written as an R function with three inputs; it isn't needed to follow the slides.
+:::
+
+## Which line is best?
+
+```{=html}
+<div class="tracker"><span class="on">Concept</span><span>1 · EDA</span><span>2 · Hypothesis</span><span>3 · ML</span><span>4 · Residuals</span><span>5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="60%"}
+::: {.r-stack}
+```{r}
+#| echo: false
+#| fig-width: 6
+#| fig-height: 3.6
+line_step(1)
+```
+
+::: {.fragment fragment-index=0}
+```{r}
+#| echo: false
+#| fig-width: 6
+#| fig-height: 3.6
+line_step(2)
+```
+:::
+:::
+:::
+
+::: {.column width="40%"}
+200 markets: what was spent on TV ads, and how much was sold. We want a line that predicts **sales** from a **budget**.
+
+::: {.fragment fragment-index=0}
+::: {.ask}
+Vote: A, B or C?
+:::
+:::
+
+::: {.fragment fragment-index=1}
+::: {.card .compact .dark}
+[The harder question]{.ct}
+Most pick B. But *why*? A computer can't choose a line without a **number** that says how wrong a line is.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+- First click: three candidate lines. Hands up for A, B, C. Most pick B.
+- Second click: the hard question. Why? What makes a line good? You need a score for a line, otherwise a computer can't choose. The next three slides build that score.
+:::
+
+## How wrong is a line? Residuals
+
+```{=html}
+<div class="tracker"><span class="on">Concept</span><span>1 · EDA</span><span>2 · Hypothesis</span><span>3 · ML</span><span>4 · Residuals</span><span>5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns}
+
+::: {.column width="58%"}
+::: {.r-stack}
+```{r}
+#| echo: false
+#| fig-width: 6
+#| fig-height: 3.7
+resid_step(1)
+```
+
+::: {.fragment fragment-index=1}
+```{r}
+#| echo: false
+#| fig-width: 6
+#| fig-height: 3.7
+resid_step(2)
+```
+:::
+
+::: {.fragment fragment-index=2}
+```{r}
+#| echo: false
+#| fig-width: 6
+#| fig-height: 3.7
+resid_step(3)
+```
+:::
+
+::: {.fragment fragment-index=3}
+```{r}
+#| echo: false
+#| fig-width: 6
+#| fig-height: 3.7
+resid_step(4)
+```
+:::
+
+::: {.fragment fragment-index=5}
+```{r}
+#| echo: false
+#| fig-width: 6
+#| fig-height: 3.7
+resid_step(5)
+```
+:::
+:::
+:::
+
+::: {.column width="42%"}
+```{=html}
+<div class="calc sm">
+  <div class="fragment" data-fragment-index="1"><span class="cl">One market</span><span class="cx">budget `r first$TV`, sold `r first$sales`</span></div>
+  <div class="fragment" data-fragment-index="2"><span class="cl">The line says</span><span class="cx">sales ≈ `r sprintf("%.1f", first$.pred)`</span></div>
+  <div class="fragment hl" data-fragment-index="3"><span class="cl">Residual</span><span class="cx">`r first$sales` − `r sprintf("%.1f", first$.pred)` = +`r round(first$.resid, 1)`</span></div>
+</div>
+```
+
+::: {.fragment fragment-index=4}
+::: {.card .compact}
+[Residual = actual − predicted]{.ct}
+Positive: the line guessed too low. Negative: too high.
+:::
+:::
+
+::: {.fragment fragment-index=5}
+::: {.card .compact .line}
+[200 markets, 200 residuals]{.ct}
+How do we turn 200 numbers into **one score** for the line?
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Each click adds one thing to the picture and one line to the arithmetic.
+
+- Line B on its own. Click: one market lights up, budget 230.1, sold 22.1. Click: where the line would put it, 18.0. Click: the gap between the two is the residual, +4.1.
+- Click: the definition and the sign. Click: all 200 residuals. 200 numbers. We need one. Ask the room how they'd combine them before moving on.
+:::
+
+## Add them up?
+
+```{=html}
+<div class="tracker"><span class="on">Concept</span><span>1 · EDA</span><span>2 · Hypothesis</span><span>3 · ML</span><span>4 · Residuals</span><span>5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+::: {.cards .c2}
+::: {.card .line}
+[Just add the residuals]{.ct}
+
+::: {.r-stack}
+```{r}
+#| echo: false
+#| fig-width: 5
+#| fig-height: 2.3
+flat_step(1)
+```
+
+::: {.fragment fragment-index=0}
+```{r}
+#| echo: false
+#| fig-width: 5
+#| fig-height: 2.3
+flat_step(2)
+```
+:::
+:::
+
+::: {.fragment fragment-index=0}
+A flat line at the average is clearly bad, yet its residuals add up to **exactly 0**: positives and negatives cancel.
+:::
+:::
+
+::: {.fragment fragment-index=1}
+::: {.card}
+[Square first, then add]{.ct}
+
+```{=html}
+<div class="calc sm">
+  <div><span class="cl">Market 1</span><span class="cx">`r sprintf("%+.1f", adv_aug$.resid[1])`&thinsp;² = `r round(adv_aug$.resid[1]^2, 1)`</span></div>
+  <div class="fragment" data-fragment-index="2"><span class="cl">Market 2</span><span class="cx">`r sprintf("%+.1f", adv_aug$.resid[2])`&thinsp;² = `r round(adv_aug$.resid[2]^2, 1)`</span></div>
+  <div class="fragment" data-fragment-index="3"><span class="cl">Market 5</span><span class="cx">`r sprintf("%+.1f", adv_aug$.resid[5])`&thinsp;² = `r round(adv_aug$.resid[5]^2, 1)` <small>negative, but its square is positive</small></span></div>
+  <div class="fragment hl" data-fragment-index="4"><span class="cl">All 200</span><span class="cx">RSS = `r format(round(rss_ols), big.mark = ",")` <small>residual sum of squares</small></span></div>
+</div>
+```
+
+::: {.fragment fragment-index=5}
+Flat line: `r format(round(rss_mean), big.mark = ",")`. Line B: `r format(round(rss_ols), big.mark = ",")`. **Lower is better**, and one miss of 4 now costs more than two misses of 2.
+:::
+:::
+:::
+:::
+
+::: {.notes}
+- Ask the room first. Someone says "add them". Click: the flat line's residuals appear; a terrible line scores zero, because the misses above and below cancel.
+- Fix: square each residual first. Click through three markets, then the total: the residual sum of squares, RSS. That's our score for a line. Lower is better.
+- Squaring also makes one big miss cost more than several small ones (16 against 8), which is usually what we want.
+:::
+
+## Try every line: the bowl {.nostretch}
+
+```{=html}
+<div class="tracker"><span class="on">Concept</span><span>1 · EDA</span><span>2 · Hypothesis</span><span>3 · ML</span><span>4 · Residuals</span><span>5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+::: {.r-stack}
+```{r}
+#| echo: false
+#| fig-width: 10.5
+#| fig-height: 3.3
+bowl_step(1)
+```
+
+::: {.fragment fragment-index=0}
+```{r}
+#| echo: false
+#| fig-width: 10.5
+#| fig-height: 3.3
+bowl_step(2)
+```
+:::
+
+::: {.fragment fragment-index=1}
+```{r}
+#| echo: false
+#| fig-width: 10.5
+#| fig-height: 3.3
+bowl_step(3)
+```
+:::
+
+::: {.fragment fragment-index=2}
+```{r}
+#| echo: false
+#| fig-width: 10.5
+#| fig-height: 3.3
+bowl_step(4)
+```
+:::
+
+::: {.fragment fragment-index=3}
+```{r}
+#| echo: false
+#| fig-width: 10.5
+#| fig-height: 3.3
+bowl_step(5)
+```
+:::
+:::
+
+::: {.cards .c2 style="margin-top:0.2em"}
+::: {.fragment fragment-index=3}
+::: {.card .compact .dark}
+[Ordinary least squares (OLS)]{.ct}
+The line with the **smallest sum of squared residuals**. That's the whole algorithm.
+:::
+:::
+::: {.fragment fragment-index=4}
+::: {.card .compact}
+[You don't have to try every line]{.ct}
+For linear models a formula jumps straight to the bottom of the bowl. Later models really do walk downhill.
+:::
+:::
+:::
+
+::: {.notes}
+Each click tries one more line on the left and adds its RSS as a dot on the right.
+
+- Too flat: RSS high. Too steep: high again. Closer: lower. The best one: lowest. Click: the full curve. A bowl. The bottom of the bowl is the best line.
+- That's the algorithm: least squares means the smallest sum of squared residuals.
+- For linear models there's a closed formula for the bottom, so nothing is actually tried. For other models later in the course the computer does walk downhill, step by step.
+:::
+
+## The equation, piece by piece
+
+```{=html}
+<div class="tracker"><span class="on">Concept</span><span>1 · EDA</span><span>2 · Hypothesis</span><span>3 · ML</span><span>4 · Residuals</span><span>5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+::: {.anatomy .eq}
+```{=html}
+<p class="anat-code"><span class="tok">ŷ</span> = <span class="tok">β₀</span> + <span class="tok">β₁</span> · <span class="tok">x</span></p>
+```
+
+1. **The prediction.** The hat means "our estimate", as opposed to the real *y*. Spoken "y-hat".
+2. **The intercept.** The prediction when *x* is 0.
+3. **The slope.** The change in the prediction when *x* goes up by **one unit**.
+4. **The feature.** The input we know. Also called predictor or independent variable.
+:::
+
+```{=html}
+<div class="calc sm">
+  <div><span class="cl">Fitted line</span><span class="cx">sales = `r round(b0, 2)` + `r round(b1, 4)` × TV <small>every extra $1,000 on TV adds about `r round(b1 * 1000)` units</small></span></div>
+  <div class="fragment"><span class="cl">Market 1</span><span class="cx">TV = `r first$TV`</span></div>
+  <div class="fragment"><span class="cl">Plug in</span><span class="cx">`r round(b0, 2)` + `r round(b1, 4)` × `r first$TV` = `r round(b0, 2)` + `r round(b1 * first$TV, 2)`</span></div>
+  <div class="fragment hl"><span class="cl">Prediction</span><span class="cx">ŷ = `r sprintf("%.1f", first$.pred)` <small>the "line says" number from three slides ago</small></span></div>
+</div>
+```
+
+::: {.notes}
+- Same thing in symbols. Greek letters are just names for the numbers the algorithm chooses; "beta" is the convention for coefficients.
+- Read the slope out loud: "for every one-unit increase in x, the prediction changes by beta-one". That sentence is the interpretation of every coefficient you'll ever see.
+- Hover a part to highlight its explanation.
+:::
+
+## More than one feature
+
+```{=html}
+<div class="tracker"><span class="on">Concept</span><span>1 · EDA</span><span>2 · Hypothesis</span><span>3 · ML</span><span>4 · Residuals</span><span>5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+::: {.anatomy .eq}
+```{=html}
+<p class="anat-code">ŷ = β₀ + <span class="tok">β₁ x₁</span> + <span class="tok">β₂ x₂</span> + … + <span class="tok">βₚ xₚ</span></p>
+```
+
+1. **One coefficient per feature.** Each β: the change in the prediction when *that* feature rises by 1, **with the others held fixed**.
+2. **Still a line**, just in more dimensions. Same squared residuals, same bowl, same bottom.
+3. ***p* features, *p* slopes.** Today: 30 columns, 67 coefficients.
+:::
+
+::: {.card .compact style="margin-top:0.5em"}
+[Why 67 coefficients from 30 features?]{.ct}
+Text columns become 0/1 columns: `higher` yes/no becomes `higheryes` (1 for yes). A feature with 4 categories gets 3 such columns, one for each category except the first, the **reference**.
+:::
+
+::: {.notes}
+- Adding features adds terms. Nothing else changes.
+- Text columns are turned into 0/1 columns automatically. "higheryes = 3.5" means students who want higher education score 3.5 points higher, other things equal.
+- The reference category is the one the others are compared with. It's the first level alphabetically unless you say otherwise.
+:::
+
+## How good is the line? R²
+
+```{=html}
+<div class="tracker"><span class="on">Concept</span><span>1 · EDA</span><span>2 · Hypothesis</span><span>3 · ML</span><span>4 · Residuals</span><span>5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+::: {.anatomy .eq}
+```{=html}
+<p class="anat-code"><span class="tok">R²</span> = 1 − <span class="tok">RSS</span> / <span class="tok">TSS</span></p>
+```
+
+1. **Share of the variation explained**: 0 is no better than the mean, 1 is a perfect fit.
+2. Squared residuals of **our** line.
+3. Squared residuals of the **flat line** at the mean.
+:::
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="50%"}
+::: {.r-stack}
+```{r}
+#| echo: false
+#| fig-width: 5
+#| fig-height: 2.1
+r2_step(1)
+```
+
+::: {.fragment fragment-index=0}
+```{r}
+#| echo: false
+#| fig-width: 5
+#| fig-height: 2.1
+r2_step(2)
+```
+:::
+:::
+:::
+
+::: {.column width="50%"}
+```{=html}
+<div class="calc sm">
+  <div><span class="cl">Flat line</span><span class="cx">TSS = `r format(round(rss_mean), big.mark = ",")`</span></div>
+  <div class="fragment" data-fragment-index="0"><span class="cl">Line B</span><span class="cx">RSS = `r format(round(rss_ols), big.mark = ",")`</span></div>
+  <div class="fragment" data-fragment-index="1"><span class="cl">Divide</span><span class="cx">1 − `r format(round(rss_ols), big.mark = ",")` / `r format(round(rss_mean), big.mark = ",")` = 1 − `r round(rss_ols / rss_mean, 2)`</span></div>
+  <div class="fragment hl" data-fragment-index="2"><span class="cl">R²</span><span class="cx">= `r round(glance(ols)$r.squared, 2)` <small>TV explains `r round(100 * glance(ols)$r.squared)`% of the variation</small></span></div>
+</div>
+```
+:::
+
+::::
+
+::: {.notes}
+- The first of two numbers you will report for every model from now on.
+- Start from the dumbest model: predict the average for everyone. Its squared residuals are the TSS, the total variation to explain. Click: line B's squared residuals, the RSS. Click: the share that's left; one minus that is R².
+:::
+
+## How good is the line? RMSE
+
+```{=html}
+<div class="tracker"><span class="on">Concept</span><span>1 · EDA</span><span>2 · Hypothesis</span><span>3 · ML</span><span>4 · Residuals</span><span>5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+::: {.anatomy .eq}
+```{=html}
+<p class="anat-code"><span class="tok">RMSE</span> = √ <span class="tok">mean( residual² )</span></p>
+```
+
+1. **Root mean squared error**: the typical miss, in the **units of the outcome**. An RMSE of 3 on a 0–20 grade means a typical prediction is about 3 points off.
+2. Average the squared residuals, then take the square root to undo the squaring.
+:::
+
+```{=html}
+<div class="calc sm">
+  <div class="fragment" data-fragment-index="0"><span class="cl">Advertising</span><span class="cx">RSS = `r format(round(rss_ols), big.mark = ",")` over 200 markets</span></div>
+  <div class="fragment" data-fragment-index="1"><span class="cl">Mean</span><span class="cx">`r format(round(rss_ols), big.mark = ",")` / 200 = `r round(rss_ols / 200, 1)` <small>the average squared residual</small></span></div>
+  <div class="fragment" data-fragment-index="2"><span class="cl">Root</span><span class="cx">√`r round(rss_ols / 200, 1)` = `r round(sqrt(rss_ols / 200), 1)`</span></div>
+  <div class="fragment hl" data-fragment-index="3"><span class="cl">RMSE</span><span class="cx">= `r round(sqrt(rss_ols / 200), 1)` thousand units <small>a typical prediction is about `r round(sqrt(rss_ols / 200) * 1000, -2)` units off</small></span></div>
+</div>
+```
+
+::: {.notes}
+- R² compares you with guessing the average. RMSE undoes the squaring so the number is in the units of the outcome again, which makes it easier to explain to someone else.
+- Click through: total, average, square root. On the students data this will be in grade points.
+:::
+
+## The same thing in code
+
+```{=html}
+<div class="tracker"><span class="on">Concept</span><span>1 · EDA</span><span>2 · Hypothesis</span><span>3 · ML</span><span>4 · Residuals</span><span>5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+::: {.anatomy}
+```{=html}
+<p class="anat-code"><span class="tok">linear_reg()</span> |&gt; <span class="tok">fit(</span><span class="tok">final_grade</span> <span class="tok">~</span> <span class="tok">higher</span>, <span class="tok">data = students</span>)</p>
+```
+
+1. **Which kind of model.** A linear one. On its own this fits nothing: it's an empty recipe.
+2. **Run the algorithm.** Find the coefficients with the smallest RSS.
+3. **The outcome**, *y*: what we want to predict. Left of the tilde.
+4. **The tilde** reads as "explained by" or "as a function of". It turns the two sides into a **formula**.
+5. **The feature(s)**, *x*: right of the tilde. Several: `higher + failures`. Everything else in the table: `.`
+6. **Which table** the columns live in.
+:::
+
+::: {.anat-read}
+In words: "fit a linear model of `final_grade` explained by `higher`, using the `students` table."
+:::
+
+::: {.notes}
+- Two steps: say what kind of model you want, then fit it. linear_reg() on its own does nothing.
+- The formula is how R writes an equation: outcome, tilde, features. Students will type = instead of ~; the error message mentions "formula".
+- The dot is a shortcut for "everything else". We'll see later why that can backfire.
+:::
+
+# Exploring the data {.divider background-color="#8C0014"}
+
+::: {.kicker}
+Part 1
+:::
+
+649 students · 30 features · one grade
+
+## Meet the data
+
+```{=html}
+<div class="tracker"><span class="done">Concept</span><span class="on">1 · EDA</span><span>2 · Hypothesis</span><span>3 · ML</span><span>4 · Residuals</span><span>5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<div class="bignums">
+  <div><b>649</b><span>students from two Portuguese secondary schools. One row each.</span></div>
+  <div><b>30</b><span>features: who they are, how they study, how they live</span></div>
+  <div><b>0–20</b><span><code>final_grade</code>, the outcome. Mean 11.9, median 12.</span></div>
+</div>
+```
+
+::: {.cards .c3 style="margin-top:0.5em"}
+::: {.card .compact}
+[Who they are]{.ct}
+`school` · `sex` · `age` · `address` · `famsize` · `pstatus` · `medu` · `fedu` · `mjob` · `fjob` · `guardian`
+:::
+::: {.card .compact}
+[How they study]{.ct}
+`studytime` · `failures` · `schoolsup` · `famsup` · `paid` · `higher` · `absences` · `reason` · `traveltime`
+:::
+::: {.card .compact}
+[How they live]{.ct}
+`goout` · `freetime` · `romantic` · `activities` · `famrel` · `dalc` · `walc` · `health` · `internet` · `nursery`
+:::
+:::
+
+::: {.source-note}
+Most features are text labels, not numbers: `studytime` is `"<2hrs"`, `"2-5hrs"`, `"5-10hrs"` or `">10hrs"`; `health` runs from `"VeryBad"` to `"VeryGood"`. `failures` (0–3), `age` and `absences` are numeric.
+:::
+
+::: {.notes}
+Timing: Part 1 is 12 minutes: this slide 2, exercise 8, debrief 2.
+
+- Grades out of 20, Portuguese secondary school. Every row is a student.
+- Features come in three flavours. Glance at them now; you'll need to pick some for the EDA.
+- The variable list in the notebook describes some features as numeric codes; in the file they are text labels. Say so, or students will look for numbers that aren't there.
+:::
+
+## Exercises: Part 1 {.yourturn}
+
+```{=html}
+<div class="timer" data-minutes="8"></div>
+```
+
+:::: {.yt}
+
+::: {.tasks}
+[Part 1 · EDA · notebook line 131]{.lbl}
+
+1. A histogram of `final_grade`: is it skewed?
+2. A boxplot of `final_grade` by `higher`
+3. One plot of your own from the list in the notebook: study time, failures, school, going out, health, support…
+4. One sentence: what seems to matter for grades?
+5. Post your plot and sentence in the channel
+:::
+
+::: {.cheat}
+[Syntax you need]{.lbl}
+
+```r
+students |>
+  ggplot(aes(x = final_grade)) +
+  geom_histogram(bins = 20) +
+  theme_histogram()
+
+students |>
+  ggplot(aes(x = higher, y = final_grade)) +
+  geom_boxplot() +
+  theme_boxplot()
+```
+
+::: {.stuck}
+**Stuck?**
+
+- *could not find function "theme_histogram"*: run the setup chunk
+- Empty plot? Every line except the last needs a `+` at the end
+- *object 'students' not found*: run the `read_csv()` chunk near the top of the notebook
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 8 minutes. Click the timer (or press T) to start it.
+
+- Circulate. The most common problem will be `|>` instead of `+` inside a ggplot.
+- Pick two or three posted plots for the debrief.
+:::
+
+## Part 1: what did we see?
+
+```{=html}
+<div class="tracker"><span class="done">Concept</span><span class="on">1 · EDA</span><span>2 · Hypothesis</span><span>3 · ML</span><span>4 · Residuals</span><span>5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns}
+
+::: {.column width="50%"}
+```{r}
+#| echo: false
+#| fig-width: 5
+#| fig-height: 3.3
+students |>
+  ggplot(aes(x = final_grade)) +
+  geom_histogram(bins = 20, fill = pink, colour = "black", alpha = 0.7) +
+  theme_histogram() +
+  labs(x = "Final grade", y = "Students")
+```
+
+::: {.card .compact}
+[Result]{.ct}
+Grades cluster between 10 and 14. A handful of students scored 0.
+:::
+:::
+
+::: {.column width="50%"}
+```{r}
+#| echo: false
+#| fig-width: 5
+#| fig-height: 3.3
+students |>
+  ggplot(aes(x = higher, y = final_grade, fill = higher)) +
+  geom_boxplot() +
+  scale_fill_manual(values = c(no = pink, yes = red)) +
+  theme_boxplot() +
+  labs(x = "Wants higher education", y = "Final grade")
+```
+
+::: {.card .compact .line}
+[Result]{.ct}
+Students who plan higher education score higher. **How much** higher, and could it be chance? That's Part 2.
+:::
+:::
+
+::::
+
+::: {.notes}
+Debrief, 2 minutes.
+
+- Take two findings from the room.
+- Then the pivot: plots suggest, models measure. Part 2 puts a number and an uncertainty on the boxplot difference.
+:::
+
+# The hypothesis-testing approach {.divider background-color="#8C0014"}
+
+::: {.kicker}
+Part 2
+:::
+
+Is there an effect? How sure are we? · `summary()` · `~ .`
+
+## Reading `summary()`
+
+```{=html}
+<div class="tracker"><span class="done">Concept</span><span class="done">1 · EDA</span><span class="on">2 · Hypothesis</span><span>3 · ML</span><span>4 · Residuals</span><span>5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 146–152 <span>the hypothesis-testing approach</span><i>run together</i></p>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="50%"}
+```r
+linear_reg() |>
+  fit(final_grade ~ higher, data = students) |>
+  extract_fit_engine() |>
+  summary()
+```
+
+```{=html}
+<table class="mini" style="font-size:0.62em">
+<tr><th></th><th>Estimate</th><th>Std. Error</th><th>t value</th><th>Pr(&gt;|t|)</th></tr>
+<tr><td>(Intercept)</td><td>8.80</td><td>0.367</td><td>24.0</td><td>&lt;2e-16</td></tr>
+<tr><td>higheryes</td><td class="hl">3.48</td><td class="hl">0.388</td><td class="hl">8.96</td><td class="hl">&lt;2e-16</td></tr>
+</table>
+```
+
+::: {.source-note}
+Also printed: Multiple R-squared 0.110. `extract_fit_engine()` pulls the `lm` object out of the tidymodels wrapper so `summary()` can print it.
+:::
+:::
+
+::: {.column width="50%"}
+::: {.fragment}
+::: {.card .compact}
+[Estimate]{.ct}
+The coefficient: students who want higher education score **3.48 points higher**. The intercept, 8.80, is the mean grade of the "no" students.
+:::
+:::
+::: {.fragment}
+::: {.card .compact}
+[Std. Error]{.ct}
+How uncertain the estimate is. Another sample would give a slightly different 3.48.
+:::
+:::
+::: {.fragment}
+::: {.card .compact}
+[t value and p-value]{.ct}
+t = estimate ÷ standard error: 9 standard errors from zero. The p-value: *if the true effect were 0, how surprising would this be?* Extremely.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: Part 2, 10 minutes across this slide and the next. Live-code it: run the simple model, then add the dot.
+
+- This is the social scientist's question: is there an effect, and is it bigger than chance would produce? Click through: estimate, uncertainty, p-value.
+- The last two lines of the code only pull the lm object out of the tidymodels wrapper so summary() can print it.
+- Note the R² of 0.11: a highly significant feature that explains little of the variation. Significant is not the same as predictive. Keep that distinction in the room all day.
+:::
+
+## Controlling for everything: `~ .`
+
+```{=html}
+<div class="tracker"><span class="done">Concept</span><span class="done">1 · EDA</span><span class="on">2 · Hypothesis</span><span>3 · ML</span><span>4 · Residuals</span><span>5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 160–165 <span>the multivariable model</span><i>run together</i></p>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="48%"}
+```r
+linear_reg() |>
+  fit(final_grade ~ ., data = students) |>
+  extract_fit_engine() |>
+  summary()
+```
+
+```{r}
+#| echo: false
+local({
+  op <- options(tibble.print_min = 7, tibble.print_max = 7)
+  on.exit(options(op))
+  linear_reg() |>
+    fit(final_grade ~ ., data = students) |>
+    tidy() |>
+    filter(p.value < 0.01, term != "(Intercept)") |>
+    mutate(across(c(estimate, p.value), ~ signif(.x, 2))) |>
+    select(term, estimate, p.value) |>
+    print()
+})
+```
+
+::: {.source-note}
+The 7 features with p < 0.01, out of 67 coefficients.
+:::
+:::
+
+::: {.column width="52%"}
+::: {.fragment}
+::: {.card .compact}
+[`higheryes` halves]{.ct}
+From 3.48 to **1.62**, still significant. Part of the raw difference was study time and past failures travelling with the wish for higher education.
+:::
+:::
+::: {.fragment}
+::: {.card .compact}
+[R² rises to 0.41]{.ct}
+Sixty-seven coefficients explain 41% of the variation. Each past failure costs about 1.5 points.
+:::
+:::
+::: {.fragment}
+::: {.card .compact .dark}
+[Caveat]{.ct}
+p-values say which features matter for *explaining* these 649 students. They are **no guarantee** the model predicts well for new students.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+- Add everything and the "higher" effect halves. Still there, still significant.
+- Keep R² = 0.41 in mind. We'll see it again from a different angle in Part 3, and it won't look as good.
+- p-hacking: a model that produces significant findings can be chosen while the ones that don't go unreported. The notebook links the Data Falsificada series.
+:::
+
+# The machine learning approach {.divider background-color="#8C0014"}
+
+::: {.kicker}
+Part 3
+:::
+
+Split · fit · evaluate · `initial_split()` · `augment()` · `metric_set()`
+
+## Two questions, two approaches
+
+```{=html}
+<div class="tracker"><span class="done">Concept</span><span class="done">1 · EDA</span><span class="done">2 · Hypothesis</span><span class="on">3 · ML</span><span>4 · Residuals</span><span>5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+::: {.cards .c2}
+::: {.card .line}
+[Hypothesis testing]{.ct}
+**Does `higher` matter? How sure are we?**
+
+Coefficients, standard errors, p-values. Uses **all** the data. Part 2.
+:::
+
+::: {.card .dark}
+[Machine learning]{.ct}
+**How well can we predict a grade we haven't seen?**
+
+Predictions and their error on **new** data. **Splits** the data. Parts 3–5.
+:::
+:::
+
+::: {.punch}
+Same model. Different question. Different workflow.
+:::
+
+::: {.notes}
+Timing: Part 3 is 18 minutes, coded together: the made-up model 3, why split 2, the split 4, fit and predict 3, evaluate 3, debrief 3.
+
+- Same linear_reg(), same formula. The difference is what we look at and which rows we're allowed to use.
+- Hypothesis testing tries to falsify a claim about a cause; machine learning cares about the fit in the aggregate, not any one coefficient.
+:::
+
+## A made-up model, in the notebook
+
+```{=html}
+<div class="tracker"><span class="done">Concept</span><span class="done">1 · EDA</span><span class="done">2 · Hypothesis</span><span class="on">3 · ML</span><span>4 · Residuals</span><span>5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 191–212 <span>the notebook's version of "what is a model?"</span><i>code together</i></p>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="50%"}
+```r
+sim_model_preds <- function(x1, x2, x3) {
+  y <- 1.1 * x1 + 2.2 * x2 + 3.3 * x3
+  y
+}
+```
+
+::: {.card .compact}
+[Lines 192–195: the rule as an R function]{.ct}
+Three inputs, three coefficients, one output. Nobody fitted it: the numbers are made up, like the grade rule earlier.
+:::
+:::
+
+::: {.column width="50%"}
+```{=html}
+<div class="calc sm">
+  <div><span class="cl">Line 201</span><span class="cx"><code>sim_model_preds(10, 20, 30)</code></span></div>
+  <div class="fragment"><span class="cl">Plug in</span><span class="cx">1.1 × 10 + 2.2 × 20 + 3.3 × 30 = 11 + 44 + 99</span></div>
+  <div class="fragment hl"><span class="cl">Prediction</span><span class="cx">= 154</span></div>
+  <div class="fragment"><span class="cl">Line 209</span><span class="cx"><code>150 - sim_model_preds(10, 20, 30)</code></span></div>
+  <div class="fragment hl"><span class="cl">Residual</span><span class="cx">150 − 154 = −4 <small>actual − predicted: the rule guessed 4 too high</small></span></div>
+</div>
+```
+:::
+
+::::
+
+::: {.notes}
+- Same three words as the concept block: prediction, actual, residual. Type the two lines into the chunks at lines 201 and 209 and answer the two discussion prompts.
+- The point the notebook makes next: a model has to be judged on data it hasn't seen. That's the split.
+:::
+
+## Why split?
+
+```{=html}
+<div class="tracker"><span class="done">Concept</span><span class="done">1 · EDA</span><span class="done">2 · Hypothesis</span><span class="on">3 · ML</span><span>4 · Residuals</span><span>5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+::: {.ask}
+You revise with last year's exam paper, then sit… last year's paper again. Is your mark a fair measure of what you learned?
+:::
+
+::: {.fragment}
+```{=html}
+<div class="flow">
+  <div class="step ai"><b>649 students</b><small>all the rows</small></div>
+  <div class="arrow">→</div>
+  <div class="stack">
+    <div class="step you"><b>Training set · 486 rows (75%)</b><small>the model is fitted here</small></div>
+    <div class="step test"><b>Test set · 163 rows (25%)</b><small>locked away; opened only to score the finished model</small></div>
+  </div>
+</div>
+```
+
+::: {.card .compact .dark style="margin-top:0.5em"}
+[Overfitting]{.ct}
+Scored on its own training rows, a model flatters itself: it has partly memorised their quirks. The test set is a fresh exam. A big **gap** between the two scores is the warning sign.
+:::
+:::
+
+::: {.notes}
+- Let them answer the exam question first. Then click.
+- The test set is a fresh exam. We lock it away, fit on the rest, and only open it to score the finished model.
+- Today's data are cross-sectional, so a random split is fine. Time series need a different split; later in the course.
+:::
+
+## The split, piece by piece
+
+```{=html}
+<div class="tracker"><span class="done">Concept</span><span class="done">1 · EDA</span><span class="done">2 · Hypothesis</span><span class="on">3 · ML</span><span>4 · Residuals</span><span>5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 218–225 <span>type the three steps under the three comments</span><i>code together</i></p>
+```
+
+::: {.anatomy}
+```{=html}
+<p class="anat-code"><span class="tok">set.seed(123)</span>
+students_split &lt;- <span class="tok">initial_split(</span>students, <span class="tok">prop = 0.75</span>)
+students_train &lt;- <span class="tok">training(students_split)</span>
+students_test  &lt;- <span class="tok">testing(students_split)</span></p>
+```
+
+1. **Make the random draw repeatable**, so your numbers match the slides.
+2. **Decide which rows go where.** A *split object*: a note of which rows are which, **not yet two tables**.
+3. **The share for training.** 75% here; 70–80% is typical.
+4. **Pull out the training table**: 486 rows.
+5. **Pull out the test table**: 163 rows. Don't touch it until the model is finished.
+:::
+
+::: {.notes}
+- Three steps, four functions, all from the rsample package inside tidymodels.
+- Students forget that initial_split() doesn't give you tables yet; printing it shows <Training/Testing/Total>.
+- The seed only needs to be set once, but it must run in the same chunk as the split or the numbers will differ.
+:::
+
+## Fit and predict
+
+```{=html}
+<div class="tracker"><span class="done">Concept</span><span class="done">1 · EDA</span><span class="done">2 · Hypothesis</span><span class="on">3 · ML</span><span>4 · Residuals</span><span>5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 233–235 <span>the "Code here" chunk: fit on the training set</span><i>code together</i></p>
+```
+
+::: {.anatomy}
+```{=html}
+<p class="anat-code">mv_model &lt;- linear_reg() |&gt; fit(final_grade ~ ., <span class="tok">data = students_train</span>)
+
+mv_model |&gt; <span class="tok">augment(new_data = students_test)</span></p>
+```
+
+1. **Fit on the training rows only**, and save the model. This is the line to type at line 234.
+2. **Predict.** `augment()` takes a table and gives it back with two new columns. It appears in the evaluation chunk next.
+:::
+
+```{=html}
+<table class="mini" style="margin-top:0.6em">
+<tr><th>final_grade</th><th>school</th><th>…</th><th class="hl">.pred</th><th class="hl">.resid</th></tr>
+<tr><td>11</td><td>GP</td><td>…</td><td class="hl">13.4</td><td class="hl">−2.36</td></tr>
+<tr><td>12</td><td>GP</td><td>…</td><td class="hl">11.0</td><td class="hl">0.99</td></tr>
+</table>
+<p class="tbl-cap"><code>.pred</code> <small>the prediction for each row</small> · <code>.resid</code> <small>actual − prediction</small></p>
+```
+
+::: {.notes}
+- Two functions. augment() is the one to remember: it's how you get predictions out of any tidymodels model, this week and every week after.
+:::
+
+## Evaluate
+
+```{=html}
+<div class="tracker"><span class="done">Concept</span><span class="done">1 · EDA</span><span class="done">2 · Hypothesis</span><span class="on">3 · ML</span><span>4 · Residuals</span><span>5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 246–256 <span>given in the notebook: run it, training set then test set</span><i>run together</i></p>
+```
+
+::: {.anatomy}
+```{=html}
+<p class="anat-code">reg_metrics &lt;- <span class="tok">metric_set(rsq, rmse)</span>
+
+mv_model |&gt;
+  augment(new_data = students_test) |&gt;
+  reg_metrics(<span class="tok">truth = final_grade</span>, <span class="tok">estimate = .pred</span>)</p>
+```
+
+1. **Bundle the metrics** into one function. `rsq` is R², `rmse` is RMSE.
+2. **Which column is the truth**: the real grade.
+3. **Which column is the guess**: the `.pred` column that `augment()` just added.
+:::
+
+::: {.anat-read}
+The notebook runs it twice: once with `new_data = students_train`, once with `students_test`. Compare the two tables.
+:::
+
+::: {.notes}
+- metric_set() makes a function; reg_metrics() then compares two columns of the augmented table.
+- Run the chunk at lines 246–256 together, then the next slide shows the output step by step before the debrief.
+:::
+
+## Part 3 together: what you should see {.solution}
+
+:::: {.walk}
+
+::: {.walk-code}
+```r
+set.seed(123)
+students_split <- initial_split(students, prop = 0.75)
+students_train <- training(students_split)
+students_test  <- testing(students_split)
+
+mv_model <- linear_reg() |>
+  fit(final_grade ~ ., data = students_train)
+
+reg_metrics <- metric_set(rsq, rmse)
+
+mv_model |>
+  augment(new_data = students_test) |>
+  reg_metrics(truth = final_grade, estimate = .pred)
+```
+
+::: {.walk-say}
+Notebook lines 218–256 as one pipeline: split the students, fit the full linear model on the training rows, then score it on the test rows. Each click shows the output of the next step.
+:::
+:::
+
+::: {.walk-out}
+
+::: {.fragment fragment-index=0 lines="1-4"}
+::: {.say}
+`initial_split()` records which rows are which. Printing the split object shows the sizes: 486 training, 163 test, 649 in total. `training()` and `testing()` turn it into two tibbles.
+:::
+
+```{r}
+#| echo: false
+set.seed(123)
+students_split <- initial_split(students, prop = 0.75)
+students_split
+```
+:::
+
+::: {.fragment fragment-index=1 lines="6-7"}
+::: {.say}
+`fit()` runs least squares on the 486 training rows. `tidy()` shows the coefficients it found: one row each, 68 in all.
+:::
+
+```{r}
+#| echo: false
+mv_model <- linear_reg() |>
+  fit(final_grade ~ ., data = students_train)
+tidy(mv_model)
+```
+:::
+
+::: {.fragment fragment-index=2 lines="9"}
+::: {.say}
+`metric_set()` makes a new function that computes both metrics at once.
+:::
+
+```{r}
+#| echo: false
+reg_metrics <- metric_set(rsq, rmse)
+reg_metrics
+```
+:::
+
+::: {.fragment fragment-index=3 lines="11-12"}
+::: {.say}
+`augment()` returns the test table with two new columns: `.pred`, the predicted grade, and `.resid`, how far off it was. (Only those and the grade are shown here.)
+:::
+
+```{r}
+#| echo: false
+mv_model |>
+  augment(new_data = students_test) |>
+  select(final_grade, .pred, .resid)
+```
+:::
+
+::: {.fragment fragment-index=4 lines="11-13"}
+::: {.say}
+`reg_metrics()` compares the two columns. On students the model has never seen: R² 0.21, RMSE 3.04 grade points.
+:::
+
+```{r}
+#| echo: false
+mv_model |>
+  augment(new_data = students_test) |>
+  reg_metrics(truth = final_grade, estimate = .pred)
+```
+:::
+:::
+
+::::
+
+::: {.source-note}
+On the training set the same three lines give R² 0.446 and RMSE 2.37.
+:::
+
+::: {.notes}
+Each click highlights the next step of the code, shows the result up to that step, and explains it below the code.
+:::
+
+## Part 3: training versus test
+
+```{=html}
+<div class="tracker"><span class="done">Concept</span><span class="done">1 · EDA</span><span class="done">2 · Hypothesis</span><span class="on">3 · ML</span><span>4 · Residuals</span><span>5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 258–260 <span>classroom discussion: how can we interpret these results?</span><i>run together</i></p>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="50%"}
+```{=html}
+<p class="tbl-cap">R² <small>share of variation explained</small></p>
+<div class="bars">
+  <div><span>Training</span><i class="hot" style="width:89%"></i><b>0.446</b></div>
+  <div><span>Test</span><i style="width:42%"></i><b>0.211</b></div>
+</div>
+<p class="tbl-cap" style="margin-top:0.8em">RMSE <small>typical miss, in grade points</small></p>
+<div class="bars">
+  <div><span>Training</span><i class="hot" style="width:70%"></i><b>2.37</b></div>
+  <div><span>Test</span><i style="width:90%"></i><b>3.04</b></div>
+</div>
+```
+:::
+
+::: {.column width="50%"}
+::: {.card .compact}
+[Is this model good?]{.ct}
+Better than guessing the mean. But on new students it explains 21% of the variation, not 45%, and a typical prediction is 3 grade points off. The gap is **overfitting**.
+:::
+
+::: {.card .compact .dark}
+[Why?]{.ct}
+67 coefficients fitted on 486 rows. Many describe noise. Could we keep only the useful ones? **Part 5.**
+:::
+:::
+
+::::
+
+::: {.notes}
+Debrief, 2 minutes.
+
+- Ask: is this model good? Both answers are right: better than guessing the mean, but it flatters itself on the training set.
+- The question on the dark card is the lasso's job. Hold it until Part 5.
+:::
+
+# Where do we make errors? {.divider background-color="#8C0014"}
+
+::: {.kicker}
+Part 4
+:::
+
+Residual plots · `.pred` against `.resid`
+
+## Residual plots: what good looks like
+
+```{=html}
+<div class="tracker"><span class="done">Concept</span><span class="done">1 · EDA</span><span class="done">2 · Hypothesis</span><span class="done">3 · ML</span><span class="on">4 · Residuals</span><span>5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 268–324 <span>run the four chunks: simulated data, its scatter, its residual plot, then ours</span><i>run together</i></p>
+```
+
+:::: {.columns}
+
+::: {.column width="50%"}
+```{r}
+#| echo: false
+#| fig-width: 5
+#| fig-height: 3
+set.seed(123)
+sigma <- rbind(c(1, 0.99), c(0.99, 1))
+mu <- c(10, 5)
+sim_data <- mvrnorm(n = 1000, mu = mu, Sigma = sigma) |> as.data.frame() |> as_tibble()
+linear_reg() |>
+  fit(V2 ~ V1, data = sim_data) |>
+  augment(new_data = sim_data) |>
+  ggplot(aes(.pred, .resid)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_point(alpha = 0.4, colour = grey) +
+  theme_scatter() +
+  labs(x = "Fitted values", y = "Residuals", title = "Simulated data, correlation 0.99")
+```
+
+::: {.card .compact}
+[A shapeless cloud around zero]{.ct}
+Nothing left to explain. This is what a well-fitting model leaves behind.
+:::
+:::
+
+::: {.column width="50%"}
+::: {.fragment}
+```{r}
+#| echo: false
+#| fig-width: 5
+#| fig-height: 3
+mv_model |>
+  augment(new_data = students_test) |>
+  ggplot(aes(.pred, .resid)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_point(alpha = 0.6, colour = red) +
+  theme_scatter() +
+  labs(x = "Fitted values", y = "Residuals", title = "Our model, test set")
+```
+
+::: {.card .compact .dark}
+[Wide, and with a pattern]{.ct}
+A diagonal streak at the bottom left. **Any pattern is something the model missed.**
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: Part 4 is 8 minutes, coded together: run lines 268–298 (simulated data and its scatter, 2 minutes), then this slide and the next while running lines 302–324 (4 minutes), then the action point (2 minutes).
+
+- Residuals are what the model couldn't explain. If they still have a shape, there's structure left: a curve, a missing variable, or, here, a diagonal streak at the bottom left.
+- Ask what the streak is before the exercise; let them find out. (Students who scored 0: the residual is minus the prediction, so they line up on a diagonal. No linear rule reaches them.)
+- mvrnorm() builds the simulated data with a chosen correlation. They don't need to understand it.
+:::
+
+## The residual plot, piece by piece
+
+```{=html}
+<div class="tracker"><span class="done">Concept</span><span class="done">1 · EDA</span><span class="done">2 · Hypothesis</span><span class="done">3 · ML</span><span class="on">4 · Residuals</span><span>5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 302–324 <span>the same plot twice: simulated data, then our model on the test set</span><i>code together</i></p>
+```
+
+::: {.anatomy}
+```{=html}
+<p class="anat-code">mv_model |&gt;
+  augment(new_data = students_test) |&gt;
+  ggplot(aes(<span class="tok">.pred</span>, <span class="tok">.resid</span>)) +
+  <span class="tok">geom_hline(yintercept = 0, linetype = "dashed")</span> +
+  geom_point()</p>
+```
+
+1. **x: the prediction** for each student, from `augment()`.
+2. **y: the residual**, actual − predicted. Above the line the model guessed too low, below it too high.
+3. **The "no error" line.** A good model leaves a shapeless cloud around it.
+:::
+
+::: {.anat-read}
+`augment()` first, then `ggplot()`: the two columns only exist once the model has been applied. Line 326, the action point: why does the simulated data look so much better?
+:::
+
+::: {.notes}
+- The same augment() call as in Part 3, piped into a plot. Nothing new in the ggplot except the dashed reference line.
+- The streak: students who scored 0. Their residual is minus their prediction, so they fall on a straight diagonal. No linear rule reaches them.
+:::
+
+# Lasso: a penalty for every coefficient {.divider background-color="#8C0014"}
+
+::: {.kicker}
+Part 5
+:::
+
+Regularisation · λ · hyperparameters · `penalty` · `mixture = 1` · `set_engine("glmnet")`
+
+## The problem with "everything"
+
+```{=html}
+<div class="tracker"><span class="done">Concept</span><span class="done">1 · EDA</span><span class="done">2 · Hypothesis</span><span class="done">3 · ML</span><span class="done">4 · Residuals</span><span class="on">5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+::: {.card .compact}
+[67 coefficients, 486 training rows]{.ct}
+The model is *free* to use every coefficient, so it does, including the ones that only describe noise in the training rows. R² 0.45 in training, 0.21 on new students.
+:::
+
+::: {.ask style="margin-top:0.6em"}
+How would you stop a model from using coefficients it doesn't need?
+:::
+
+::: {.cards .c2}
+::: {.fragment}
+::: {.card .compact .line}
+[Option 1: by hand]{.ct}
+Drop the features with large p-values and refit. Slow, subjective, and the p-values came from the model you're about to change.
+:::
+:::
+::: {.fragment}
+::: {.card .compact .dark}
+[Option 2: inside the algorithm]{.ct}
+Change the score the algorithm minimises so that **every coefficient has a cost**. That's the **lasso**.
+:::
+:::
+:::
+
+::: {.notes}
+Timing: Part 5 is 20 minutes: concept 6 (this slide and the next four), syntax 2, exercise 9, solutions and debrief 3.
+
+- Collect ideas first. "Remove the insignificant ones" is a fine answer and the manual version. The lasso does it automatically, inside the algorithm.
+:::
+
+## Charge rent for every coefficient
+
+```{=html}
+<div class="tracker"><span class="done">Concept</span><span class="done">1 · EDA</span><span class="done">2 · Hypothesis</span><span class="done">3 · ML</span><span class="done">4 · Residuals</span><span class="on">5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+::: {.anatomy .eq}
+```{=html}
+<p class="anat-code">Lasso minimises &nbsp; <span class="tok">RSS</span> + <span class="tok">λ</span> · <span class="tok">Σ |βⱼ|</span></p>
+```
+
+1. **Fit the data**, as before. OLS minimised this and nothing else.
+2. **Lambda: the price per unit of coefficient.** You choose it. The notebook calls it `penalty`.
+3. **The total size of all coefficients**, signs ignored. The bill.
+:::
+
+```{=html}
+<div class="calc sm">
+  <div class="fragment" data-fragment-index="0"><span class="cl">Say λ = 0.1</span><span class="cx">and three coefficients: 1.8, −1.4, 0.05</span></div>
+  <div class="fragment" data-fragment-index="1"><span class="cl">Total size</span><span class="cx">|1.8| + |−1.4| + |0.05| = 3.25</span></div>
+  <div class="fragment hl" data-fragment-index="2"><span class="cl">The bill</span><span class="cx">0.1 × 3.25 = 0.325 <small>added to the RSS</small></span></div>
+  <div class="fragment" data-fragment-index="3"><span class="cl">Drop the 0.05</span><span class="cx">bill falls by 0.005 <small>if the RSS rises by less than that, the model is better off without it</small></span></div>
+</div>
+```
+
+::: {.notes}
+- Same bowl, plus a bill. The algorithm still minimises one number, but the number now has two parts: how badly you fit, and how much coefficient you're using. Lambda sets the exchange rate between the two.
+- Click through the bill for three coefficients. Every coefficient has to earn its place: it is only kept at a size where the improvement in fit is worth the rent. One that barely helps shrinks; one that helps a lot stays large.
+:::
+
+## Turning the dial {.nostretch}
+
+```{=html}
+<div class="tracker"><span class="done">Concept</span><span class="done">1 · EDA</span><span class="done">2 · Hypothesis</span><span class="done">3 · ML</span><span class="done">4 · Residuals</span><span class="on">5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+::: {.r-stack}
+```{r}
+#| echo: false
+#| fig-width: 11
+#| fig-height: 3.4
+dial_step(1)
+```
+
+::: {.fragment fragment-index=0}
+```{r}
+#| echo: false
+#| fig-width: 11
+#| fig-height: 3.4
+dial_step(2)
+```
+:::
+
+::: {.fragment fragment-index=1}
+```{r}
+#| echo: false
+#| fig-width: 11
+#| fig-height: 3.4
+dial_step(3)
+```
+:::
+:::
+
+::: {.cards .c3 style="margin-top:0.1em"}
+::: {.card .compact}
+[λ = 0]{.ct}
+No rent. Back to OLS: all 67 coefficients in use, and the overfitting from Part 3.
+:::
+::: {.fragment fragment-index=0}
+::: {.card .compact .dark}
+[λ = 0.1]{.ct}
+Coefficients shrink, and 27 of them hit **exactly zero**. Feature selection built into the fitting.
+:::
+:::
+::: {.fragment fragment-index=1}
+::: {.card .compact}
+[λ = 1]{.ct}
+Only 2 survive. Dial it up further and everything goes to zero: the model predicts the mean for everyone.
+:::
+:::
+:::
+
+::: {.notes}
+Each click turns the dial up one notch: one more panel, one more card.
+
+- Dial up lambda and coefficients drop out one by one. Too little and you're back to overfitting; too much and the model knows nothing. Somewhere in between is a sweet spot, and the bonus exercise looks for it.
+- The exact zeros are the point: this is feature selection without anyone choosing.
+:::
+
+## Why *exactly* zero?
+
+```{=html}
+<div class="tracker"><span class="done">Concept</span><span class="done">1 · EDA</span><span class="done">2 · Hypothesis</span><span class="done">3 · ML</span><span class="done">4 · Residuals</span><span class="on">5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns}
+
+::: {.column width="48%"}
+::: {.r-stack}
+```{r}
+#| echo: false
+#| fig-width: 5.2
+#| fig-height: 3.8
+pen_step(1)
+```
+
+::: {.fragment fragment-index=1}
+```{r}
+#| echo: false
+#| fig-width: 5.2
+#| fig-height: 3.8
+pen_step(2)
+```
+:::
+:::
+:::
+
+::: {.column width="52%"}
+::: {.card .compact}
+[Two forces on each coefficient]{.ct}
+The **data** pull it away from zero, with a force that weakens as the fit improves. The **penalty** pushes it back toward zero.
+:::
+::: {.fragment fragment-index=0}
+::: {.card .compact .dark}
+[The lasso's push is constant]{.ct}
+|β| has the same slope everywhere, so the push is **λ, whatever the coefficient's size**. If the data's pull is weaker than λ, the coefficient is pinned at **exactly 0**.
+:::
+:::
+::: {.fragment fragment-index=1}
+::: {.card .compact .line}
+[Ridge, for contrast]{.ct}
+β² goes flat near zero, so its push fades as the coefficient shrinks: coefficients get tiny but **never reach zero**. `mixture = 1` picks the lasso, `0` the ridge.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+- The absolute value is the secret. Its slope is the same size everywhere, so the push toward zero never lets up.
+- Click: the ridge penalty for contrast. A squared penalty goes gentle near zero and never finishes the job.
+- You don't need the calculus; you need the picture of the kink.
+:::
+
+## Parameters and hyperparameters
+
+```{=html}
+<div class="tracker"><span class="done">Concept</span><span class="done">1 · EDA</span><span class="done">2 · Hypothesis</span><span class="done">3 · ML</span><span class="done">4 · Residuals</span><span class="on">5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+::: {.cards .c2}
+::: {.card}
+[Parameters]{.ct}
+The **βs**, 67 of them. Chosen **by the algorithm**, from the data, by minimising the score. Inside the machine.
+:::
+
+::: {.card .dark}
+[Hyperparameters]{.ct}
+**λ** (`penalty`) and `mixture`. Chosen **by you**, before fitting. A knob on the outside of the machine.
+:::
+:::
+
+::: {.card .line .compact style="margin-top:0.6em"}
+[Why can't the data choose λ?]{.ct}
+Any λ > 0 makes the *training* fit worse, so the algorithm would always pick 0. Instead: try several values, score each on data the model hasn't seen, keep the best. Today's bonus does it by hand; Lab 5 automates it.
+:::
+
+::: {.notes}
+- Lambda is a knob on the outside of the machine. The bonus turns the knob by hand; in Lab 5 we automate it with cross-validation.
+:::
+
+## Lasso in code
+
+```{=html}
+<div class="tracker"><span class="done">Concept</span><span class="done">1 · EDA</span><span class="done">2 · Hypothesis</span><span class="done">3 · ML</span><span class="done">4 · Residuals</span><span class="on">5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 336–341 <span>Step 1: run it together. Steps 2–5 are yours</span><i>run together</i></p>
+```
+
+::: {.anatomy}
+```{=html}
+<p class="anat-code">lasso_model &lt;- linear_reg(<span class="tok">penalty = 0.1</span>, <span class="tok">mixture = 1</span>) |&gt;
+  <span class="tok">set_engine("glmnet")</span> |&gt;
+  fit(final_grade ~ ., data = students_train)
+
+<span class="tok">tidy(lasso_model)</span></p>
+```
+
+1. **λ.** The rent per unit of coefficient. 0.1 to start.
+2. **Which penalty.** 1 is the lasso, 0 is the ridge, in between mixes them.
+3. **Which package computes.** The default, `lm`, can't penalise; `glmnet` can.
+4. **Step 2, yours:** `tidy()` gives one row per coefficient. Filter out the zeros.
+:::
+
+::: {.anat-read}
+Everything after `fit()` is unchanged: `augment()` and `reg_metrics()` work exactly as in Part 3, so Step 4 is copy and paste.
+:::
+
+::: {.notes}
+- Two new arguments, one new line. Everything after fit() is identical to Part 3: augment() and reg_metrics() work exactly as before.
+- The bar plot in the notebook: abs(estimate) for the bar length, fct_reorder(term, abs(estimate)) to sort the bars, fill = estimate > 0 to colour by sign.
+- Hand over: "Part 5, 9 minutes. The comparison with Part 3 is the deliverable; the bonus is optional."
+:::
+
+## Exercises: Part 5 {.yourturn}
+
+```{=html}
+<div class="timer" data-minutes="9"></div>
+```
+
+:::: {.yt}
+
+::: {.tasks}
+[Part 5 · lasso · notebook lines 347–377]{.lbl}
+
+1. **Line 348:** `tidy()` the model and keep the non-zero coefficients. How many survived? Which is the largest?
+2. **Line 356:** the bar plot of coefficient sizes
+3. **Line 364:** test-set R² and RMSE with `reg_metrics`. Better or worse than Part 3?
+4. **Line 376, bonus:** try other penalties (0.01, 0.3, 1). Which gives the lowest test RMSE?
+:::
+
+::: {.cheat}
+[Syntax you need]{.lbl}
+
+```r
+tidy(lasso_model) |>
+  filter(estimate != 0)
+
+tidy(lasso_model) |>
+  filter(term != "(Intercept)") |>
+  ggplot(aes(abs(estimate), fct_reorder(term, abs(estimate)),
+             fill = estimate > 0)) +
+  geom_col() + theme_bar() + scale_fill_jama()
+
+lasso_model |>
+  augment(new_data = students_test) |>
+  reg_metrics(truth = final_grade, estimate = .pred)
+```
+
+::: {.stuck}
+**Stuck?**
+
+- *could not find function "fct_reorder"*: run the setup chunk (it's in the tidyverse)
+- Bonus: copy Step 1 with a new `penalty`, then Step 4 again. The solutions have a `map()` version
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 9 minutes. Step 1 was run together; the timer covers Steps 2–5.
+
+- The bonus chunk is empty in the student notebook. Trying two or three penalties by hand is enough; the solutions file has a map() version that sweeps a grid, shown on the bonus slide.
+:::
+
+## Solutions: Part 5 {.solution}
+
+:::: {.walk}
+
+::: {.walk-code}
+```r
+lasso_model <-
+  linear_reg(penalty = 0.1, mixture = 1) |>
+  set_engine("glmnet") |>
+  fit(final_grade ~ ., data = students_train)
+
+tidy(lasso_model) |>
+  filter(estimate != 0)
+
+lasso_model |>
+  augment(new_data = students_test) |>
+  reg_metrics(truth = final_grade, estimate = .pred)
+```
+
+::: {.walk-say}
+Fit a lasso with penalty 0.1 on the training rows, look at which coefficients survived, then score it on the test rows.
+:::
+:::
+
+::: {.walk-out}
+
+::: {.fragment fragment-index=0 lines="1-4"}
+::: {.say}
+Same `fit()` as before, with a price on coefficients and `glmnet` doing the work. Counting the coefficients: 27 were set to exactly zero, 41 (including the intercept) survived.
+:::
+
+```{r}
+#| echo: false
+tidy(lasso_model) |>
+  count(zero = estimate == 0)
+```
+:::
+
+::: {.fragment fragment-index=1 lines="6-7"}
+::: {.say}
+`tidy()` lists every coefficient; `filter()` keeps the non-zero ones. Sorted by size here: wanting higher education, past failures and school support matter most.
+:::
+
+```{r}
+#| echo: false
+local({
+  op <- options(tibble.print_min = 6, tibble.print_max = 6)
+  on.exit(options(op))
+  tidy(lasso_model) |>
+    filter(estimate != 0, term != "(Intercept)") |>
+    arrange(desc(abs(estimate))) |>
+    print()
+})
+```
+:::
+
+::: {.fragment fragment-index=2 lines="9-11"}
+::: {.say}
+Exactly the evaluation code from Part 3. On the test set: R² 0.24 and RMSE 2.95, against 0.21 and 3.04 for the model with all 67 coefficients.
+:::
+
+```{r}
+#| echo: false
+lasso_model |>
+  augment(new_data = students_test) |>
+  reg_metrics(truth = final_grade, estimate = .pred)
+```
+:::
+:::
+
+::::
+
+::: {.source-note}
+Step 2 shows the 6 largest coefficients, sorted with `arrange(desc(abs(estimate)))`, to fit the slide. The notebook prints all 41 in the original order.
+:::
+
+::: {.notes}
+Each click highlights the next step of the code, shows the result up to that step, and explains it below the code.
+:::
+
+## Part 5: did the penalty help?
+
+```{=html}
+<div class="tracker"><span class="done">Concept</span><span class="done">1 · EDA</span><span class="done">2 · Hypothesis</span><span class="done">3 · ML</span><span class="done">4 · Residuals</span><span class="on">5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 347–365 <span>Steps 2–4</span><i>your turn</i></p>
+```
+
+:::: {.columns}
+
+::: {.column width="50%"}
+```{r}
+#| label: lasso-bars
+#| echo: false
+#| fig-width: 5.2
+#| fig-height: 4
+tidy(lasso_model) |>
+  filter(term != "(Intercept)", estimate != 0) |>
+  slice_max(abs(estimate), n = 12) |>
+  ggplot(aes(abs(estimate), fct_reorder(term, abs(estimate)), fill = estimate > 0)) +
+  geom_col() +
+  theme_bar() +
+  scale_fill_jama() +
+  labs(x = "Lasso coefficient", y = NULL, fill = "Positive?", title = "12 largest of the 40 surviving coefficients")
+```
+:::
+
+::: {.column width="50%"}
+```{=html}
+<p class="tbl-cap">Test set <small>163 students the models never saw</small></p>
+<table class="mini" style="font-size:0.7em">
+<tr><th></th><th>Coefficients</th><th>R²</th><th>RMSE</th></tr>
+<tr><td>Linear, <code>~ .</code></td><td>67</td><td>0.211</td><td>3.04</td></tr>
+<tr><td>Lasso, penalty 0.1</td><td class="hl">40</td><td class="hl">0.240</td><td class="hl">2.95</td></tr>
+</table>
+```
+
+::: {.card}
+[Result]{.ct}
+A simpler model that predicts new students slightly better. 27 coefficients gone, nothing lost. That's **regularisation**.
+:::
+:::
+
+::::
+
+::: {.notes}
+Debrief, 2 minutes.
+
+- Small gain in RMSE, big gain in simplicity. Read the top five bars with the room: higher education, failures, school support, father with no formal education, the MS school.
+:::
+
+## Bonus: turning the dial by hand
+
+```{=html}
+<div class="tracker"><span class="done">Concept</span><span class="done">1 · EDA</span><span class="done">2 · Hypothesis</span><span class="done">3 · ML</span><span class="done">4 · Residuals</span><span class="on">5 · Lasso</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns}
+
+::: {.column width="58%"}
+```{r}
+#| label: sweep
+#| echo: false
+#| fig-width: 6
+#| fig-height: 3.4
+lasso <- partial(linear_reg, engine = "glmnet", mixture = 1)
+preds <-
+  crossing(
+    penalty = c(0.0001, 0.001, 0.01, 0.1, 0.3, 1),
+    nest(students_train, .key = "train"),
+    nest(students_test, .key = "test")
+  ) |>
+  mutate(
+    model = map(penalty, ~ lasso(penalty = .x)),
+    fit = map2(model, train, ~ fit(.x, final_grade ~ ., data = .y)),
+    augmented = map2(fit, test, ~ augment(.x, new_data = .y)),
+    rmses = map(augmented, ~ rmse(.x, truth = final_grade, estimate = .pred))
+  )
+preds |>
+  unnest(rmses) |>
+  mutate(in_notebook = penalty <= 0.1) |>
+  ggplot(aes(x = as.factor(penalty), y = .estimate, group = 1)) +
+  geom_line(linetype = "dashed", colour = grey) +
+  geom_point(aes(colour = in_notebook), size = 3.5) +
+  scale_colour_manual(values = c(`TRUE` = red, `FALSE` = "#1F4E79"), labels = c(`TRUE` = "notebook grid", `FALSE` = "two more"), name = NULL) +
+  theme_scatter() +
+  labs(x = "Penalty (λ)", y = "Test-set RMSE")
+```
+:::
+
+::: {.column width="42%"}
+::: {.card .compact}
+[The notebook's grid]{.ct}
+0.0001, 0.001 and 0.01 are all about 3.03, hardly different from plain OLS. **0.1 is best** at 2.95.
+:::
+::: {.card .compact .line}
+[Two more, past the grid]{.ct}
+0.3 is worse again (3.04, with only 14 coefficients) and 1 is bad (3.29, with 2). A bowl again, this time scored on test data.
+:::
+::: {.card .compact .dark}
+[That's tuning]{.ct}
+Turn the knob, score on data the model hasn't seen, keep the best setting. Lab 5 automates it.
+:::
+:::
+
+::::
+
+::: {.notes}
+- The bonus chunk fits one lasso per penalty with nested tibbles and map2(); students only need to run it and read the plot.
+- The curve has a bottom, like the RSS bowl, but this time the score is on test data. That's what tuning a hyperparameter means.
+:::
+
+## Summary
+
+```{=html}
+<div class="tracker"><span class="done">Concept</span><span class="done">1 · EDA</span><span class="done">2 · Hypothesis</span><span class="done">3 · ML</span><span class="done">4 · Residuals</span><span class="done">5 · Lasso</span><span class="on">Wrap-up</span></div>
+```
+
+```{=html}
+<div class="checks" style="grid-template-columns:1fr">
+  <div><b>1</b><span>Ordinary least squares picks the line with the <strong>smallest sum of squared residuals</strong>. A coefficient is the change in the prediction when its feature rises by one unit, other things equal</span></div>
+  <div><b>2</b><span><strong>Split first.</strong> Fit on the training set, score on the test set. The gap between the two scores is overfitting</span></div>
+  <div><b>3</b><span><code>linear_reg() |&gt; fit()</code> · <code>augment()</code> · <code>metric_set(rsq, rmse)</code> is the workflow for every model from now on</span></div>
+  <div><b>4</b><span>The lasso adds a <strong>price per coefficient</strong>. λ is a hyperparameter you set; coefficients that aren't worth the rent go to exactly zero</span></div>
+</div>
+```
+
+**Question:** which of the 30 features would you have bet on before today? Did the lasso agree?
+
+::: {.notes}
+Wrap-up, 4 minutes.
+
+- Recap in four sentences.
+- Collect answers to the exit question in the channel.
+:::
+
+## Further reading {.closing}
+
+:::: {.columns}
+
+::: {.column width="60%"}
+- The completed notebook goes up after class.
+- [*An Introduction to Statistical Learning*](https://www.statlearning.com): chapter 3 (linear regression) and section 6.2 (the lasso). Free PDF.
+- [*Tidy Modeling with R*](https://www.tmwr.org): the `parsnip` and `yardstick` chapters.
+- The [tidymodels reference sheet](https://rstudio.github.io/cheatsheets/tidymodels.pdf).
+:::
+
+::: {.column width="40%"}
+::: {.card .dark}
+[Week 4]{.ct}
+Classification: predicting categories instead of numbers
+:::
+:::
+
+::::
+
+::: {.notes}
+- Preview next week.
+:::

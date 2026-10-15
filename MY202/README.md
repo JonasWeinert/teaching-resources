@@ -47,6 +47,37 @@ Solution slides (class `.solution`) walk through the code one step at a time: th
 
 `lines` takes ranges such as `1-4` or `1,3-4`. The behaviour is in `_extensions/lse/walk.html`.
 
+## Anatomy and multiple-choice slides
+
+From Lab 3, a line of code or an equation can be taken apart piece by piece. Each `.tok` span in the code line is numbered and coloured, and matched to the same-numbered item of the list that follows; hovering one highlights the other. Add `.eq` for an equation (serif, larger) and `.one` for a single-column list. Behaviour in `_extensions/lse/slide-components.html`.
+
+```markdown
+::: {.anatomy}
+```{=html}
+<p class="anat-code"><span class="tok">linear_reg()</span> |&gt; <span class="tok">fit(</span>…)</p>
+```
+
+1. **Which kind of model.** …
+2. **Run the algorithm.** …
+:::
+```
+
+A multiple-choice check is a `.mcq` div with one `.opt` per answer (the right one with `.right`) and a `.fragment.why` block holding the answer. Clicking through the fragment turns the right option green and fades the others.
+
+```html
+<div class="mcq">
+  <div class="opt"><b>A</b>…</div>
+  <div class="opt right"><b>B</b>…</div>
+  <div class="fragment why"><b>B.</b> …</div>
+</div>
+```
+
+`.ask` marks a question to the room; `.anat-read` is a one-line reading of the formula under an anatomy.
+
+A step-by-step calculation is a `.calc` div of rows, each `<div><span class="cl">label</span><span class="cx">expression</span></div>`; give later rows `class="fragment"` (with `data-fragment-index` to sync them with other fragments) so each click adds one line, and `.hl` to the line that matters. Add `.sm` for a smaller version inside a column or card.
+
+A visual that builds up click by click is a `::: {.r-stack}` holding one R chunk per step, each chunk after the first wrapped in `::: {.fragment fragment-index=n}`. Every version must have the same figure size and axis limits, so the deck's `*_step(k)` helpers draw the same plot up to step *k*. Give the explanation beside it the same fragment indices, and the picture and the words advance together.
+
 ## Coding slides and timers
 
 Give a slide the `.yourturn` class and put a timer in it:

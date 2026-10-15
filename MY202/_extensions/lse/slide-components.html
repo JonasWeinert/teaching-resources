@@ -1,0 +1,52 @@
+<script>
+// Extra slide components (Lab 3 onwards).
+//   .anatomy   one line of code or one equation: each .tok span in the .anat-code block is numbered and
+//              coloured, and matched to the same-numbered item of the list below it. Hovering one highlights the other.
+//   .mcq       multiple choice: .opt blocks, the right one with class .right, and a .fragment.why with the answer.
+//              When the fragment is shown, the right option turns green and the others fade.
+(function () {
+  var palette = ["#E2001A", "#1F4E79", "#1D7A46", "#8A5A00", "#6A3D9A", "#00838F", "#C2185B", "#5D4037"];
+
+  document.querySelectorAll(".anatomy").forEach(function (box) {
+    var code = box.querySelector(".anat-code");
+    var list = box.querySelector("ol");
+    if (!code || !list) return;
+    var toks = code.querySelectorAll(".tok");
+    var items = list.querySelectorAll(":scope > li");
+    toks.forEach(function (t, i) {
+      var c = palette[i % palette.length], li = items[i];
+      t.style.setProperty("--c", c); t.dataset.n = i + 1;
+      if (!li) return;
+      li.style.setProperty("--c", c); li.dataset.n = i + 1;
+      // wrap the item's content so the number badge and the text form two grid columns
+      if (!li.querySelector(":scope > .anat-txt")) {
+        var wrap = document.createElement("div"); wrap.className = "anat-txt";
+        while (li.firstChild) wrap.appendChild(li.firstChild);
+        li.appendChild(wrap);
+      }
+      function on() { t.classList.add("on"); li.classList.add("on"); }
+      function off() { t.classList.remove("on"); li.classList.remove("on"); }
+      [t, li].forEach(function (el) {
+        el.addEventListener("mouseenter", on);
+        el.addEventListener("mouseleave", off);
+      });
+    });
+  });
+
+  function syncMcq(slide) {
+    if (!slide) return;
+    slide.querySelectorAll(".mcq").forEach(function (m) {
+      var why = m.querySelector(".fragment.why");
+      m.classList.toggle("show", !!(why && why.classList.contains("visible")));
+    });
+  }
+  function init() {
+    ["fragmentshown", "fragmenthidden", "slidechanged", "ready"].forEach(function (ev) {
+      Reveal.on(ev, function () { syncMcq(Reveal.getCurrentSlide()); });
+    });
+    syncMcq(Reveal.getCurrentSlide());
+  }
+  if (window.Reveal && Reveal.isReady && Reveal.isReady()) init();
+  else if (window.Reveal) Reveal.on("ready", init);
+})();
+</script>
