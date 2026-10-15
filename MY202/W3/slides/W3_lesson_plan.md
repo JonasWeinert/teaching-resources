@@ -26,7 +26,7 @@ Lesson plan, slide outline and speaker script, based on `W3/notebooksanddata/sol
 
 | Time | Block | Mode |
 |---|---|---|
-| 0:00–0:02 | Welcome, lab overview, open the notebook on Nuvolos and run the setup chunk | Whole class |
+| 0:00–0:02 | Welcome, lab overview, open the notebook on Nuvolos and run the setup chunks (lines 24–62 and 70–72) | Whole class |
 | 0:02–0:17 | Concept block. Opens with three warm-up questions voted by hand (read a rule, how OLS picks the line, what R² means) whose answers set the pace; then OLS from scratch, the equations and the `fit()` syntax | Slides, questions to the room |: our first algorithm. Building OLS from scratch, then the equations and the `fit()` syntax | Slides, questions to the room |
 | 0:17–0:29 | Part 1: meet the data, EDA (notebook line 131). 8-minute timer, 2-minute share | Your turn, tutor circulates |
 | 0:29–0:37 | Part 2: the hypothesis-testing approach. Run lines 146–152 and 160–165; reading `summary()`; `~ .` | Code together |
@@ -47,7 +47,6 @@ Lesson plan, slide outline and speaker script, based on `W3/notebooksanddata/sol
 - Both notebooks' headers still say "MY202A, Week 03" by "The DS202 Team".
 - The section timings in the notebook add up to 80 minutes (5 + 15 + 5 + 20 + 10 + 25). The plan above redistributes them to 90 with the concept block.
 - The bonus chunk (line 375–377) is an empty `# Code here` with no scaffolding, while the solutions use a nested-tibble `map()` sweep. On the slides the bonus asks students to try two or three penalties by hand; the sweep plot is shown on the bonus slide.
-- The EDA section says "Share your most interesting findings on Slack!". Replace with whichever channel MY202 uses.
 - `advertising.csv` (the ISLR advertising data) is in the folder but the lab never uses it. The deck uses it for the concept block (sales against TV budget) because one predictor makes a clearer picture than 30. If it is meant for the lab, say so and I'll swap the examples.
 - The full multivariable model has 67 coefficients from 649 rows. Its test R² (0.21) is far below its training R² (0.45). This is a feature, not a bug: it is the best motivation for the lasso, so the Part 3 debrief leans on it.
 
@@ -138,7 +137,7 @@ About 48 slides. Every slide was checked at 16:9 with all fragments revealed: co
 
 ### Slide 16 — Exercises: Part 1 EDA (your turn, timer 8)
 - On slide: tasks: 1 histogram of `final_grade`; 2 boxplot of `final_grade` by `higher`; 3 one plot of your own from the list in the notebook (study time, failures, school, going out, health, support); 4 one sentence: what seems to matter? Cheat: `ggplot(aes(x = final_grade)) + geom_histogram(bins = 20) + theme_histogram()`; `ggplot(aes(x = higher, y = final_grade)) + geom_boxplot() + theme_boxplot()`; `ggplot(aes(x = studytime, y = final_grade)) + geom_boxplot()`. Stuck: `theme_histogram` not found → run the setup chunk; empty plot → check the `+` at the end of each line.
-- Script: Eight minutes. Pick from the list. Post one plot and one sentence in the channel; we'll look at two or three.
+- Script: Eight minutes. Pick from the list. Post one plot and one sentence on Moodle (notebook line 129); we'll look at two or three.
 
 ### Slide 17 — Part 1: what did we see?
 - On slide: histogram of `final_grade` (left: peak at 10–14, a handful of zeros), boxplot by `higher` (right: yes ≈ 12, no ≈ 9). Cards: "Grades cluster between 10 and 14; a few students scored 0"; "Students who plan higher education score higher. How much higher, and could it be chance? That's the next part."
@@ -239,7 +238,7 @@ About 48 slides. Every slide was checked at 16:9 with all fragments revealed: co
 
 ### Slide 42 — Summary
 - On slide: checks: 1 OLS picks the line with the smallest sum of squared residuals; coefficients are "change in prediction per unit of x". 2 Split first: fit on training, score on test; the gap is overfitting. 3 `linear_reg() |> fit()` · `augment()` · `metric_set(rsq, rmse)` is the workflow for every model from now on. 4 Lasso adds a price per coefficient; λ is a hyperparameter you set; useless coefficients go to exactly zero. Exit question: "Which of the 30 features would you have bet on before today? Did the lasso agree?"
-- Script: Recap in four sentences. Collect answers to the exit question in the channel.
+- Script: Recap in four sentences. Collect answers to the exit question on Moodle.
 
 ### Slide 43 — Further reading (closing)
 - On slide: ISLR (James et al., *An Introduction to Statistical Learning*), chapter 3 (linear regression) and section 6.2 (lasso); *Tidy Modeling with R* chapters on `parsnip` and `yardstick`; tidymodels reference sheet. Dark card: Week 4 preview.

@@ -1,0 +1,1373 @@
+---
+title: "Linear Regression: our first algorithm"
+subtitle: "MY202 · Lab 3 · Self-paced guide"
+author: "Jonas Weinert"
+date: today
+date-format: "D MMMM YYYY"
+format: lse-html
+
+execute:
+  echo: false
+  message: false
+  warning: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+# The outputs on this page are real: they come from running the lab code on the lab data.
+library("ggsci")
+library("MASS")
+library("scales")
+library("tidymodels")
+library("tidyverse")
+knitr::opts_knit$set(root.dir = "../notebooksanddata")
+options(width = 72)
+
+theme_histogram <- function() {
+  theme_minimal() +
+    theme(panel.grid.minor = element_blank(), panel.grid.major.x = element_blank())
+}
+theme_boxplot <- function() {
+  theme_minimal() +
+    theme(panel.grid.minor = element_blank(), panel.grid.major.x = element_blank(), legend.position = "none")
+}
+theme_bar <- function() {
+  theme_minimal() +
+    theme(panel.grid.minor = element_blank(), panel.grid.major.y = element_blank())
+}
+theme_scatter <- function() {
+  theme_minimal() +
+    theme(panel.grid.minor = element_blank(), legend.position = "bottom")
+}
+red <- "#E2001A"; dark <- "#8C0014"; pink <- "#F28A94"; grey <- "#6B6B6B"; blue <- "#1F4E79"
+```
+
+```{r}
+#| label: data
+#| include: false
+students <- read_csv("data/students-data-cleaned.csv")
+adv <- read_csv("advertising.csv")
+
+ols <- linear_reg() |> fit(sales ~ TV, data = adv)
+b0 <- coef(ols$fit)[[1]]; b1 <- coef(ols$fit)[[2]]
+adv_aug <- augment(ols, new_data = adv)
+rss_ols <- sum(adv_aug$.resid^2)
+rss_mean <- sum((adv$sales - mean(adv$sales))^2)
+first <- adv_aug[1, ]
+
+set.seed(123)
+students_split <- initial_split(students, prop = 0.75)
+students_train <- training(students_split)
+students_test <- testing(students_split)
+mv_model <- linear_reg() |> fit(final_grade ~ ., data = students_train)
+reg_metrics <- metric_set(rsq, rmse)
+lasso_model <-
+  linear_reg(penalty = 0.1, mixture = 1) |>
+  set_engine("glmnet") |>
+  fit(final_grade ~ ., data = students_train)
+
+adv_plot <- function() {
+  ggplot(adv, aes(TV, sales)) +
+    coord_cartesian(xlim = c(0, 300), ylim = c(0, 28)) +
+    theme_scatter() +
+    labs(x = "TV advertising budget ($1,000s)", y = "Sales (1,000s of units)")
+}
+```
+
+## Before you start
+
+This page walks you through Lab 3 one small step at a time. It assumes you have done Labs 1 and 2, so you know what a notebook, a chunk, a pipe `|>` and a `ggplot` are. Everything new is explained the first time it appears, and there is a [glossary](#glossary) at the end.
+
+**What's new this week.** Today you meet your first **algorithm**: a recipe a computer follows to learn something from data. The algorithm is **ordinary least squares**, the engine behind linear regression. Before any code, the page builds it from scratch with nothing harder than school arithmetic. Then you use it on real data, twice: once the way a social scientist tests a hypothesis, once the way a machine learning scientist builds a prediction.
+
+:::: {.legend}
+::: {.l-do}
+**Your turn**
+Something to do in the notebook. The box says which notebook lines to go to.
+:::
+::: {.l-see}
+**What you should see**
+The real result R gives back. Compare it with yours.
+:::
+::: {.l-idea}
+**Big idea**
+A concept worth remembering beyond today.
+:::
+::: {.l-quiz}
+**Check yourself**
+A quick question. Click an answer to see if you were right.
+:::
+::::
+
+At the end of each step there is a **Mark as done** button. Your ticks are saved in this browser, so you can close the page and pick up where you left off.
+
+::: {.callout-note title="Plan for about 2–3 hours"}
+The big idea at the start takes about 30 minutes and is worth doing slowly: everything after it builds on it. Parts 3 and 5 are the most important coding parts. Part 5's bonus is optional.
+:::
+
+### Open the notebook and run the setup chunk {.step}
+
+::: {.doit q="Setup · notebook lines 24–72"}
+1. Open the Lab 3 **student notebook** on Nuvolos. The packages and the data are already installed there.
+2. Run the chunk at **lines 24–62**. It loads five packages and creates the four `theme_...()` functions you wrote in Lab 2.
+3. Run the chunk at **lines 70–72**. It reads the data into an object called `students`.
+:::
+
+The notebook loads five packages. Two are new:
+
+| Package | What it gives you |
+|---|---|
+| `tidymodels` | A family of packages for **modelling**, the way the tidyverse is a family for wrangling. Today: making models (`linear_reg()`, `fit()`), splitting data (`initial_split()`), and scoring predictions (`metric_set()`). |
+| `MASS` | Used once, in Part 4, to simulate data. |
+| `tidyverse`, `ggsci`, `scales` | Old friends from Labs 1 and 2: wrangling, plots, colour schemes and number formats. |
+
+::: {.callout-tip collapse="true" title="Ignore line 66 about creating a data folder"}
+The notebook says "Please create a data folder called `data`". On Nuvolos this is already done: the file sits in `data/students-data-cleaned.csv`. If the chunk at line 71 runs without an error, you're set.
+:::
+
+::: {.callout-tip collapse="true" title="The setup chunk prints a long list of packages"}
+`tidymodels` loads about a dozen packages and lists them, plus some "conflicts" where two packages have a function with the same name. That's normal, as in Lab 1.
+:::
+
+## The big idea: our first algorithm {#bigidea}
+
+**About 30 minutes, no code.** The notebook doesn't explain *how* a linear model is fitted. This part does, because it is the foundation of almost every model in the course. You'll use a second, simpler dataset here: how much 200 markets spent on TV advertising, and how many units they sold. One input and one outcome make it easy to draw.
+
+### What is a model? {.step}
+
+A **model** is a **rule** that turns inputs into a prediction. Here is one, made up for now, that predicts a student's grade from how many hours a week they study and how many times they have failed a course before:
+
+```{=html}
+<div class="calc-g">
+  <div class="hl"><span>The rule</span><b>grade = 10 + 0.5 × hours − 2 × failures</b></div>
+  <div><span>One student</span><b>6 hours a week, 1 past failure</b></div>
+  <div><span>Plug in</span><b>10 + 0.5 × 6 − 2 × 1 = 10 + 3 − 2</b></div>
+  <div class="hl"><span>Prediction</span><b>= 11</b></div>
+  <div><span>Actual grade</span><b>13</b></div>
+  <div class="hl"><span>Residual</span><b>13 − 11 = +2</b><small>the rule guessed 2 points too low</small></div>
+</div>
+```
+
+The gap between what really happened and what the rule predicted is the **residual**: **actual − predicted**. A positive residual means the rule guessed too low; a negative one, too high.
+
+::: {.idea}
+The numbers inside the rule, 10, 0.5 and −2, are its **coefficients** (also called **parameters**). Someone has to choose them. An **algorithm** is a recipe for choosing them from data, so that the rule's predictions are as good as possible. The next four steps build that recipe.
+:::
+
+::: {.quiz}
+The same rule, a different student: 4 hours a week, no past failures, actual grade 11. What is the residual?
+
+::: {.opt}
++1
+
+::: {.fb}
+Check the prediction first: 10 + 0.5 × 4 − 2 × 0 = 12. Then actual − predicted.
+:::
+:::
+
+::: {.opt .right}
+−1
+
+::: {.fb}
+The rule predicts 10 + 2 − 0 = 12. Actual − predicted = 11 − 12 = −1: the rule guessed 1 point too high.
+:::
+:::
+
+::: {.opt}
+12
+
+::: {.fb}
+12 is the prediction. The residual is the gap between the actual grade and the prediction.
+:::
+:::
+:::
+
+### Which line is best? {.step}
+
+Here are the 200 markets. Each dot is one market: across, how much it spent on TV ads; up, how much it sold. We want a straight line through the cloud that predicts sales from a budget. Here are three candidates.
+
+```{r}
+#| fig-width: 7
+#| fig-height: 4.2
+lines3 <- tibble(line = c("A", "B", "C"), intercept = c(11, b0, 2), slope = c(0.02, b1, 0.08))
+adv_plot() +
+  geom_point(alpha = 0.55, colour = grey) +
+  geom_abline(data = lines3, aes(intercept = intercept, slope = slope, colour = line), linewidth = 1.2) +
+  annotate("label", x = 292, y = lines3$intercept + lines3$slope * 292, label = lines3$line,
+           colour = c(blue, red, "#1D7A46"), fontface = "bold", size = 5) +
+  scale_colour_manual(values = c(A = blue, B = red, C = "#1D7A46"), guide = "none")
+```
+
+Most people pick **B**, and they are right. But think about *why*. "It looks like it goes through the middle" isn't something a computer can use. To choose a line, a computer needs a **number that says how wrong a line is**. Lower number, better line.
+
+### How wrong is a line? Residuals {.step}
+
+Take line B and one market. The line makes a guess for that market; the market's real sales differ from the guess by its residual.
+
+```{r}
+#| fig-width: 7
+#| fig-height: 4.2
+adv_plot() +
+  geom_segment(data = adv_aug, aes(xend = TV, yend = .pred), colour = pink, alpha = 0.6) +
+  geom_point(alpha = 0.55, colour = grey) +
+  geom_abline(intercept = b0, slope = b1, colour = red, linewidth = 1.2) +
+  geom_segment(data = first, aes(xend = TV, yend = .pred), colour = dark, linewidth = 1.6) +
+  geom_point(data = first, colour = dark, size = 3.5) +
+  annotate("label", x = first$TV - 8, y = (first$sales + first$.pred) / 2,
+           label = paste0("residual = +", round(first$.resid, 1)), hjust = 1, colour = dark, fontface = "bold")
+```
+
+```{=html}
+<div class="calc-g">
+  <div><span>One market</span><b>TV budget `r first$TV`, sold `r first$sales`</b></div>
+  <div><span>The line says</span><b>`r sprintf("%.1f", first$.pred)`</b></div>
+  <div class="hl"><span>Residual</span><b>`r first$sales` − `r sprintf("%.1f", first$.pred)` = +`r round(first$.resid, 1)`</b></div>
+</div>
+```
+
+The pink segments are the residuals of all 200 markets. That's 200 numbers. We need to turn them into **one** score for the line.
+
+### Add them up? Square them first {.step}
+
+The obvious idea is to add the residuals up. Here is why that fails. This flat line at the average sales is clearly a bad line: it ignores the budget completely.
+
+```{r}
+#| fig-width: 7
+#| fig-height: 3.4
+adv_plot() +
+  geom_segment(aes(xend = TV, yend = mean(sales)), colour = pink, alpha = 0.6) +
+  geom_point(alpha = 0.5, colour = grey) +
+  geom_hline(yintercept = mean(adv$sales), colour = blue, linewidth = 1.2)
+```
+
+Yet its residuals add up to **exactly zero**: the misses above the line and the misses below it cancel out. A score that rates a terrible line as perfect is no use.
+
+The fix is to **square each residual first**, then add. A square is never negative, so nothing cancels.
+
+```{=html}
+<div class="calc-g">
+  <div><span>Market 1</span><b>`r sprintf("%+.1f", adv_aug$.resid[1])`² = `r round(adv_aug$.resid[1]^2, 1)`</b></div>
+  <div><span>Market 2</span><b>`r sprintf("%+.1f", adv_aug$.resid[2])`² = `r round(adv_aug$.resid[2]^2, 1)`</b></div>
+  <div><span>Market 5</span><b>`r sprintf("%+.1f", adv_aug$.resid[5])`² = `r round(adv_aug$.resid[5]^2, 1)`</b><small>negative residual, positive square</small></div>
+  <div><span>… market 200</span><b>and so on</b></div>
+  <div class="hl"><span>Add all 200</span><b>RSS = `r format(round(rss_ols), big.mark = ",")`</b><small>for line B</small></div>
+</div>
+```
+
+This total is the **residual sum of squares**, **RSS**. It is our score for a line: **lower is better**. The flat line scores `r format(round(rss_mean), big.mark = ",")`; line B scores `r format(round(rss_ols), big.mark = ",")`.
+
+::: {.callout-note title="A side effect of squaring"}
+Squaring makes big misses count much more than small ones. One miss of 4 costs 4² = 16; two misses of 2 cost 2² + 2² = 8. So the best line will try hard to avoid large errors, which is usually what we want.
+:::
+
+### Try every line: the bowl {.step}
+
+Now we can rank lines. Try many slopes, compute each one's RSS, and plot RSS against slope:
+
+```{r}
+#| fig-width: 8
+#| fig-height: 3.4
+bowl <- tibble(slope = seq(0, 0.1, by = 0.0005)) |>
+  mutate(intercept = mean(adv$sales) - slope * mean(adv$TV),
+         rss = map2_dbl(intercept, slope, ~ sum((adv$sales - (.x + .y * adv$TV))^2)))
+cand <- tibble(slope = c(0.01, 0.03, b1, 0.07)) |>
+  mutate(intercept = mean(adv$sales) - slope * mean(adv$TV),
+         rss = map2_dbl(intercept, slope, ~ sum((adv$sales - (.x + .y * adv$TV))^2)),
+         best = slope == b1)
+ggplot(bowl, aes(slope, rss)) +
+  geom_line(colour = blue, linewidth = 1.2) +
+  geom_point(data = cand, aes(colour = best), size = 3.5) +
+  geom_vline(xintercept = b1, linetype = "dashed", colour = red) +
+  annotate("label", x = b1, y = max(bowl$rss) * 0.85, label = paste0("smallest RSS\nslope = ", round(b1, 4)),
+           colour = red, fontface = "bold", size = 3.6) +
+  scale_colour_manual(values = c(`TRUE` = red, `FALSE` = blue), guide = "none") +
+  scale_y_continuous(labels = label_comma()) +
+  theme_scatter() + labs(x = "Slope of the line", y = "RSS")
+```
+
+Too flat: big RSS. Too steep: big RSS again. In between, a **bowl** with one lowest point. The line at the bottom of the bowl is line B.
+
+::: {.idea}
+**Ordinary least squares (OLS)** picks the line with the **smallest sum of squared residuals**. That's the whole algorithm: "least squares" is a description, not a name. For straight-line models there is a formula that jumps directly to the bottom of the bowl, so R finds it in a split second without trying any lines.
+:::
+
+::: {.callout-note collapse="true" title="Is the curve always a bowl?"}
+For a linear model, yes. Each residual changes in a straight line as the slope changes, so its square is a parabola, and adding 200 parabolas gives one parabola that opens upwards. There is always exactly one bottom. With more features the bowl has more dimensions, but still one bottom. Later in the course you'll meet models whose error surface is bumpy, with many valleys; those really do have to search.
+:::
+
+::: {.quiz}
+Why not just add up the residuals to score a line?
+
+::: {.opt}
+Adding is slower for the computer.
+
+::: {.fb}
+Speed isn't the issue. Think about what happens to positive and negative residuals.
+:::
+:::
+
+::: {.opt .right}
+Positive and negative residuals cancel, so a bad line can score zero.
+
+::: {.fb}
+Exactly: the flat line at the average scores zero. Squaring makes every miss count.
+:::
+:::
+
+::: {.opt}
+Residuals can't be added because they are in different units.
+
+::: {.fb}
+All residuals are in the same units as the outcome (here, thousands of units sold), so they can be added. The problem is cancelling.
+:::
+:::
+:::
+
+### The equation, piece by piece {.step}
+
+The line at the bottom of the bowl, written as an equation:
+
+::: {.anatomy}
+[ŷ]{.tok} = [β₀]{.tok} + [β₁]{.tok} · [x]{.tok}
+
+1. **The prediction.** The hat on *y* means "our estimate", as opposed to the real *y*. Say "y-hat".
+2. **The intercept.** The prediction when *x* is 0: where the line crosses the vertical axis.
+3. **The slope.** How much the prediction changes when *x* goes up by **one unit**. This is the coefficient the algorithm chooses.
+4. **The feature.** The input we know. Also called the predictor or independent variable.
+:::
+
+The Greek letters are just names for the numbers the algorithm chooses (β is "beta"). For the advertising data, OLS chooses:
+
+```{=html}
+<div class="calc-g">
+  <div class="hl"><span>Fitted line</span><b>sales = `r round(b0, 2)` + `r round(b1, 4)` × TV</b></div>
+  <div><span>Market 1</span><b>TV = `r first$TV`</b></div>
+  <div><span>Plug in</span><b>`r round(b0, 2)` + `r round(b1, 4)` × `r first$TV` = `r round(b0, 2)` + `r round(b1 * first$TV, 2)`</b></div>
+  <div class="hl"><span>Prediction</span><b>ŷ = `r sprintf("%.1f", first$.pred)`</b><small>the "line says" number from earlier</small></div>
+</div>
+```
+
+In words: with no TV advertising, a market sells about `r round(b0, 1)` thousand units, and every extra $1,000 spent on TV adds about `r round(b1 * 1000)` units.
+
+### More than one feature {.step}
+
+With several features, the rule just gets more terms:
+
+::: {.anatomy}
+ŷ = β₀ + [β₁ x₁]{.tok} + [β₂ x₂]{.tok} + … + [βₚ xₚ]{.tok}
+
+1. **One coefficient per feature.** Each β is the change in the prediction when *that* feature rises by 1, **with all the other features held fixed**.
+2. **Still the same algorithm.** Same squared residuals, same bowl (in more dimensions), same bottom.
+3. ***p* features, *p* slopes.** Your grade rule from the first step had *p* = 2.
+:::
+
+::: {.callout-note title="Text columns become 0/1 columns"}
+Most of today's features are text, like `higher` ("yes" or "no"). R turns them into **0/1 columns** automatically: `higheryes` is 1 for students who answered yes and 0 otherwise. Its coefficient is the difference between yes and no students, other things equal. A feature with 4 categories, like `studytime`, becomes 3 such columns: one for each category except the first, the **reference** category the others are compared with. That's why today's 30 features turn into 67 coefficients.
+:::
+
+### How good is the line? R² and RMSE {.step}
+
+OLS gives us the best line. But best can still be bad. Two numbers say *how* good it is, and you'll report them for every model in this course.
+
+::: {.anatomy}
+[R²]{.tok} = 1 − [RSS]{.tok} / [TSS]{.tok}
+
+1. **R-squared: the share of the variation explained.** 0 means no better than guessing the average; 1 means every point lies on the line.
+2. **The RSS of our line.**
+3. **The RSS of the dumbest model**: the flat line at the average, which predicts the mean for everyone. Its RSS is called the total sum of squares, **TSS**: all the variation there is to explain.
+:::
+
+```{=html}
+<div class="calc-g">
+  <div><span>Flat line</span><b>TSS = `r format(round(rss_mean), big.mark = ",")`</b></div>
+  <div><span>Line B</span><b>RSS = `r format(round(rss_ols), big.mark = ",")`</b></div>
+  <div><span>Divide</span><b>1 − `r format(round(rss_ols), big.mark = ",")` / `r format(round(rss_mean), big.mark = ",")` = 1 − `r round(rss_ols / rss_mean, 2)`</b></div>
+  <div class="hl"><span>R²</span><b>= `r round(glance(ols)$r.squared, 2)`</b><small>TV explains `r round(100 * glance(ols)$r.squared)`% of the variation in sales</small></div>
+</div>
+```
+
+::: {.anatomy}
+[RMSE]{.tok} = √ [mean( residual² )]{.tok}
+
+1. **Root mean squared error: the typical miss**, in the **units of the outcome**. For grades out of 20, an RMSE of 3 means a typical prediction is about 3 points off.
+2. **Average the squared residuals**, then take the square root to undo the squaring.
+:::
+
+```{=html}
+<div class="calc-g">
+  <div><span>Total</span><b>RSS = `r format(round(rss_ols), big.mark = ",")` over 200 markets</b></div>
+  <div><span>Mean</span><b>`r format(round(rss_ols), big.mark = ",")` / 200 = `r round(rss_ols / 200, 1)`</b></div>
+  <div><span>Root</span><b>√`r round(rss_ols / 200, 1)` = `r round(sqrt(rss_ols / 200), 1)`</b></div>
+  <div class="hl"><span>RMSE</span><b>`r round(sqrt(rss_ols / 200), 1)` thousand units</b><small>a typical prediction is about `r round(sqrt(rss_ols / 200) * 1000, -2)` units off</small></div>
+</div>
+```
+
+::: {.quiz}
+A house-price model has R² = 0.65. What does that mean?
+
+::: {.opt}
+65% of the model's predictions are correct.
+
+::: {.fb}
+A very common misreading. Predictions from a regression are almost never exactly right, so "correct" isn't what R² counts.
+:::
+:::
+
+::: {.opt .right}
+The features explain 65% of the variation in house prices.
+
+::: {.fb}
+Yes. The other 35% is left in the residuals: variation the model doesn't explain.
+:::
+:::
+
+::: {.opt}
+The model's error is 65% smaller than a perfect model's.
+
+::: {.fb}
+A perfect model has no error at all, so this can't be right. R² compares the model with the flat line at the average.
+:::
+:::
+:::
+
+### The same thing in code {.step}
+
+In R, with tidymodels, fitting a linear model takes one line:
+
+::: {.anatomy}
+[`linear_reg()`]{.tok} `|>` [`fit(`]{.tok}[`final_grade`]{.tok} [`~`]{.tok} [`higher`]{.tok}`,` [`data = students`]{.tok}`)`
+
+1. **Which kind of model.** A linear one. On its own this fits nothing: it's an empty recipe.
+2. **Run the algorithm.** Find the coefficients with the smallest RSS.
+3. **The outcome**, *y*: what we want to predict. It goes left of the tilde.
+4. **The tilde** `~` reads as "explained by". It turns the two sides into a **formula**.
+5. **The feature(s)**, *x*. Several are joined with `+`: `higher + failures`. A dot `.` means "every other column".
+6. **Which table** the columns come from.
+:::
+
+In words: "fit a linear model of `final_grade` explained by `higher`, using the `students` table." You'll run exactly this in Part 2.
+
+::: {.callout-tip collapse="true" title="Where is the tilde on my keyboard?"}
+On a UK keyboard it's next to Enter, with [Shift]{.kbd} and the `#` key. On a Mac with a UK layout, try [Option]{.kbd} + [N]{.kbd} then [Space]{.kbd}, or the key left of [1]{.kbd} or [Z]{.kbd}. On a US keyboard it's top left, with [Shift]{.kbd}.
+:::
+
+**The big idea done.** Everything from here on uses these words: residual, RSS, coefficient, R², RMSE.
+
+## Part 1: Explore the data {#part1}
+
+**About 20 minutes.** Before modelling, look at the data. You'll make a few plots with the `ggplot` skills from Lab 2.
+
+### Meet the students {.step}
+
+`students` has one row per student, **649 students** from two Portuguese secondary schools. The outcome is `final_grade`, from 0 to 20. The other 30 columns are **features**: things that might help predict the grade. They come in three groups:
+
+| Group | Features |
+|---|---|
+| Who they are | `school`, `sex`, `age`, `address`, `famsize`, `pstatus`, `medu`, `fedu`, `mjob`, `fjob`, `guardian` |
+| How they study | `studytime`, `failures`, `schoolsup`, `famsup`, `paid`, `higher`, `absences`, `reason`, `traveltime` |
+| How they live | `goout`, `freetime`, `romantic`, `activities`, `famrel`, `dalc`, `walc`, `health`, `internet`, `nursery` |
+
+```{r}
+#| df-print: default
+glimpse(students)
+```
+
+::: {.callout-warning title="The notebook's variable list doesn't match the file"}
+Lines 76–106 describe features such as `studytime`, `medu` or `health` as numbers (1 to 4, 0 to 4, 1 to 5). In the file they are **text labels**: `studytime` is `"<2hrs"`, `"2-5hrs"`, `"5-10hrs"` or `">10hrs"`, and `health` runs from `"VeryBad"` to `"VeryGood"`. Look at `<chr>` in the output above. Only `age`, `failures`, `absences` and `final_grade` are numbers.
+:::
+
+### Make some plots {.step}
+
+::: {.doit q="Part 1 · notebook line 131"}
+The notebook lists ideas at lines 112–127. Make at least three plots in the chunk at line 131 (or add more chunks below it). Start with these two, then pick one idea of your own.
+
+```r
+students |>
+  ggplot(aes(x = final_grade)) +
+  geom_histogram(bins = 20, alpha = 0.5, colour = "black") +
+  theme_histogram()
+
+students |>
+  ggplot(aes(x = higher, y = final_grade)) +
+  geom_boxplot() +
+  theme_boxplot()
+```
+:::
+
+::: {.expect}
+```{r}
+#| fig-width: 7
+#| fig-height: 3.2
+students |>
+  ggplot(aes(x = final_grade)) +
+  geom_histogram(bins = 20, alpha = 0.5, colour = "black") +
+  theme_histogram()
+```
+
+```{r}
+#| fig-width: 7
+#| fig-height: 3.2
+students |>
+  ggplot(aes(x = higher, y = final_grade)) +
+  geom_boxplot() +
+  theme_boxplot()
+```
+:::
+
+::: {.doit q="Part 1 · notebook line 129"}
+The notebook asks you to **share your most interesting finding on Moodle**: post one plot and one sentence saying what it shows.
+:::
+
+Grades cluster between 10 and 14, and a handful of students scored **0**: remember them, they come back in Part 4. Students who plan to go on to higher education (`higher` = yes) score higher. Plots suggest; models measure. Part 2 puts a number on that difference.
+
+::: {.callout-tip collapse="true" title="More plot ideas, with code"}
+Study time against grade (a boxplot per category):
+
+```r
+students |>
+  ggplot(aes(x = studytime, y = final_grade)) +
+  geom_boxplot() +
+  theme_boxplot()
+```
+
+Past failures (a number, so a jittered scatter):
+
+```r
+students |>
+  ggplot(aes(x = failures, y = final_grade)) +
+  geom_jitter(width = 0.2, alpha = 0.4) +
+  theme_scatter()
+```
+:::
+
+::: {.callout-tip collapse="true" title="Stuck? “could not find function theme_histogram”"}
+The theme functions are created in the setup chunk (lines 24–62). Run it again.
+:::
+
+## Part 2: The hypothesis-testing approach {#part2}
+
+**About 20 minutes.** This is how a social scientist uses a linear model: to ask whether an effect exists and how sure we can be.
+
+### One feature: does `higher` matter? {.step}
+
+The hypothesis: students who want to go on to higher education get better grades. Fit a linear model of `final_grade` explained by `higher`, then ask for a summary.
+
+::: {.anatomy}
+`linear_reg() |> fit(final_grade ~ higher, data = students) |>` [`extract_fit_engine()`]{.tok} `|>` [`summary()`]{.tok}
+
+1. **Unwrap the model.** tidymodels wraps the fitted model in its own packaging. This pulls out the plain R model inside (called an `lm`).
+2. **Print the classic regression table**: coefficients, standard errors, p-values and R². It only works on the unwrapped model, hence step 1.
+:::
+
+::: {.doit q="Part 2 · notebook lines 146–152"}
+The code is already in the notebook. Run the chunk.
+:::
+
+::: {.expect}
+```{r}
+linear_reg() |>
+  fit(final_grade ~ higher, data = students) |>
+  extract_fit_engine() |>
+  summary()
+```
+:::
+
+### Reading the output {.step}
+
+Focus on the **Coefficients** table. Each row is one coefficient; each column says something about it.
+
+| Column | `higheryes` | What it means |
+|---|---|---|
+| **Estimate** | 3.48 | The coefficient. Students who want higher education score **3.48 points higher**. |
+| (Intercept) Estimate | 8.80 | The prediction when `higheryes` is 0: the average grade of the "no" students. |
+| **Std. Error** | 0.39 | How uncertain the estimate is. A different sample of students would give a slightly different 3.48; this is roughly how much it would wobble. |
+| **t value** | 8.96 | Estimate ÷ standard error: the effect is about 9 standard errors away from zero. |
+| **Pr(>\|t\|)** | < 2e-16 | The **p-value**: *if the true effect were zero, how surprising would a result like this be?* Here, extremely surprising, so we reject "no effect". |
+
+Then the line near the bottom: **Multiple R-squared: 0.1103**. The feature explains 11% of the variation in grades.
+
+::: {.idea}
+**Significant is not the same as predictive.** The effect of `higher` is about as certain as effects get (p < 0.001), yet it explains only 11% of the variation. A model can be great for testing a hypothesis and poor for predicting individual grades.
+:::
+
+### All features at once: `~ .` {.step}
+
+A single feature might be standing in for others. Students who want higher education may also study more and fail less. To **control** for that, put every feature in the model. The dot means "every other column".
+
+::: {.doit q="Part 2 · notebook lines 160–165"}
+Run the chunk. The output is long: 67 coefficients. Scroll to the row for `higheryes` and to the R-squared line at the bottom.
+:::
+
+::: {.expect data-label="What you should see (the coefficients with p < 0.01, as a table)"}
+```{r}
+linear_reg() |>
+  fit(final_grade ~ ., data = students) |>
+  tidy() |>
+  filter(p.value < 0.01) |>
+  mutate(across(where(is.numeric), ~ signif(.x, 3)))
+```
+:::
+
+The coefficient for `higheryes` **halves**, from 3.48 to about 1.6, but stays significant. Part of the raw difference was study time and past failures travelling together with the wish for higher education. R² rises to **0.41**: together, the features explain 41% of the variation. Each past failure is associated with about 1.5 points less.
+
+::: {.callout-note title="A warning about p-values (lines 167–169)"}
+p-values tell you which features matter for *explaining* these 649 students. They are no guarantee that the model predicts well for new students. And they can be hunted for: trying many models and reporting only the significant one is called **p-hacking**. The notebook links the *Data Falsificada* series, about a famous case of faked data.
+:::
+
+::: {.quiz}
+After adding all the other features, the coefficient for `higheryes` drops from 3.48 to 1.6. What's the best reading?
+
+::: {.opt}
+Wanting higher education doesn't matter after all.
+
+::: {.fb}
+It still matters: 1.6 points, and still significant. It's smaller, not gone.
+:::
+:::
+
+::: {.opt .right}
+Part of the 3.48 was really other things, like study time and past failures, that go together with wanting higher education.
+
+::: {.fb}
+Yes. Holding those fixed, the remaining difference linked to `higher` is about 1.6 points.
+:::
+:::
+
+::: {.opt}
+The first model was calculated wrongly.
+
+::: {.fb}
+Both models are calculated correctly. They answer different questions: the raw difference, and the difference with other features held fixed.
+:::
+:::
+:::
+
+## Part 3: The machine learning approach {#part3}
+
+**About 40 minutes.** The most important part of the lab. Same model, different question: not "is there an effect?" but **"how well can we predict a grade we haven't seen?"**
+
+### A made-up model, in R {.step}
+
+The notebook starts with a made-up rule, like the grade rule from the big idea, written as an R **function**: a recipe with three inputs.
+
+::: {.anatomy}
+`sim_model_preds <-` [`function(x1, x2, x3)`]{.tok} `{` [`y <- 1.1 * x1 + 2.2 * x2 + 3.3 * x3`]{.tok} [`y`]{.tok} `}`
+
+1. **Make a function** with three inputs, called `x1`, `x2` and `x3`.
+2. **The rule**: three made-up coefficients, 1.1, 2.2 and 3.3. No data was used to choose them.
+3. **The result** the function gives back: the last line inside the curly brackets.
+:::
+
+::: {.doit q="Part 3 · notebook lines 191–212"}
+1. Run the chunk at **lines 191–196** to create the function. Nothing is printed; it appears in the Environment pane.
+2. In the empty chunk at **line 201**, make a prediction for a new observation with `x1 = 10`, `x2 = 20`, `x3 = 30`:
+
+    ```r
+    sim_model_preds(10, 20, 30)
+    ```
+
+3. The real value was `y = 150`. In the chunk at **line 209**, calculate the residual:
+
+    ```r
+    150 - sim_model_preds(10, 20, 30)
+    ```
+:::
+
+::: {.expect}
+```{r}
+sim_model_preds <- function(x1, x2, x3) {
+  y <- 1.1 * x1 + 2.2 * x2 + 3.3 * x3
+  y
+}
+sim_model_preds(10, 20, 30)
+150 - sim_model_preds(10, 20, 30)
+```
+:::
+
+```{=html}
+<div class="calc-g">
+  <div><span>Plug in</span><b>1.1 × 10 + 2.2 × 20 + 3.3 × 30 = 11 + 44 + 99</b></div>
+  <div class="hl"><span>Prediction</span><b>= 154</b></div>
+  <div class="hl"><span>Residual</span><b>150 − 154 = −4</b><small>the rule guessed 4 too high</small></div>
+</div>
+```
+
+The two discussion questions at lines 204 and 212 ask for exactly these numbers: the prediction is 154, and we are 4 points off.
+
+### Why split the data? {.step}
+
+Imagine revising for an exam with last year's paper, then being tested on… last year's paper again. You'd score well, but the mark would say little about what you learned. You might just have memorised the answers.
+
+A model fitted to some data has the same problem. Scored on the very rows it learned from, it **flatters itself**: part of what it learned is the quirks of those particular rows. So we split the data before fitting anything:
+
+| Set | Share | Used for |
+|---|---|---|
+| **Training set** | 75%, 486 students | Fitting the model: the coefficients come from these rows only |
+| **Test set** | 25%, 163 students | Scoring the finished model. Locked away until then |
+
+::: {.idea}
+A model that does well on the training set and much worse on the test set has learned noise rather than pattern. That is **overfitting**, and the gap between the two scores is its first warning sign.
+:::
+
+### Split the data {.step}
+
+The chunk at lines 218–225 has three comments and no code. Under each comment goes one step.
+
+::: {.anatomy}
+[`set.seed(123)`]{.tok}
+
+1. **Make the random split repeatable.** Which students end up in which set is decided at random. A seed fixes the random draw, so you get exactly the same split, and the same numbers, as this page.
+:::
+
+::: {.anatomy}
+`students_split <-` [`initial_split(`]{.tok}`students,` [`prop = 0.75`]{.tok}`)`
+
+1. **Decide which rows go where.** The result is a *split object*: a note of which rows are which, **not yet two tables**.
+2. **The share for training**: 75%. Between 70% and 80% is typical.
+:::
+
+::: {.anatomy}
+`students_train <-` [`training(students_split)`]{.tok}
+
+`students_test <-` [`testing(students_split)`]{.tok}
+
+1. **Pull out the training table** from the split object.
+2. **Pull out the test table.**
+:::
+
+::: {.doit q="Part 3 · notebook lines 218–225"}
+Type the code under the three comments, so the chunk reads:
+
+```r
+# Set a seed for reproducibility
+set.seed(123)
+
+# Split the data with 75% being used to train the model
+students_split <- initial_split(students, prop = 0.75)
+
+# Create tibbles of the training and test set
+students_train <- training(students_split)
+students_test <- testing(students_split)
+```
+
+Run the whole chunk, then type `students_split` in the Console to print the split object.
+:::
+
+::: {.expect}
+```{r}
+students_split
+```
+:::
+
+486 rows for training, 163 for testing, 649 in total.
+
+::: {.callout-tip collapse="true" title="My numbers later don't match this page"}
+The seed must run immediately before the split, in the same chunk, and the chunk should be run once from the top. Running `initial_split()` again without the seed gives a different random split.
+:::
+
+### Fit the model on the training set {.step}
+
+The same code as in Part 2, with two changes: it uses only `students_train`, and the result is saved under a name, `mv_model` (short for "multivariable model"), so we can use it later.
+
+::: {.doit q="Part 3 · notebook lines 233–235"}
+In the chunk at line 234, type:
+
+```r
+mv_model <- linear_reg() |>
+  fit(final_grade ~ ., data = students_train)
+```
+
+Run it. Nothing is printed, but `mv_model` appears in the Environment pane.
+:::
+
+To see what was fitted, `tidy()` turns the coefficients into a table, one row per coefficient:
+
+::: {.expect data-label="What you'd see with tidy(mv_model) (the first rows of 68)"}
+```{r}
+tidy(mv_model)
+```
+:::
+
+### Evaluate on the training and test sets {.step}
+
+The chunk at lines 246–256 is already filled in. Three new functions appear in it.
+
+::: {.anatomy}
+`reg_metrics <-` [`metric_set(rsq, rmse)`]{.tok}
+
+1. **Bundle two metrics into one new function.** `rsq` is R², `rmse` is RMSE. The result, `reg_metrics`, computes both at once.
+:::
+
+::: {.anatomy}
+`mv_model |>` [`augment(new_data = students_test)`]{.tok} `|> reg_metrics(`[`truth = final_grade`]{.tok}`,` [`estimate = .pred`]{.tok}`)`
+
+1. **Predict.** `augment()` takes a table, runs every row through the model, and gives the table back with two new columns: `.pred`, the prediction, and `.resid`, actual − prediction.
+2. **Which column holds the real values.**
+3. **Which column holds the predictions**: the `.pred` column `augment()` just added.
+:::
+
+Step through the pipeline to see what each part does:
+
+::::: {.walk}
+:::: {.walk-code}
+```r
+mv_model |>
+  augment(new_data = students_test) |>
+  reg_metrics(truth = final_grade, estimate = .pred)
+```
+::::
+
+:::: {.walk-step lines="1-2"}
+`augment()` adds `.pred` and `.resid` to the 163 test students. Here only those two and the real grade are shown; the other 31 columns are still there.
+
+```{r}
+mv_model |>
+  augment(new_data = students_test) |>
+  select(final_grade, .pred, .resid)
+```
+::::
+
+:::: {.walk-step lines="1-3"}
+`reg_metrics()` compares the real grades with the predictions and returns one row per metric.
+
+```{r}
+mv_model |>
+  augment(new_data = students_test) |>
+  reg_metrics(truth = final_grade, estimate = .pred)
+```
+::::
+:::::
+
+::: {.doit q="Part 3 · notebook lines 246–256"}
+Run the chunk. It prints two tables: first for the training set (data the model has seen), then for the test set (data it hasn't).
+:::
+
+::: {.expect}
+```{r}
+mv_model |>
+  augment(new_data = students_train) |>
+  reg_metrics(truth = final_grade, estimate = .pred)
+
+mv_model |>
+  augment(new_data = students_test) |>
+  reg_metrics(truth = final_grade, estimate = .pred)
+```
+:::
+
+### How can we interpret these results? {.step}
+
+This is the discussion question at line 260.
+
+| | R² | RMSE |
+|---|---|---|
+| Training set, 486 students the model has seen | 0.446 | 2.37 |
+| Test set, 163 students it hasn't | 0.211 | 3.04 |
+
+On students it has seen, the model explains 45% of the variation in grades. On new students, only 21%, and a typical prediction is 3 grade points off. The model is better than guessing the average, but it flatters itself on its own training data. That gap is **overfitting**.
+
+Why? The model has **67 coefficients** fitted on 486 students. With that many, some will happen to describe noise in those particular students: patterns that aren't there in new students. Part 5 is about keeping only the useful ones.
+
+::: {.quiz}
+Which number would you report as "how well the model predicts grades"?
+
+::: {.opt}
+R² on the training set, 0.446
+
+::: {.fb}
+The training set is the exam the model revised from. Its score is too optimistic.
+:::
+:::
+
+::: {.opt .right}
+R² and RMSE on the test set: 0.211 and 3.04
+
+::: {.fb}
+Yes. Only the test set shows how the model does on students it has never seen.
+:::
+:::
+
+::: {.opt}
+The R² of 0.41 from Part 2
+
+::: {.fb}
+That model used all 649 students to fit and to score, so it has the same problem as the training-set score.
+:::
+:::
+:::
+
+## Part 4: Where do we make errors? {#part4}
+
+**About 20 minutes.** R² and RMSE summarise the errors in one number. A **residual plot** shows them all, so you can see *where* the model goes wrong.
+
+### A near-perfect relationship, simulated {.step}
+
+To know what a good residual plot looks like, start with data where a straight line fits almost perfectly. Such data rarely exist in the social world, so the notebook **simulates** them: it asks the computer to make up 1,000 pairs of numbers with a correlation of 0.99.
+
+::: {.doit q="Part 4 · notebook lines 268–298"}
+1. Run the chunk at **lines 268–287**. It creates `sim_data` with two columns, `V1` and `V2`. You don't need to understand `mvrnorm()`; it's the function that draws correlated random numbers.
+2. Run the chunk at **lines 291–298** to plot them.
+:::
+
+::: {.expect}
+```{r}
+#| fig-width: 6
+#| fig-height: 3.6
+set.seed(123)
+sigma <- rbind(c(1, 0.99), c(0.99, 1))
+mu <- c(10, 5)
+sim_data <-
+  mvrnorm(n = 1000, mu = mu, Sigma = sigma) |>
+  as.data.frame() |>
+  as_tibble()
+ggplot(sim_data, aes(V1, V2)) +
+  geom_point() +
+  theme_scatter() +
+  labs(x = "Variable 1", y = "Variable 2")
+```
+:::
+
+### Residual plots {.step}
+
+A residual plot puts each observation's **prediction** across and its **residual** up.
+
+::: {.anatomy}
+`... |> augment(new_data = sim_data) |> ggplot(aes(`[`.pred`]{.tok}`,` [`.resid`]{.tok}`)) +` [`geom_hline(yintercept = 0, linetype = "dashed")`]{.tok} `+ geom_point()`
+
+1. **Across: the prediction** for each observation, from `augment()`.
+2. **Up: the residual**, actual − prediction. Above the dashed line, the model guessed too low; below it, too high.
+3. **The "no error" line**, dashed, at zero.
+:::
+
+::: {.doit q="Part 4 · notebook lines 302–324"}
+1. Run the chunk at **lines 302–312**: a model of `V2` explained by `V1`, then its residual plot.
+2. Run the chunk at **lines 316–324**: the same plot for `mv_model` on the test set.
+:::
+
+::: {.expect}
+::: {.twocol}
+```{r}
+#| fig-width: 4.5
+#| fig-height: 3.4
+linear_reg() |>
+  fit(V2 ~ V1, data = sim_data) |>
+  augment(new_data = sim_data) |>
+  ggplot(aes(.pred, .resid)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_point() +
+  theme_scatter() +
+  labs(x = "Fitted values", y = "Residuals", title = "Simulated data")
+```
+
+```{r}
+#| fig-width: 4.5
+#| fig-height: 3.4
+mv_model |>
+  augment(new_data = students_test) |>
+  ggplot(aes(.pred, .resid)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_point() +
+  theme_scatter() +
+  labs(x = "Fitted values", y = "Residuals", title = "Our model, test set")
+```
+:::
+:::
+
+::: {.idea}
+A good model leaves a **shapeless cloud** around zero: nothing left to explain. **Any pattern is something the model missed.**
+:::
+
+### Why does the simulated model look better? {.step}
+
+This is the action point at line 326. Compare the two plots: look at the scale of the vertical axis, and at the bottom left of ours.
+
+The simulated residuals are tiny (about ±0.25) and shapeless. Ours spread from about −15 to +5, so the model often misses by several grade points. And there is a **diagonal streak** of points at the bottom left.
+
+::: {.quiz}
+What is the diagonal streak at the bottom left of our residual plot?
+
+::: {.opt .right}
+Students whose real grade was 0.
+
+::: {.fb}
+Yes. If the real grade is 0, the residual is 0 − prediction, so the higher the prediction, the lower the residual: a straight diagonal line. You saw these students in the Part 1 histogram. No linear rule from these features predicts a 0.
+:::
+:::
+
+::: {.opt}
+A bug in the code.
+
+::: {.fb}
+The code is fine. Think about which real grade would give residual = −prediction exactly.
+:::
+:::
+
+::: {.opt}
+Students in the training set that leaked into the test set.
+
+::: {.fb}
+The split keeps the two sets apart. The streak comes from the grades themselves.
+:::
+:::
+:::
+
+## Part 5: The lasso, a penalty for every coefficient {#part5}
+
+**About 45 minutes.** Part 3 ended with a problem: 67 coefficients, 486 students, and a model that does much worse on new students. The **lasso** is a version of linear regression that keeps only the coefficients that earn their place.
+
+### The idea: charge rent for every coefficient {.step}
+
+How could you stop a model from using coefficients it doesn't need? One way is by hand: drop the features with large p-values and refit. That's slow, subjective, and the p-values come from the model you're about to change. The lasso does it inside the algorithm, by changing the score it minimises.
+
+::: {.anatomy}
+Lasso minimises [RSS]{.tok} + [λ]{.tok} · [Σ |βⱼ|]{.tok}
+
+1. **Fit the data**, exactly as before. OLS minimises this and nothing else.
+2. **Lambda: the price per unit of coefficient.** A number you choose, 0 or more. The notebook calls it `penalty`.
+3. **The total size of all coefficients**, signs ignored. |·| is the absolute value: |−1.4| = 1.4. Σ means "add up". This is the bill.
+:::
+
+```{=html}
+<div class="calc-g">
+  <div><span>Say λ = 0.1</span><b>and three coefficients: 1.8, −1.4, 0.05</b></div>
+  <div><span>Total size</span><b>|1.8| + |−1.4| + |0.05| = 3.25</b></div>
+  <div class="hl"><span>The bill</span><b>0.1 × 3.25 = 0.325</b><small>added to the RSS</small></div>
+  <div><span>Drop the 0.05</span><b>the bill falls by 0.1 × 0.05 = 0.005</b><small>if the RSS rises by less than that, the model is better off without it</small></div>
+</div>
+```
+
+::: {.idea}
+Every coefficient now has to **earn its place**. It is only kept at a size where the improvement in fit is worth the rent. A coefficient that barely helps shrinks, often all the way to zero. One that helps a lot stays large.
+:::
+
+### Turning the dial {.step}
+
+Here is the lasso fitted to the training set at three values of λ. Each bar is one of the 67 coefficients, sized by how big it is.
+
+```{r}
+#| fig-width: 9
+#| fig-height: 3.6
+dial <- map_dfr(c(0, 0.1, 1), function(p) {
+  linear_reg(penalty = p, mixture = 1) |>
+    set_engine("glmnet") |>
+    fit(final_grade ~ ., data = students_train) |>
+    tidy() |>
+    filter(term != "(Intercept)") |>
+    mutate(penalty = p)
+})
+dial_lab <- dial |>
+  group_by(penalty) |>
+  summarise(n = sum(estimate != 0)) |>
+  mutate(label = paste0("penalty = ", penalty, if_else(penalty == 0, " (OLS)", ""), "\n", n, " of 67 non-zero"))
+dial |>
+  left_join(dial_lab, by = "penalty") |>
+  mutate(label = factor(label, levels = dial_lab$label), term = fct_reorder(term, abs(estimate))) |>
+  ggplot(aes(abs(estimate), term, fill = estimate == 0)) +
+  geom_col() +
+  facet_wrap(~ label) +
+  scale_fill_manual(values = c(`FALSE` = red, `TRUE` = grey), guide = "none") +
+  theme_bar() +
+  theme(axis.text.y = element_blank(), strip.text = element_text(face = "bold")) +
+  labs(x = "Size of the coefficient", y = "One bar per coefficient")
+```
+
+- **λ = 0**: no rent. That's ordinary least squares: all 67 coefficients in use, with the overfitting from Part 3.
+- **λ = 0.1**: coefficients shrink, and 27 of them are set to **exactly zero**. The lasso has chosen features for us.
+- **λ = 1**: only 2 survive. Turn the dial further and every coefficient goes to zero: the model predicts the average for everyone.
+
+Too little penalty and we're back to overfitting; too much and the model knows nothing. The best λ is somewhere in between.
+
+### Why exactly zero? {.step}
+
+Each coefficient feels two forces. The **data** pull it away from zero; that pull gets weaker as the coefficient approaches the size that fits best. The **penalty** pushes it back toward zero.
+
+```{r}
+#| fig-width: 6
+#| fig-height: 3.4
+tibble(beta = seq(-1.5, 1.5, by = 0.01)) |>
+  mutate(Lasso = abs(beta), Ridge = beta^2) |>
+  pivot_longer(-beta, names_to = "penalty", values_to = "cost") |>
+  ggplot(aes(beta, cost, colour = penalty)) +
+  geom_line(linewidth = 1.4) +
+  scale_colour_manual(values = c(Lasso = red, Ridge = blue)) +
+  theme_scatter() +
+  labs(x = "A coefficient β", y = "Rent charged", colour = NULL)
+```
+
+The lasso's rent, |β|, is a V with a sharp **kink** at zero. Its slope is the same size everywhere, so the push toward zero is **always λ**, however small the coefficient already is. If the data's pull on a coefficient is weaker than λ, the push wins all the way to exactly 0.
+
+For contrast, the **ridge** penalty uses β². It flattens out near zero, so its push fades as the coefficient shrinks: coefficients get tiny but never reach zero. In tidymodels, `mixture = 1` means lasso and `mixture = 0` means ridge.
+
+### Parameters and hyperparameters {.step}
+
+| | Parameters | Hyperparameters |
+|---|---|---|
+| Today | The coefficients, the βs: 67 of them | λ (`penalty`) and `mixture` |
+| Chosen by | **The algorithm**, from the data | **You**, before fitting |
+| Picture | Inside the machine | A knob on the outside of the machine |
+
+Why can't the algorithm choose λ itself? Because any λ above zero makes the fit to the **training** data worse, so it would always pick 0. To choose λ, try several values and score each one on data the model **hasn't seen**. You'll do that by hand in the bonus; Lab 5 automates it.
+
+::: {.quiz}
+Which of these is a hyperparameter?
+
+::: {.opt}
+The coefficient of `higheryes`
+
+::: {.fb}
+That's a parameter: the algorithm finds it from the data.
+:::
+:::
+
+::: {.opt .right}
+The penalty, λ
+
+::: {.fb}
+Yes. You set it before fitting; the algorithm takes it as given.
+:::
+:::
+
+::: {.opt}
+The test-set RMSE
+
+::: {.fb}
+That's a metric: a score for the finished model, not a setting of the model.
+:::
+:::
+:::
+
+### Step 1: Fit a lasso {.step}
+
+::: {.anatomy}
+`lasso_model <- linear_reg(`[`penalty = 0.1`]{.tok}`,` [`mixture = 1`]{.tok}`) |>` [`set_engine("glmnet")`]{.tok} `|> fit(final_grade ~ ., data = students_train)`
+
+1. **λ**, the rent per unit of coefficient.
+2. **Which penalty**: 1 is the lasso, 0 is the ridge, in between mixes the two.
+3. **Which package does the computing.** tidymodels hands the work to an "engine". The default, `lm`, can't penalise; `glmnet` can.
+:::
+
+The rest is the same `fit()` as before, on the training set.
+
+::: {.doit q="Part 5 · notebook lines 336–341"}
+The code is already there. Run the chunk.
+:::
+
+### Step 2: Which coefficients survived? {.step}
+
+`tidy()` gives one row per coefficient. Keep only those the lasso didn't set to zero with `filter()`. `!=` means "is not equal to".
+
+::: {.doit q="Part 5 · notebook line 348"}
+```r
+tidy(lasso_model) |>
+  filter(estimate != 0)
+```
+:::
+
+::: {.expect data-label="What you should see (41 rows: the intercept and 40 coefficients)"}
+```{r}
+tidy(lasso_model) |>
+  filter(estimate != 0)
+```
+:::
+
+The action point at line 351 asks three questions. 41 rows survive: the intercept plus 40 coefficients, so **27 were shrunk to zero**. To find the most important feature, sort by size: add `|> arrange(desc(abs(estimate)))`. The largest is `higheryes`, about 1.8, followed by `failures` (−1.37 per past failure) and `schoolsupyes` (−1.05).
+
+::: {.callout-tip collapse="true" title="Which ones were shrunk to zero?"}
+Flip the filter: `filter(estimate == 0)` lists the 27 coefficients the lasso dropped.
+:::
+
+### Step 3: A bar plot of the coefficients {.step}
+
+The bar plot shows every coefficient's size, sorted, coloured by whether it is positive. Step through it:
+
+::::: {.walk}
+:::: {.walk-code}
+```r
+tidy(lasso_model) |>
+  filter(term != "(Intercept)") |>
+  ggplot(aes(
+    abs(estimate),
+    fct_reorder(term, abs(estimate)),
+    fill = estimate > 0
+  )) +
+  geom_col() +
+  theme_bar() +
+  scale_fill_jama() +
+  labs(x = "Lasso coefficient", y = "Feature", fill = "Positive?")
+```
+::::
+
+:::: {.walk-step lines="1-2"}
+Start from the coefficient table and drop the intercept, which isn't a feature.
+::::
+
+:::: {.walk-step lines="1-8"}
+`abs(estimate)` makes the bar length the **size**, ignoring the sign. `fct_reorder(term, abs(estimate))` sorts the features by that size, so the biggest is on top. `fill = estimate > 0` colours each bar by whether the coefficient is positive: `TRUE` or `FALSE`. `geom_col()` draws one bar per row.
+
+```{r}
+#| fig-width: 7
+#| fig-height: 8
+tidy(lasso_model) |>
+  filter(term != "(Intercept)") |>
+  ggplot(aes(abs(estimate), fct_reorder(term, abs(estimate)), fill = estimate > 0)) +
+  geom_col()
+```
+::::
+
+:::: {.walk-step lines="1-11"}
+Then the finishing touches: the bar theme from Lab 2, a colour scheme from `ggsci`, and labels.
+
+```{r}
+#| fig-width: 7
+#| fig-height: 8
+tidy(lasso_model) |>
+  filter(term != "(Intercept)") |>
+  ggplot(aes(abs(estimate), fct_reorder(term, abs(estimate)), fill = estimate > 0)) +
+  geom_col() +
+  theme_bar() +
+  scale_fill_jama() +
+  labs(x = "Lasso coefficient", y = "Feature", fill = "Positive?")
+```
+::::
+:::::
+
+::: {.doit q="Part 5 · notebook line 356"}
+Type the code into the chunk at line 356 and run it. The zero coefficients appear at the bottom with no bar.
+:::
+
+### Step 4: Evaluate on the test set {.step}
+
+The evaluation code is exactly the same as in Part 3, with `lasso_model` instead of `mv_model`.
+
+::: {.doit q="Part 5 · notebook line 364"}
+```r
+lasso_model |>
+  augment(new_data = students_test) |>
+  reg_metrics(truth = final_grade, estimate = .pred)
+```
+:::
+
+::: {.expect}
+```{r}
+lasso_model |>
+  augment(new_data = students_test) |>
+  reg_metrics(truth = final_grade, estimate = .pred)
+```
+:::
+
+The discussion question at line 369: is this an improvement?
+
+| Test set, 163 students | Coefficients | R² | RMSE |
+|---|---|---|---|
+| Linear model, Part 3 | 67 | 0.211 | 3.04 |
+| Lasso, penalty 0.1 | 40 | 0.240 | 2.95 |
+
+Yes, a modest one. The lasso predicts new students slightly better **with 27 fewer coefficients**. A simpler model that generalises a little better: that's the point of **regularisation**.
+
+### Bonus, Step 5: try other penalties {.step}
+
+::: {.doit q="Part 5 · bonus · notebook line 376"}
+Copy Step 1 into the chunk at line 376 with a different `penalty`, then add the evaluation from Step 4. Try 0.01, 0.3 and 1. Which gives the lowest test RMSE?
+
+```r
+linear_reg(penalty = 0.3, mixture = 1) |>
+  set_engine("glmnet") |>
+  fit(final_grade ~ ., data = students_train) |>
+  augment(new_data = students_test) |>
+  reg_metrics(truth = final_grade, estimate = .pred)
+```
+:::
+
+Here are the results for six penalties:
+
+```{r}
+#| fig-width: 6.5
+#| fig-height: 3.4
+sweep <- tibble(penalty = c(0.0001, 0.001, 0.01, 0.1, 0.3, 1)) |>
+  mutate(
+    model = map(penalty, ~ linear_reg(penalty = .x, mixture = 1) |>
+                  set_engine("glmnet") |>
+                  fit(final_grade ~ ., data = students_train)),
+    rmse = map_dbl(model, ~ augment(.x, new_data = students_test) |>
+                     rmse(truth = final_grade, estimate = .pred) |>
+                     pull(.estimate)),
+    kept = map_int(model, ~ sum(tidy(.x)$estimate != 0) - 1L)
+  )
+sweep |>
+  ggplot(aes(as.factor(penalty), rmse, group = 1)) +
+  geom_line(linetype = "dashed", colour = grey) +
+  geom_point(colour = red, size = 3.5) +
+  geom_text(aes(label = paste(kept, "coef.")), vjust = -1, size = 3.4) +
+  scale_y_continuous(limits = c(2.9, 3.4)) +
+  theme_scatter() +
+  labs(x = "Penalty (λ)", y = "Test-set RMSE")
+```
+
+Tiny penalties (0.0001 to 0.01) behave almost like plain OLS. **0.1 is best**, at 2.95. Beyond it, the model drops too much: 3.04 with 14 coefficients at 0.3, and 3.29 with only 2 at 1. Another bowl, but this time scored on test data. Choosing a hyperparameter this way is called **tuning**.
+
+::: {.callout-note collapse="true" title="The solutions file does this in one go, with map()"}
+The solutions build every model at once with nested tibbles and `map2()`, the tools from Lab 1 Part 3. The idea is the same as copying Step 1 four times: one model per penalty, one RMSE per model. Lab 5 introduces a cleaner way, cross-validation.
+:::
+
+## Wrap-up {#wrapup}
+
+### What you learned {.step}
+
+:::: {.legend}
+::: {.l-idea}
+**The algorithm**
+Ordinary least squares picks the line with the smallest sum of squared residuals. A coefficient is the change in the prediction when its feature rises by one.
+:::
+::: {.l-idea}
+**Two approaches**
+Hypothesis testing asks whether an effect exists and uses all the data. Machine learning asks how well we predict new cases, so it splits the data.
+:::
+::: {.l-idea}
+**The workflow**
+`initial_split()`, then `linear_reg() |> fit()` on training, then `augment()` and `metric_set(rsq, rmse)` on test. The same steps for every model from now on.
+:::
+::: {.l-idea}
+**The lasso**
+Adds a price per coefficient. λ is a hyperparameter you choose; coefficients that aren't worth the rent go to exactly zero.
+:::
+::::
+
+**One question to take away:** before today, which of the 30 features would you have bet on to predict grades? Did the lasso agree?
+
+**Further reading**
+
+- [*An Introduction to Statistical Learning*](https://www.statlearning.com), free online: chapter 3 on linear regression and section 6.2 on the lasso. The standard textbook for this course's ideas.
+- [*Tidy Modeling with R*](https://www.tmwr.org), free online: the chapters on fitting models with `parsnip` and judging them with `yardstick`.
+
+### Glossary {#glossary}
+
+Underlined words on this page are explained in this list. Click or tap one anywhere on the page to see what it means and where it was first explained.
+
+::: {.glossary}
+
+| Word | Meaning |
+|---|---|
+| **algorithm** []{match="algorithms?"} | A recipe a computer follows to learn something from data, like choosing a model's coefficients |
+| **coefficient** []{match="coefficients?"} | A number in a model's rule that the algorithm chooses. Also called a parameter |
+| **feature** []{match="features?"} | An input used to make a prediction: a column other than the outcome |
+| **formula** | How R writes a model: outcome `~` features, e.g. `final_grade ~ higher` |
+| **hyperparameter** []{match="hyperparameters?"} | A setting you choose before fitting, such as the lasso's penalty λ |
+| **intercept** | The prediction when every feature is 0 |
+| **lasso** | Linear regression with a price per unit of coefficient. Sets unhelpful coefficients to exactly zero |
+| **ordinary least squares** []{match="ordinary least squares;OLS"} | The algorithm that picks the line with the smallest sum of squared residuals |
+| **outcome** | What the model predicts. Today: `final_grade` |
+| **overfitting** | Learning noise in the training data, so the model does much worse on new data |
+| **p-value** []{match="p-values?"} | If the true effect were zero, how surprising a result like this would be. Small means surprising |
+| **penalty** | The lasso's price per unit of coefficient, λ. Called `penalty` in tidymodels |
+| **R²** []{match="R²;R-squared"} | The share of the variation in the outcome the model explains, from 0 to 1 |
+| **regularisation** | Adding a penalty to keep a model simple, so it generalises better |
+| **residual** []{match="residuals?"} | Actual − predicted, for one observation |
+| **RMSE** | Root mean squared error: the typical size of a miss, in the units of the outcome |
+| **RSS** | Residual sum of squares: square every residual, add them up. OLS makes it as small as possible |
+| **seed** | A starting number that makes random steps, like the split, give the same result every time |
+| **slope** | How much the prediction changes when a feature rises by one unit |
+| **standard error** | How uncertain an estimate is: roughly how much it would vary with another sample |
+| **test set** | The data held back to score the finished model |
+| **tidymodels** | A family of R packages for modelling, loaded with `library("tidymodels")` |
+| **training set** []{match="training sets?;training data"} | The data the model is fitted on |
+:::

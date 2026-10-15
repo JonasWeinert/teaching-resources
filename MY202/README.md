@@ -108,4 +108,5 @@ Styles are in `_extensions/lse/guide.scss`, behaviour in `_extensions/lse/guide.
 | `::::: {.walk}` | Step-through: a `.walk-code` block, then one `.walk-step lines="1-2"` per step holding the explanation and an R chunk. An optional `.walk-intro` replaces the default intro |
 | `::: {.quiz}` | Multiple choice: one `.opt` block per answer, the right one with `.right`, each with an optional `.fb` feedback block |
 | `::: {.glossary}` around a table | Terms in bold, meanings next to them. Each term is underlined across the page (once per step); clicking it opens a drawer (right side on wide screens, bottom sheet on phones) with the meaning and the paragraph where the term is first explained in bold. Add `[]{match="…"}` in a term's cell to control which words match: a regular expression, with `;` for "or" |
+| `<div class="calc-g">` | Arithmetic step by step: one `<div><span>label</span><b>expression</b><small>note</small></div>` per line, `class="hl"` on the lines that matter. Write it as raw HTML |
 | `[Ctrl]{.kbd .mod}` | A key. `.mod` shows Cmd on a Mac; `.opt-key` shows Option instead of Alt |

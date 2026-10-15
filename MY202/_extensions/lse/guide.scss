@@ -329,3 +329,15 @@ figure img, .figure img { border-radius: 10px; }
   .gl-head::before { content: ""; position: absolute; left: 50%; top: 6px; width: 40px; height: 4px; border-radius: 2px; background: #D5D5D5; transform: translateX(-50%); }
 }
 .glossary td:first-child { white-space: nowrap; }
+
+// ---------- step-by-step calculation ----------
+// <div class="calc-g"><div class="hl"><span>label</span><b>expression</b><small>note</small></div>…</div>
+.calc-g { display: flex; flex-direction: column; gap: 4px; margin: 1em 0; max-width: 680px; }
+.calc-g > div { display: grid; grid-template-columns: 8.5em auto 1fr; gap: 12px; align-items: baseline; padding: 5px 12px; border-radius: 8px; }
+.calc-g span { font-family: "Montserrat", sans-serif; font-weight: 700; font-size: 0.72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--grey); }
+.calc-g b { font-family: "STIX Two Math", "Cambria Math", "Times New Roman", serif; font-weight: 400; font-size: 1.12rem; color: #1A1A1A; }
+.calc-g small { font-size: 0.82rem; color: var(--grey); }
+.calc-g > div.hl { background: var(--tint); }
+.calc-g > div.hl b { font-weight: 700; color: var(--dark); }
+.calc-g > div.hl span { color: var(--dark); }
+@media (max-width: 600px) { .calc-g > div { grid-template-columns: 1fr; gap: 2px; } }

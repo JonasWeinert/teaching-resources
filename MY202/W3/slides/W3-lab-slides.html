@@ -1090,14 +1090,14 @@ margin-right: 0; }
 <tbody>
 <tr class="odd">
 <td></td>
-<td>Welcome, setup chunk</td>
+<td>Setup: notebook lines 24–72</td>
 <td></td>
 <td>together</td>
 <td>2 min</td>
 </tr>
 <tr class="even">
 <td></td>
-<td>Concept: three warm-up questions, then our first algorithm</td>
+<td>Concept: warm-up, then our first algorithm</td>
 <td><code>~</code>, <code>linear_reg()</code>, <code>fit()</code></td>
 <td>slides</td>
 <td>15 min</td>
@@ -1149,7 +1149,7 @@ margin-right: 0; }
 <li>Last week you made plots. Today you make predictions. We meet the first algorithm of the course and the workflow we’ll use for every model from now on: split, fit, evaluate.</li>
 <li>Two data sets: a small advertising data set on the slides, to see the algorithm with one predictor, and the students data in the notebook, with 30 predictors.</li>
 <li>Same rhythm as before: I show, you do, we go through the solutions.</li>
-<li>Open the Week 3 notebook on Nuvolos and run the setup chunk now. The packages and the data are already there. tidymodels prints a long list of packages when it loads; that’s normal.</li>
+<li>Open the Week 3 notebook on Nuvolos and run the two chunks at lines 24–62 (packages and theme functions) and 70–72 (the data) now. The packages and the data are already there. tidymodels prints a long list of packages when it loads; that’s normal.</li>
 </ul>
 <style type="text/css">
 span.MJX_Assistive_MathML {
@@ -1205,14 +1205,14 @@ display:block!important;
 <h2>Warm-up 2 of 3</h2>
 <div class="tracker"><span class="on">Concept</span><span>1 · EDA</span><span>2 · Hypothesis</span><span>3 · ML</span><span>4 · Residuals</span><span>5 · Lasso</span><span>Wrap-up</span></div>
 <div class="ask">
-<p>Linear regression draws a line through a cloud of points. How does it choose <em>which</em> line?</p>
+<p>How does linear regression choose <em>which</em> line to draw through the points?</p>
 </div>
 <div class="mcq">
   <div class="opt"><b>A</b>The line that passes through the most points</div>
-  <div class="opt"><b>B</b>The line that makes the gaps between points and line add up to zero</div>
-  <div class="opt right"><b>C</b>The line that makes the squared gaps between points and line as small as possible</div>
+  <div class="opt"><b>B</b>The line whose gaps to the points add up to zero</div>
+  <div class="opt right"><b>C</b>The line whose squared gaps to the points are as small as possible</div>
   <div class="opt"><b>D</b>I&#39;ve never thought about it</div>
-  <div class="fragment why"><b>C.</b> Ordinary least squares: the smallest sum of squared residuals. B is a trap: the gaps add up to zero for many bad lines too. We build this from scratch in the next ten minutes.</div>
+  <div class="fragment why"><b>C.</b> Ordinary least squares: the smallest sum of squared residuals. B is a trap: many bad lines have gaps that add up to zero.</div>
 </div>
 <aside class="notes">
 <ul>
@@ -1864,7 +1864,7 @@ display:block!important;
 <li>A boxplot of <code>final_grade</code> by <code>higher</code></li>
 <li>One plot of your own from the list in the notebook: study time, failures, school, going out, health, support…</li>
 <li>One sentence: what seems to matter for grades?</li>
-<li>Post your plot and sentence in the channel</li>
+<li>Share your most interesting plot on Moodle (notebook line 129)</li>
 </ol>
 </div>
 <div class="cheat">
@@ -1892,7 +1892,7 @@ display:block!important;
 <p>Timing: 8 minutes. Click the timer (or press T) to start it.</p>
 <ul>
 <li>Circulate. The most common problem will be <code>|&gt;</code> instead of <code>+</code> inside a ggplot.</li>
-<li>Pick two or three posted plots for the debrief.</li>
+<li>Pick two or three plots posted on Moodle for the debrief.</li>
 </ul>
 <style type="text/css">
 span.MJX_Assistive_MathML {
@@ -3130,7 +3130,7 @@ display:block!important;
 <p>Wrap-up, 4 minutes.</p>
 <ul>
 <li>Recap in four sentences.</li>
-<li>Collect answers to the exit question in the channel.</li>
+<li>Collect answers to the exit question on Moodle.</li>
 </ul>
 <style type="text/css">
 span.MJX_Assistive_MathML {

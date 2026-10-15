@@ -216,8 +216,8 @@ pen_step <- function(k) {
 ::: {.small-table}
 | Part | Topic | Functions | Mode | Time |
 |---|---|---|---|---|
-| | Welcome, setup chunk | | together | 2 min |
-| | Concept: three warm-up questions, then our first algorithm | `~`, `linear_reg()`, `fit()` | slides | 15 min |
+| | Setup: notebook lines 24–72 | | together | 2 min |
+| | Concept: warm-up, then our first algorithm | `~`, `linear_reg()`, `fit()` | slides | 15 min |
 | 1 | Exploring the data | `ggplot`, `geom_histogram`, `geom_boxplot` | your turn | 12 min |
 | 2 | Hypothesis testing | `extract_fit_engine`, `summary`, `~ .` | together | 8 min |
 | 3 | The machine learning approach | `initial_split`, `training`, `testing`, `augment`, `metric_set` | together | 18 min |
@@ -235,7 +235,7 @@ Timing (90 minutes): welcome 2, concept 15 (three warm-up questions, then the al
 - Last week you made plots. Today you make predictions. We meet the first algorithm of the course and the workflow we'll use for every model from now on: split, fit, evaluate.
 - Two data sets: a small advertising data set on the slides, to see the algorithm with one predictor, and the students data in the notebook, with 30 predictors.
 - Same rhythm as before: I show, you do, we go through the solutions.
-- Open the Week 3 notebook on Nuvolos and run the setup chunk now. The packages and the data are already there. tidymodels prints a long list of packages when it loads; that's normal.
+- Open the Week 3 notebook on Nuvolos and run the two chunks at lines 24–62 (packages and theme functions) and 70–72 (the data) now. The packages and the data are already there. tidymodels prints a long list of packages when it loads; that's normal.
 :::
 
 # Our first algorithm {.divider background-color="#8C0014"}
@@ -279,16 +279,16 @@ Timing: the concept block is 15 minutes; the three warm-up questions take the fi
 ```
 
 ::: {.ask}
-Linear regression draws a line through a cloud of points. How does it choose *which* line?
+How does linear regression choose *which* line to draw through the points?
 :::
 
 ```{=html}
 <div class="mcq">
   <div class="opt"><b>A</b>The line that passes through the most points</div>
-  <div class="opt"><b>B</b>The line that makes the gaps between points and line add up to zero</div>
-  <div class="opt right"><b>C</b>The line that makes the squared gaps between points and line as small as possible</div>
+  <div class="opt"><b>B</b>The line whose gaps to the points add up to zero</div>
+  <div class="opt right"><b>C</b>The line whose squared gaps to the points are as small as possible</div>
   <div class="opt"><b>D</b>I've never thought about it</div>
-  <div class="fragment why"><b>C.</b> Ordinary least squares: the smallest sum of squared residuals. B is a trap: the gaps add up to zero for many bad lines too. We build this from scratch in the next ten minutes.</div>
+  <div class="fragment why"><b>C.</b> Ordinary least squares: the smallest sum of squared residuals. B is a trap: many bad lines have gaps that add up to zero.</div>
 </div>
 ```
 
@@ -876,7 +876,7 @@ Timing: Part 1 is 12 minutes: this slide 2, exercise 8, debrief 2.
 2. A boxplot of `final_grade` by `higher`
 3. One plot of your own from the list in the notebook: study time, failures, school, going out, health, support…
 4. One sentence: what seems to matter for grades?
-5. Post your plot and sentence in the channel
+5. Share your most interesting plot on Moodle (notebook line 129)
 :::
 
 ::: {.cheat}
@@ -909,7 +909,7 @@ students |>
 Timing: 8 minutes. Click the timer (or press T) to start it.
 
 - Circulate. The most common problem will be `|>` instead of `+` inside a ggplot.
-- Pick two or three posted plots for the debrief.
+- Pick two or three plots posted on Moodle for the debrief.
 :::
 
 ## Part 1: what did we see?
@@ -2102,7 +2102,7 @@ Turn the knob, score on data the model hasn't seen, keep the best setting. Lab 5
 Wrap-up, 4 minutes.
 
 - Recap in four sentences.
-- Collect answers to the exit question in the channel.
+- Collect answers to the exit question on Moodle.
 :::
 
 ## Further reading {.closing}
