@@ -1,0 +1,1340 @@
+---
+title: "Classification: predicting yes or no"
+subtitle: "MY202 · Lab 4 · Self-paced guide"
+author: "Jonas Weinert"
+date: today
+date-format: "D MMMM YYYY"
+format: lse-html
+
+execute:
+  echo: false
+  message: false
+  warning: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+# The outputs on this page are real: they come from running the lab code on the lab data.
+library("ggsci")
+library("scales")
+library("tidymodels")
+library("tidyverse")
+library("reshape2")
+knitr::opts_knit$set(root.dir = "../notebooksanddata")
+options(width = 72)
+
+theme_guide <- function() {
+  theme_minimal() +
+    theme(panel.grid.minor = element_blank(), legend.position = "bottom")
+}
+red <- "#E2001A"; dark <- "#8C0014"; pink <- "#F28A94"; grey <- "#6B6B6B"; navy <- "#1F4E79"; green <- "#1D7A46"
+f3 <- function(x) sprintf("%.3f", x)
+f2 <- function(x) sprintf("%.2f", x)
+big <- function(x) format(x, big.mark = ",")
+```
+
+```{r}
+#| label: data
+#| include: false
+raw <- read_csv("data/diabetes.csv")
+diabetes_data <- raw
+n_rows <- nrow(raw)
+prev <- mean(raw$diabetes)
+
+continuous_vars <- c("age", "bmi")
+discrete_vars <- c("gen_hlth", "education", "income")
+categorical_vars <- c("diabetes", "high_bp", "high_chol", "chol_check", "smoker", "stroke",
+                      "heart_diseaseor_attack", "phys_activity", "fruits", "veggies", "hvy_alcohol_consump",
+                      "any_healthcare", "no_docbc_cost", "diff_walk", "sex")
+diabetes_data <- diabetes_data |>
+  mutate(
+    across(all_of(continuous_vars), ~ as.numeric(.x)),
+    across(all_of(discrete_vars), ~ as.integer(.x)),
+    across(all_of(categorical_vars), ~ as.factor(.x))
+  )
+
+set.seed(123)
+split_grid <- initial_split(diabetes_data, prop = 0.75, strata = diabetes)
+train <- training(split_grid)
+test <- testing(split_grid)
+model <- logistic_reg() |> fit(diabetes ~ ., data = train)
+coefs <- tidy(model) |> mutate(or = exp(estimate))
+co <- function(t) coefs$estimate[coefs$term == t]
+or <- function(t) coefs$or[coefs$term == t]
+p_after <- function(p, dz) { o <- p / (1 - p) * exp(dz); o / (1 + o) }
+
+train_preds <- model |> augment(new_data = train)
+test_preds <- model |> augment(new_data = test)
+train_preds <- train_preds |> mutate(.pred_class = as.factor(if_else(.pred_1 > 0.5, 1, 0)))
+test_preds <- test_preds |> mutate(.pred_class = as.factor(if_else(.pred_1 > 0.5, 1, 0)))
+
+cm_tab <- function(a, d = test_preds) {
+  d |>
+    mutate(p = factor(if_else(.pred_1 > a, "1", "0"), levels = c("0", "1"))) |>
+    count(diabetes, p, .drop = FALSE) |>
+    mutate(cell = case_when(diabetes == "1" & p == "1" ~ "tp", diabetes == "0" & p == "1" ~ "fp",
+                            diabetes == "1" & p == "0" ~ "fn", TRUE ~ "tn")) |>
+    select(cell, n) |> deframe() |> as.list()
+}
+c5 <- cm_tab(0.5); c3 <- cm_tab(0.3); c1 <- cm_tab(0.1); c2 <- cm_tab(0.2)
+n_test <- nrow(test)
+acc5 <- (c5$tp + c5$tn) / n_test
+rec5 <- c5$tp / (c5$tp + c5$fn)
+pre5 <- c5$tp / (c5$tp + c5$fp)
+spe5 <- c5$tn / (c5$tn + c5$fp)
+f15 <- 2 * pre5 * rec5 / (pre5 + rec5)
+acc_none <- mean(test$diabetes == "0")
+above5 <- mean(test_preds$.pred_1 > 0.5)
+
+alpha_list <- c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7)
+class_metrics <- metric_set(precision, recall, f_meas)
+class_metrics <- partial(class_metrics, event_level = "second")
+ev_metrics <- map_dfr(
+  alpha_list,
+  ~ augment(model, new_data = train) |>
+    mutate(.pred = as.factor(if_else(.pred_1 > .x, "1", "0"))) |>
+    class_metrics(truth = diabetes, estimate = .pred) |>
+    mutate(alpha = .x),
+  .id = NULL
+)
+ev_wide <- ev_metrics |> select(alpha, .metric, .estimate) |> pivot_wider(names_from = .metric, values_from = .estimate)
+evw <- function(a, m) ev_wide[[m]][ev_wide$alpha == a]
+best_alpha <- ev_metrics |> filter(.metric == "f_meas") |> slice_max(.estimate) |> pull(alpha)
+f1_test_best <- model |>
+  augment(new_data = test) |>
+  mutate(prediction = if_else(.pred_1 > best_alpha, 1, 0),
+         prediction = as.factor(prediction)) |>
+  f_meas(truth = diabetes, estimate = prediction, event_level = "second") |>
+  pull(.estimate)
+
+# The chess club: games played before, and whether the next game was won (1) or lost (0). Made up.
+set.seed(20)
+chess <- tibble(games = sort(c(round(runif(16, 5, 140)), round(runif(10, 140, 290))))) |>
+  mutate(win = rbinom(n(), 1, plogis((games - 140) / 22)))
+chess_lm <- lm(win ~ games, data = chess)
+chess_glm <- glm(win ~ games, data = chess, family = binomial)
+lin_300 <- predict(chess_lm, tibble(games = 300))
+sig_300 <- predict(chess_glm, tibble(games = 300), type = "response")
+sig_150 <- predict(chess_glm, tibble(games = 150), type = "response")
+chess_curve <- tibble(games = 0:310) |>
+  mutate(lin = predict(chess_lm, pick(games)), sig = predict(chess_glm, pick(games), type = "response"))
+chess_base <- function() {
+  ggplot(chess, aes(games, win)) +
+    geom_hline(yintercept = c(0, 1), colour = "#DDDDDD") +
+    coord_cartesian(xlim = c(0, 310), ylim = c(-0.35, 1.5)) +
+    scale_y_continuous(breaks = c(0, 0.5, 1), labels = c("0 · lost", "0.5", "1 · won")) +
+    theme_guide() +
+    labs(x = "Games played before", y = NULL)
+}
+
+# The two dials, for BMI with everything else fixed; every curve passes through 20% at BMI 25.
+b_bmi <- co("bmi")
+curve_df <- function(b1, p25, lab) {
+  tibble(bmi = seq(10, 60, by = 0.5)) |> mutate(p = plogis(qlogis(p25) + b1 * (bmi - 25)), lab = lab)
+}
+
+# Odds ratios for the plot
+nice <- c(high_bp1 = "High blood pressure", high_chol1 = "High cholesterol", chol_check1 = "Cholesterol checked",
+          bmi = "BMI, per point", smoker1 = "Smoker", stroke1 = "Had a stroke", heart_diseaseor_attack1 = "Heart disease",
+          phys_activity1 = "Physically active", fruits1 = "Eats fruit", veggies1 = "Eats vegetables",
+          hvy_alcohol_consump1 = "Heavy drinker", any_healthcare1 = "Has health cover", no_docbc_cost1 = "Skipped doctor (cost)",
+          gen_hlth = "General health, per step worse", diff_walk1 = "Difficulty walking", sex1 = "Sex = 1",
+          age = "Age, per 5-year band", education = "Education, per level", income = "Income, per level")
+or_df <- coefs |>
+  filter(term != "(Intercept)") |>
+  mutate(label = nice[term],
+         kind = case_when(p.value >= 0.05 ~ "no clear difference", or > 1 ~ "higher odds", TRUE ~ "lower odds"),
+         label = fct_reorder(label, or))
+n_unclear <- sum(or_df$kind == "no clear difference")
+
+score_plot <- function(a) {
+  ggplot(test_preds, aes(.pred_1, fill = diabetes)) +
+    geom_histogram(binwidth = 0.025, boundary = 0, colour = "white", alpha = 0.9) +
+    geom_vline(xintercept = a, linetype = "dashed", colour = dark, linewidth = 1) +
+    scale_fill_manual(values = c(`0` = "#BDBDBD", `1` = red), labels = c(`0` = "no diabetes", `1` = "diabetes"), name = "Truth") +
+    coord_cartesian(xlim = c(0, 1), ylim = c(0, 1300)) +
+    theme_guide() +
+    labs(x = "Predicted probability of diabetes (.pred_1)", y = "People in the test set")
+}
+```
+
+## Before you start
+
+This page walks you through Lab 4 one small step at a time. It assumes you have done Labs 1 to 3, so you know what a notebook, a chunk, a pipe `|>`, a `ggplot` and last week's `initial_split()`, `fit()` and `augment()` are. Everything new is explained the first time it appears, and there is a [glossary](#glossary) at the end.
+
+**What's new this week.** Last week you predicted a **number**, a grade. This week you predict a **category**: does this person have diabetes, yes or no? That's called **classification**. You'll meet one new model, **logistic regression**, and new ways to say whether a classifier is any good. The second part matters as much as the first: a model can be "86.7% accurate" and still be close to useless.
+
+:::: {.legend}
+::: {.l-do}
+**Your turn**
+Something to do in the notebook. The box says which notebook lines to go to.
+:::
+::: {.l-see}
+**What you should see**
+The real result R gives back. Compare it with yours.
+:::
+::: {.l-idea}
+**Big idea**
+A concept worth remembering beyond today.
+:::
+::: {.l-quiz}
+**Check yourself**
+A quick question. Click an answer to see if you were right.
+:::
+::::
+
+At the end of each step there is a **Mark as done** button. Your ticks are saved in this browser, so you can close the page and pick up where you left off.
+
+The student notebook has an empty `# Code here` chunk for every task. Where a task asks you to write code, **try it first**; the code is in a "Show the code" box underneath if you get stuck.
+
+::: {.callout-note title="Plan for about 2–3 hours"}
+Part I takes about 40 minutes, the big idea 20, Part II 30 and Part III an hour. Part III is the most important part of the lab: take your time with the confusion matrix and the thresholds.
+:::
+
+### Open the notebook and run the setup chunks {.step}
+
+::: {.doit q="Setup · notebook lines 18–25 and 53–56"}
+1. Open the Lab 4 **student notebook** on Nuvolos. The packages and the data are already installed there.
+2. Run the chunk at **lines 18–25**. It loads five packages.
+3. Run the chunk at **lines 53–56**. It reads the data into an object called `diabetes_data`.
+:::
+
+| Package | What it gives you |
+|---|---|
+| `tidymodels` | Last week's modelling family: `initial_split()`, `fit()`, `augment()`, `metric_set()`. Today also `logistic_reg()` and `conf_mat()`. |
+| `tidyverse`, `ggsci` | Wrangling, plots and colour schemes, as before. |
+| `reshape2` | Used once in the solutions, to reshape a correlation table for a heatmap. |
+| `kknn` | Loaded, but not used in this lab. |
+
+## Part I: Explore the data {#part1}
+
+**About 40 minutes.** Before modelling, find out what's in the data, and tell R what kind of thing each column is.
+
+### Meet the data {.step}
+
+`diabetes_data` has one row per person: **`r big(n_rows)` adults** who answered a US health survey. The **outcome** is `diabetes`: 1 if the person has diabetes, 0 if not. The other 19 columns are **features**, things that might help predict it:
+
+| Group | Features |
+|---|---|
+| Health conditions | `high_bp` (high blood pressure), `high_chol`, `chol_check` (had cholesterol checked), `bmi`, `stroke`, `heart_diseaseor_attack`, `diff_walk` (difficulty walking), `gen_hlth` (self-rated general health) |
+| Lifestyle | `smoker`, `phys_activity`, `fruits`, `veggies`, `hvy_alcohol_consump` (heavy drinking) |
+| Who they are | `sex`, `age`, `education`, `income`, `any_healthcare`, `no_docbc_cost` (couldn't see a doctor because of cost) |
+
+::: {.callout-warning title="Three things the notebook's variable list doesn't say"}
+- **Most columns are 0/1**: 1 means yes, 0 means no.
+- **`age` is not an age in years.** It's a code for 5-year bands: 1 = 18–24, 2 = 25–29, … 13 = 80 or older.
+- **`gen_hlth` runs the "wrong" way**: 1 = excellent, 5 = poor. A higher number means *worse* health.
+
+Also, line 43 calls a column `hvy_alcohol_consum`; its real name is `hvy_alcohol_consump`.
+:::
+
+### Question 1: how big is it, and is anything missing? {.step}
+
+::: {.doit q="Part I · Q1 · notebook lines 58–66"}
+In the chunk at **line 61**, find the number of rows and columns. In the chunk at **line 65**, count the missing values in every column.
+:::
+
+The first is one function you know: `dim()`. The second is new. It uses `across()`, which runs the same function on many columns at once:
+
+::: {.anatomy}
+`diabetes_data |>` [`summarise(`]{.tok}[`across(everything(),`]{.tok} [`~ sum(is.na(.x))`]{.tok}`))`
+
+1. **Collapse the table to one row** of summaries, as in Lab 1.
+2. **Do the same thing to every column.** `everything()` means "all columns".
+3. **What to do to each column.** The `~` starts a mini-function; `.x` stands for "the current column". `is.na()` gives TRUE for each missing value, and `sum()` counts the TRUEs.
+:::
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+dim(diabetes_data)
+
+diabetes_data |>
+  summarise(across(everything(), ~ sum(is.na(.x)))) |>
+  glimpse()
+```
+
+The `glimpse()` at the end prints the one-row result sideways, which is easier to read with 20 columns.
+:::
+
+::: {.expect}
+```{r}
+dim(raw)
+
+raw |>
+  summarise(across(everything(), ~ sum(is.na(.x)))) |>
+  glimpse()
+```
+:::
+
+`r big(n_rows)` people, 20 columns, and **no missing values** anywhere.
+
+### Step 1: what type is each column now? {.step}
+
+::: {.doit q="Part I · Step 1 · notebook line 73"}
+Look at the type of every column with `glimpse(diabetes_data)`.
+:::
+
+::: {.expect}
+```{r}
+glimpse(raw)
+```
+:::
+
+Every column is `<dbl>`, a decimal number. Even `high_bp`, which is really a yes/no answer, and `diabetes`, our outcome. R has no way of knowing that `sex = 1` is a category and `bmi = 30` is a measurement. The next two steps fix that.
+
+::: {.callout-tip collapse="true" title="Another way: map_chr(diabetes_data, class)"}
+The solutions also show `map_chr(diabetes_data, class)`. It runs `class()` on every column and returns one word each: `"numeric"`, `"factor"` and so on. Same information, more compact. You'll use it in Step 4.
+:::
+
+### Step 2: what type *should* each column be? {.step}
+
+::: {.doit q="Part I · Step 2 · notebook line 86"}
+Sort the columns into three groups, and write your answer at line 86.
+:::
+
+| Kind of column | Example | R type | Why |
+|---|---|---|---|
+| **Continuous**: any value in a range | `bmi` (and `age`, as the notebook treats it) | `numeric` | Arithmetic makes sense: a BMI of 30 is 5 more than 25 |
+| **Ordered levels**: whole-number scales | `gen_hlth`, `education`, `income` | `integer` | The order means something, and only whole numbers occur |
+| **Categories**: yes/no and other labels | `high_bp`, `smoker`, `sex`, … and the outcome `diabetes` | `factor` | The numbers are just labels: `sex = 1` is not "one more" than `sex = 0` |
+
+::: {.idea}
+**For classification, the outcome must be a factor.** That's how tidymodels knows you want to predict a category, not a number. If `diabetes` stays numeric, the model in Part II will complain.
+:::
+
+::: {.quiz}
+Which of these columns should become a factor?
+
+::: {.opt}
+`bmi`
+
+::: {.fb}
+BMI is a real measurement: arithmetic on it makes sense. Keep it numeric.
+:::
+:::
+
+::: {.opt .right}
+`smoker`
+
+::: {.fb}
+Yes. 1 means "smokes", 0 means "doesn't". The numbers are labels, not amounts.
+:::
+:::
+
+::: {.opt}
+`income`
+
+::: {.fb}
+Income levels 1–8 have an order, so the notebook keeps them as whole numbers (integers).
+:::
+:::
+:::
+
+### Steps 3 and 4: convert many columns at once {.step}
+
+::: {.doit q="Part I · Steps 3–4 · notebook lines 93 and 103"}
+Convert all three groups in **one** `mutate()` at line 93, then check the types at line 103.
+:::
+
+You could write `mutate(high_bp = as.factor(high_bp))` fifteen times. `across()` does it in one line per group. First, write the three groups as vectors of column names; then apply one function to each group:
+
+::: {.anatomy}
+[`categorical_vars <- c("diabetes", "high_bp", …)`]{.tok} … `mutate(`[`across(`]{.tok}[`all_of(categorical_vars)`]{.tok}`,` [`~ as.factor(.x)`]{.tok}`))`
+
+1. **A vector of column names**: your answer to Step 2, written as code. Make one for each group.
+2. **Do the same thing to many columns.**
+3. **Which columns**: every name in the vector. `all_of()` takes a vector of names.
+4. **What to do to each**: turn the current column `.x` into a factor. For the other groups: `as.numeric(.x)` and `as.integer(.x)`.
+:::
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+continuous_vars <- c("age", "bmi")
+discrete_vars <- c("gen_hlth", "education", "income")
+categorical_vars <- c(
+  "diabetes", "high_bp", "high_chol", "chol_check", "smoker", "stroke",
+  "heart_diseaseor_attack", "phys_activity", "fruits", "veggies",
+  "hvy_alcohol_consump", "any_healthcare", "no_docbc_cost", "diff_walk", "sex"
+)
+
+diabetes_data <-
+  diabetes_data |>
+  mutate(
+    across(all_of(continuous_vars), ~ as.numeric(.x)),
+    across(all_of(discrete_vars), ~ as.integer(.x)),
+    across(all_of(categorical_vars), ~ as.factor(.x))
+  )
+
+map_chr(diabetes_data, class)
+```
+:::
+
+::: {.expect data-label="What you should see at line 103"}
+```{r}
+map_chr(diabetes_data, class)
+```
+:::
+
+::: {.callout-tip collapse="true" title="The notebook's two discussion questions (lines 118–119)"}
+**Why integers rather than numeric?** An integer says "only whole numbers here", which documents what the column is. For a model, both work the same.
+
+**What if you had 50+ columns?** Don't type the names; select them by a rule. `across(where(is.double), …)` picks every decimal column; `across(starts_with("high_"), …)` every column whose name starts with `high_`.
+:::
+
+### Explore: the EDA challenge {.step}
+
+::: {.doit q="Part I · EDA · notebook line 145"}
+Make two or three plots or summaries that show something interesting about diabetes. Start with: (1) how many people have diabetes, and (2) how the share with diabetes changes with age. Then pick one of your own from the list at lines 136–142. Write one sentence under each. Post your best one on **Moodle** (line 150).
+:::
+
+The share of people who have a condition is called its **prevalence**. To compute it, use a trick: `diabetes == "1"` is TRUE or FALSE for each person, and the `mean()` of TRUE/FALSE values is the share of TRUEs.
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+# How many have diabetes?
+diabetes_data |>
+  count(diabetes) |>                # one row per class
+  mutate(pct = n / sum(n) * 100)    # turn counts into %
+
+# Prevalence by age band
+diabetes_data |>
+  group_by(age) |>
+  summarise(prev = mean(diabetes == "1")) |>   # share with diabetes
+  ggplot(aes(x = age, y = prev)) +
+  geom_line() +
+  geom_point()
+```
+
+The solutions write the prevalence as `mean(as.numeric(diabetes) == 2)`. That works because `as.numeric()` on a factor gives the *position* of each level (1 for `"0"`, 2 for `"1"`), not its label. Same result, more confusing.
+:::
+
+::: {.expect data-label="What you should see (four examples)"}
+```{r}
+#| fig-width: 9
+#| fig-height: 6
+p1 <- diabetes_data |>
+  count(diabetes) |>
+  mutate(diabetes = if_else(diabetes == "1", "Yes", "No"), pct = n / sum(n)) |>
+  ggplot(aes(diabetes, pct)) +
+  geom_col(fill = c("#BDBDBD", red)) +
+  geom_text(aes(label = percent(pct, 0.1)), vjust = -0.3) +
+  scale_y_continuous(labels = label_percent(), limits = c(0, 1)) +
+  theme_guide() + labs(x = "Diabetes", y = "Share of people", title = "Few people have diabetes")
+p2 <- diabetes_data |>
+  group_by(age) |>
+  summarise(prev = mean(diabetes == "1")) |>
+  ggplot(aes(age, prev)) +
+  geom_line(colour = grey) + geom_point(colour = red, size = 2) +
+  scale_y_continuous(labels = label_percent()) +
+  scale_x_continuous(breaks = c(1, 5, 9, 13), labels = c("18–24", "40–44", "60–64", "80+")) +
+  theme_guide() + labs(x = "Age band", y = "Prevalence", title = "It rises with age")
+p3 <- diabetes_data |>
+  group_by(phys_activity) |>
+  summarise(prev = mean(diabetes == "1")) |>
+  mutate(phys_activity = if_else(phys_activity == "1", "Yes", "No")) |>
+  ggplot(aes(phys_activity, prev)) +
+  geom_col(fill = c("#BDBDBD", red)) +
+  geom_text(aes(label = percent(prev, 1)), vjust = -0.3) +
+  scale_y_continuous(labels = label_percent(), limits = c(0, 0.3)) +
+  theme_guide() + labs(x = "Physically active", y = "Prevalence", title = "Lower among the active")
+p4 <- diabetes_data |>
+  group_by(high_bp) |>
+  summarise(prev = mean(diabetes == "1")) |>
+  mutate(high_bp = if_else(high_bp == "1", "Yes", "No")) |>
+  ggplot(aes(high_bp, prev)) +
+  geom_col(fill = c("#BDBDBD", red)) +
+  geom_text(aes(label = percent(prev, 1)), vjust = -0.3) +
+  scale_y_continuous(labels = label_percent(), limits = c(0, 0.3)) +
+  theme_guide() + labs(x = "High blood pressure", y = "Prevalence", title = "Four times higher with high blood pressure")
+patchwork::wrap_plots(p1, p2, p3, p4, ncol = 2)
+```
+:::
+
+What these show:
+
+- Only **`r round(100 * prev, 1)`%** have diabetes. The two classes are very unequal in size: the data are **imbalanced**. Keep this number in mind; it matters a lot in Part III.
+- Prevalence rises from about 1% at 18–24 to over 20% in people's 70s.
+- Physically active people have about **half** the prevalence of inactive people. Careful: active people are also younger and lighter on average, so this plot alone can't say that activity itself is what matters. A model can hold the other features fixed (Part II).
+- Diabetes is four times as common among people with high blood pressure.
+
+::: {.callout-warning collapse="true" title="About the sex plot in the solutions"}
+The solutions label `sex = 1` as "Female". In the survey this extract comes from, 1 usually means **male**, which would reverse the conclusion. Until that's checked, don't read anything into a difference by sex.
+:::
+
+## The big idea: from a line to an S-curve {#bigidea}
+
+**About 20 minutes, almost no code.** The notebook leaves this to your class teacher ("teaching moment", line 168). Here it is with pictures.
+
+### Predicting yes or no with a line? {.step}
+
+Take a made-up chess club. For each player we know how many games they had played before, and whether they **won** (1) or **lost** (0) their next game. What's the chance that a player wins?
+
+Last week's tool would be to fit a straight line through the points:
+
+```{r}
+#| fig-width: 7
+#| fig-height: 3.8
+chess_base() +
+  annotate("rect", xmin = -Inf, xmax = Inf, ymin = 1, ymax = Inf, fill = red, alpha = 0.08) +
+  annotate("rect", xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = 0, fill = red, alpha = 0.08) +
+  annotate("text", x = 5, y = 1.42, hjust = 0, label = "above 1: impossible", colour = red, fontface = "bold") +
+  annotate("text", x = 5, y = -0.28, hjust = 0, label = "below 0: impossible", colour = red, fontface = "bold") +
+  geom_line(data = chess_curve, aes(y = lin), colour = navy, linewidth = 1.2) +
+  geom_point(size = 2.5, alpha = 0.75, colour = grey) +
+  geom_point(data = tibble(games = 300, win = lin_300), colour = navy, size = 4.5, shape = 21, fill = "white", stroke = 1.5) +
+  annotate("label", x = 292, y = lin_300 + 0.08, hjust = 1, colour = navy, fontface = "bold",
+           label = paste0("300 games: ", sprintf("%.2f", lin_300), "?"))
+```
+
+For a player with 300 games the line says **`r sprintf("%.2f", lin_300)`**: a `r round(100 * lin_300)`% chance of winning. That makes no sense. A chance lives between 0 and 1, but a straight line keeps going forever in both directions.
+
+### The fix: an S-curve {.step}
+
+**Logistic regression** fits an S-shaped curve instead: flat near 0 for beginners, flat near 1 for experienced players, and steep in between. It can never go above 1 or below 0.
+
+```{r}
+#| fig-width: 7
+#| fig-height: 3.8
+chess_base() +
+  geom_line(data = chess_curve, aes(y = lin), colour = navy, linewidth = 0.8, alpha = 0.25) +
+  geom_line(data = chess_curve, aes(y = sig), colour = red, linewidth = 1.4) +
+  geom_point(size = 2.5, alpha = 0.75, colour = grey) +
+  geom_point(data = tibble(games = 300, win = sig_300), colour = red, size = 4.5, shape = 21, fill = "white", stroke = 1.5) +
+  annotate("label", x = 292, y = sig_300 + 0.14, hjust = 1, colour = red, fontface = "bold",
+           label = paste0("300 games: ", sprintf("%.3f", sig_300)))
+```
+
+What comes out of a logistic regression is a **probability**: the chance that the outcome is 1. In R, this column will be called `.pred_1`.
+
+::: {.idea}
+Inside, logistic regression still has last week's line. It just bends the line's output into an S, so that every prediction is a probability between 0 and 1.
+:::
+
+### From a probability to a yes or no: the threshold {.step}
+
+A probability isn't yet a prediction of "win" or "lose". To get one, we pick a cut-off, called the **threshold**, and say "win" above it, "lose" below it. The usual default is 0.5.
+
+```{r}
+#| fig-width: 7
+#| fig-height: 3.8
+chess_base() +
+  annotate("rect", xmin = -Inf, xmax = Inf, ymin = 0.5, ymax = 1.05, fill = green, alpha = 0.09) +
+  annotate("rect", xmin = -Inf, xmax = Inf, ymin = -0.05, ymax = 0.5, fill = grey, alpha = 0.09) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", colour = dark, linewidth = 0.9) +
+  annotate("text", x = 5, y = 0.62, hjust = 0, label = "predict: win", colour = green, fontface = "bold") +
+  annotate("text", x = 5, y = 0.38, hjust = 0, label = "predict: lose", colour = grey, fontface = "bold") +
+  geom_line(data = chess_curve, aes(y = sig), colour = red, linewidth = 1.4) +
+  geom_point(size = 2.5, alpha = 0.75, colour = grey) +
+  geom_point(data = tibble(games = 150, win = sig_150), colour = red, size = 4.5, shape = 21, fill = "white", stroke = 1.5) +
+  annotate("label", x = 160, y = sig_150 - 0.12, hjust = 0, colour = red, fontface = "bold",
+           label = paste0("150 games: ", sprintf("%.2f", sig_150)))
+```
+
+```{=html}
+<div class="calc-g">
+  <div><span>New player</span><b>150 games: probability `r sprintf("%.2f", sig_150)`</b></div>
+  <div><span>Threshold</span><b>0.5</b></div>
+  <div class="hl"><span>Rule</span><b>`r sprintf("%.2f", sig_150)` > 0.5 → predict "win"</b></div>
+</div>
+```
+
+::: {.idea}
+**0.5 is a choice, not a law.** When the 1s are rare, as with diabetes, a different threshold is often much better. Part III is about choosing it.
+:::
+
+### What the model learns: two dials {.step}
+
+Fitting a logistic regression means setting the S-curve so that it matches the data. The curve has two kinds of dials. Here they are for one feature, BMI, with everything else about a person held fixed:
+
+```{r}
+#| fig-width: 9
+#| fig-height: 3.6
+d1 <- bind_rows(curve_df(b_bmi, 0.2, "BMI (today's model)"), curve_df(0.2, 0.2, "a stronger feature"),
+                curve_df(0, 0.2, "a feature with no effect"), curve_df(-b_bmi, 0.2, "a protective feature")) |>
+  mutate(lab = fct_inorder(lab))
+d2 <- bind_rows(curve_df(b_bmi, 0.5, "higher baseline"), curve_df(b_bmi, 0.2, "today"), curve_df(b_bmi, 0.05, "lower baseline")) |>
+  mutate(lab = fct_inorder(lab))
+left <- ggplot(d1, aes(bmi, p, colour = lab)) +
+  geom_line(linewidth = 1.2) +
+  scale_colour_manual(values = c(red, dark, grey, navy), name = NULL) +
+  scale_y_continuous(labels = label_percent(), limits = c(0, 1)) +
+  theme_guide() + theme(legend.position = "right") +
+  guides(colour = guide_legend(ncol = 1)) +
+  labs(x = "BMI", y = "Chance of diabetes", title = "Dial 1: how much, and which way")
+right <- ggplot(d2, aes(bmi, p, colour = lab)) +
+  geom_line(linewidth = 1.2) +
+  scale_colour_manual(values = c(dark, red, pink), name = NULL) +
+  scale_y_continuous(labels = label_percent(), limits = c(0, 1)) +
+  theme_guide() + theme(legend.position = "right") +
+  guides(colour = guide_legend(ncol = 1)) +
+  labs(x = "BMI", y = NULL, title = "Dial 2: where it starts")
+patchwork::wrap_plots(left, right, widths = c(1.3, 1))
+```
+
+- **Dial 1, one per feature: its coefficient.** A steeper S means the chance changes faster as the feature rises; a flat line means the feature makes no difference. A rising curve means more of the feature, more risk; a falling curve, less risk.
+- **Dial 2: the intercept.** It moves the whole curve up or down: the baseline risk before the features do anything.
+
+These dials are the numbers `summary()` will print in Part II. R prints them on a scale called the **log-odds**, the scale on which the S-curve becomes a straight line again. You never have to calculate on that scale: one function, `exp()`, turns each coefficient into something readable, the **odds ratio**.
+
+### Reading a coefficient: the odds ratio {.step}
+
+First, **odds**: the chance that something happens compared with the chance that it doesn't. A 1-in-10 chance is **odds of 1 to 9**; a 50% chance is odds of 1 to 1, "evens".
+
+The **odds ratio (OR)** of a feature says how much the odds are **multiplied by** when the feature is present (or goes up by one step). You get it from a coefficient with `exp(estimate)`. Here are the odds ratios of today's model:
+
+```{r}
+#| fig-width: 7
+#| fig-height: 4.2
+or_df |>
+  filter(kind != "no clear difference") |>
+  ggplot(aes(or, label, colour = kind)) +
+  geom_vline(xintercept = 1, linetype = "dashed", colour = grey) +
+  geom_segment(aes(x = 1, xend = or, yend = label), linewidth = 1.1) +
+  geom_point(size = 3) +
+  geom_text(aes(label = sprintf("%.2f", or), hjust = if_else(or > 1, -0.3, 1.3)), size = 3.4, fontface = "bold") +
+  scale_colour_manual(values = c(`higher odds` = red, `lower odds` = navy), guide = "none") +
+  scale_x_continuous(breaks = seq(0, 3, by = 0.5), limits = c(0, 3.4)) +
+  theme_guide() + theme(panel.grid.major.y = element_blank()) +
+  labs(x = "Odds ratio: odds multiplied by …", y = NULL,
+       subtitle = paste0("The ", nrow(or_df) - n_unclear, " features with p < 0.05; the other ", n_unclear, " aren't clearly different from 1"))
+```
+
+How to read it:
+
+- **OR above 1** (right of the dashed line): higher odds of diabetes. **Below 1** (left): lower odds. **Exactly 1**: no difference.
+- **BMI, OR `r f2(or("bmi"))`**: each extra BMI point multiplies the odds by `r f2(or("bmi"))`, about `r round(100 * (or("bmi") - 1))`% higher odds. Ten points: about × `r f2(exp(10 * co("bmi")))`.
+- **Heavy drinker, OR `r f2(or("hvy_alcohol_consump1"))`**: about `r round(100 * (1 - or("hvy_alcohol_consump1")))`% lower odds than non-heavy drinkers, everything else the same.
+
+```{=html}
+<div class="calc-g">
+  <div><span>One person</span><b>a 10% chance: odds of 1 to 9</b></div>
+  <div><span>High blood pressure</span><b>OR = `r f2(or("high_bp1"))`</b></div>
+  <div class="hl"><span>With it</span><b>about `r round(100 * p_after(0.1, co("high_bp1")))`%</b><small>roughly double, when the risk is small</small></div>
+</div>
+```
+
+::: {.idea}
+A coefficient's **sign** tells you the direction; `exp()` turns it into an **odds ratio**, a multiplier on the odds. That's the one number to report for each feature.
+:::
+
+::: {.quiz}
+A feature has an odds ratio of 0.8. What does that mean?
+
+::: {.opt}
+An 80% chance of diabetes
+
+::: {.fb}
+An odds ratio isn't a probability. It's a multiplier on the odds.
+:::
+:::
+
+::: {.opt .right}
+The odds of diabetes are multiplied by 0.8: about 20% lower
+
+::: {.fb}
+Yes. Below 1 means lower odds; 0.8 means 20% lower, everything else the same.
+:::
+:::
+
+::: {.opt}
+The feature makes no difference
+
+::: {.fb}
+That would be an odds ratio of exactly 1.
+:::
+:::
+:::
+
+## Part II: Fit a logistic regression {#part2}
+
+**About 30 minutes.** Almost everything here is last week's code with two small changes.
+
+### Question 1: why not score on the training set? {.step}
+
+::: {.doit q="Part II · Q1 · notebook line 178"}
+Write one or two sentences.
+:::
+
+::: {.callout-tip collapse="true" title="Show an answer"}
+On the rows it was fitted on, a model looks better than it is: it has partly learned the quirks of those particular rows (**overfitting**). To see how well it predicts **new** people, score it on rows it has never seen: the **test set**. Like an exam: revising with last year's paper and then sitting last year's paper again tells you little.
+:::
+
+### Question 2: split the data {.step}
+
+::: {.doit q="Part II · Q2 · notebook line 183"}
+Split `diabetes_data` into 75% training and 25% test, with `strata = diabetes`. Use `set.seed(123)` so your numbers match this page.
+:::
+
+The split is last week's, with one new argument:
+
+::: {.anatomy}
+`split_grid <- initial_split(diabetes_data, prop = 0.75,` [`strata = diabetes`]{.tok}`)`
+
+1. **Stratify on the outcome**: make sure both sets get the same share of people with diabetes. With a rare outcome, a purely random split could leave noticeably fewer 1s in one set by chance.
+:::
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+set.seed(123)
+
+split_grid <- initial_split(diabetes_data, prop = 0.75, strata = diabetes)
+train <- training(split_grid)
+test <- testing(split_grid)
+```
+:::
+
+::: {.expect data-label="What you should see (counts per set, not printed by the notebook)"}
+```{r}
+bind_rows(train = count(train, diabetes), test = count(test, diabetes), .id = "set") |>
+  group_by(set) |>
+  mutate(share = round(n / sum(n), 3))
+```
+:::
+
+`r big(nrow(train))` people for training, `r big(nrow(test))` for testing, both with `r round(100 * prev, 1)`% diabetes.
+
+### The challenge: fit a logistic regression {.step}
+
+::: {.doit q="Part II · Challenge · notebook line 197"}
+Fit a logistic regression of `diabetes` on all other columns, on the **training** set, and save it as `model`.
+:::
+
+Compare with last week's linear model. Only the first function changes:
+
+::: {.anatomy}
+`model <-` [`logistic_reg()`]{.tok} `|> fit(`[`diabetes ~ .`]{.tok}`,` [`data = train`]{.tok}`)`
+
+1. **Which kind of model**: logistic instead of last week's `linear_reg()`. Its default engine, `glm`, is R's built-in logistic regression, so no `set_engine()` is needed.
+2. **The formula**: the outcome `diabetes`, explained by `.`, every other column. Because `diabetes` is a factor, tidymodels knows this is classification.
+3. **Fit on the training rows only.**
+:::
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+model <-
+  logistic_reg() |>
+  fit(diabetes ~ ., data = train)
+```
+:::
+
+::: {.callout-tip collapse="true" title="Error: For a classification model, the outcome should be a factor"}
+`diabetes` is still a number. Run the Step 3 chunk (line 93) first, then the split again.
+:::
+
+### Question 3: should all variables be in the model? {.step}
+
+::: {.doit q="Part II · Q3 · notebook line 202"}
+Write one or two sentences.
+:::
+
+::: {.callout-tip collapse="true" title="Show an answer"}
+Not necessarily. Features that add nothing make the model noisier and can lead to overfitting. You can decide with **theory** (what should matter for diabetes?), with **data** (does the model predict new people better without it? Last week's lasso does this automatically), and with **practicality** (will this information be available when the model is used?).
+:::
+
+### Question 4: the coefficient table {.step}
+
+::: {.doit q="Part II · Q4 · notebook line 207"}
+Print the coefficients with `summary()`, as in Lab 3.
+:::
+
+::: {.anatomy}
+`model |>` [`extract_fit_engine()`]{.tok} `|>` [`summary()`]{.tok}
+
+1. **Take out the model R fitted underneath** (a `glm` object). tidymodels wraps it; `summary()` needs the original.
+2. **Print the coefficient table**, as for last week's `lm` model.
+:::
+
+::: {.expect}
+```{r}
+model |>
+  extract_fit_engine() |>
+  summary()
+```
+:::
+
+The table has one row per coefficient, like last week. The columns:
+
+| Column | What it means |
+|---|---|
+| **Estimate** | The coefficient (one dial): the change in the **log-odds** of diabetes when the feature goes up by one, everything else held fixed. Read its **sign**: positive means higher risk. `exp(Estimate)` is the **odds ratio**. |
+| **Std. Error** | How uncertain the estimate is. |
+| **z value** | Estimate ÷ standard error, like last week's *t* value. |
+| **Pr(>\|z\|)** | The **p-value**: if the true effect were zero, how surprising would an estimate this far from zero be? Small means "very". |
+
+To see all the odds ratios at once, this one extra line (not in the notebook) does the conversion:
+
+```{r}
+#| echo: true
+#| df-print: default
+tidy(model) |>
+  mutate(odds_ratio = exp(estimate)) |>
+  select(term, estimate, odds_ratio, p.value) |>
+  arrange(p.value)
+```
+
+::: {.callout-warning title="Odds ratios below 1 are not proof of protection"}
+Heavy drinkers have odds × `r f2(or("hvy_alcohol_consump1"))`: about `r round(100 * (1 - or("hvy_alcohol_consump1")))`% lower. Does alcohol protect against diabetes? More likely, people **with** diabetes are told to stop drinking heavily. The model finds **associations**, not causes.
+:::
+
+::: {.callout-tip collapse="true" title="Show answers to the four discussion boxes (lines 217–235)"}
+1. **How do we read the output?** One row per feature. The estimate is the change in the log-odds; the standard error its uncertainty; the p-value whether it's clearly different from zero.
+2. **What do the coefficients represent?** The change in the log-odds of diabetes for a one-unit increase in the feature, others held fixed. `exp()` turns them into odds ratios: above 1 increases the odds, below 1 decreases them. BMI: OR `r f2(or("bmi"))`, about `r round(100 * (or("bmi") - 1))`% higher odds per point.
+3. **How do p-values help?** `high_bp`, `bmi`, `gen_hlth` and `age` have tiny p-values: strong evidence of an association. But a p-value says nothing about how well the model *predicts*.
+4. **Which metrics for classification?** Not accuracy alone: only `r round(100 * prev)`% have diabetes, so predicting "no" for everyone is already `r round(100 * (1 - prev))`% right. Part III gives better ones.
+:::
+
+## Part III: Is the model any good? {#part3}
+
+**About an hour.** The most important part of the lab.
+
+### Question 1: predictions {.step}
+
+::: {.doit q="Part III · Q1 · notebook line 242"}
+Get predictions for the training set and the test set, saved as `train_preds` and `test_preds`.
+:::
+
+::: {.anatomy}
+`train_preds <- model |>` [`augment(new_data = train)`]{.tok}
+
+1. **Add the model's predictions to a table**, as last week. For a classifier you get three new columns: `.pred_class` (0 or 1), and `.pred_0` and `.pred_1`, the two probabilities. `.pred_1` is the chance of diabetes.
+:::
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+train_preds <- model |> augment(new_data = train)
+test_preds <- model |> augment(new_data = test)
+```
+:::
+
+::: {.callout-tip collapse="true" title="About the tip at line 245"}
+The notebook's tip says to add `type.predict = "response"`, and the solutions also add `data = diabetes_data`. tidymodels' `augment()` ignores both and gives you the probabilities anyway. You can leave them out.
+:::
+
+### Question 2: what do the predictions look like? {.step}
+
+::: {.doit q="Part III · Q2 · notebook line 250"}
+Print the first ten predicted probabilities for the test set with `pull(test_preds, .pred_1)[1:10]`. How could you turn them into a yes or no?
+:::
+
+`pull()` takes one column out of a table as a plain vector; `[1:10]` keeps its first ten elements.
+
+::: {.expect}
+```{r}
+pull(test_preds, .pred_1)[1:10]
+```
+:::
+
+These are **probabilities**, not classes, and most are small: the model is rarely confident that someone has diabetes, because few people do. To get a yes or no, we need a **threshold**: above it, predict 1.
+
+### Question 3: apply a threshold of 0.5 {.step}
+
+::: {.doit q="Part III · Q3 · notebook lines 257–259"}
+Add a column `.pred_class` that is 1 when `.pred_1` is above 0.5 and 0 otherwise, for both `train_preds` and `test_preds`.
+:::
+
+::: {.anatomy}
+`mutate(.pred_class =` [`as.factor(`]{.tok}[`if_else(.pred_1 > 0.5, 1, 0)`]{.tok}`))`
+
+1. **Make it a factor**, like the truth column `diabetes`, so the two can be compared.
+2. **The threshold**: if the probability is above 0.5, a 1; otherwise a 0.
+:::
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+train_preds <-
+  train_preds |>
+  mutate(.pred_class = as.factor(if_else(.pred_1 > 0.5, 1, 0)))
+
+test_preds <-
+  test_preds |>
+  mutate(.pred_class = as.factor(if_else(.pred_1 > 0.5, 1, 0)))
+```
+:::
+
+Where do the test-set probabilities fall? Grey bars are people without diabetes, red bars people with it. The dashed line is the threshold:
+
+```{r}
+#| fig-width: 7
+#| fig-height: 3.6
+score_plot(0.5)
+```
+
+Only **`r round(100 * above5, 1)`%** of people get a probability above 0.5. Most of the red bars, people who **do** have diabetes, are to the left of the line: the model will call them "no".
+
+### Question 4: the confusion matrix {.step}
+
+::: {.doit q="Part III · Q4 · notebook lines 263–269"}
+Make a confusion matrix for the training set (line 264) and for the test set (line 268).
+:::
+
+Every prediction lands in one of four boxes:
+
+| | **Truth: diabetes** | **Truth: no diabetes** |
+|---|---|---|
+| **Predicted: diabetes** | **True positive (TP)**: has it, flagged | **False positive (FP)**: healthy, flagged anyway, a false alarm |
+| **Predicted: no diabetes** | **False negative (FN)**: has it, missed | **True negative (TN)**: healthy, correctly left alone |
+
+A **confusion matrix** counts how many people are in each box.
+
+::: {.anatomy}
+`test_preds |>` [`conf_mat(`]{.tok}[`truth = diabetes`]{.tok}`,` [`estimate = .pred_class`]{.tok}`) |>` [`autoplot(type = "heatmap")`]{.tok}
+
+1. **Count the four boxes.**
+2. **The column with the real answers.**
+3. **The column with the model's answers**: the classes from Q3.
+4. **Draw it** as a heatmap: darker = more people.
+:::
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+train_preds |>
+  conf_mat(truth = diabetes, estimate = .pred_class) |>
+  autoplot(type = "heatmap")
+
+test_preds |>
+  conf_mat(truth = diabetes, estimate = .pred_class) |>
+  autoplot(type = "heatmap")
+```
+:::
+
+::: {.expect data-label="What you should see (test set)"}
+```{r}
+#| fig-width: 4.5
+#| fig-height: 3.6
+test_preds |>
+  conf_mat(truth = diabetes, estimate = .pred_class) |>
+  autoplot(type = "heatmap")
+```
+:::
+
+R puts the 0 class first: the top-left cell is the **true negatives** (`r big(c5$tn)`), and the bottom-right the **true positives** (`r c5$tp`). Rows are the predictions, columns the truth. So: of the `r c5$tp + c5$fn` people with diabetes in the test set, the model flags `r c5$tp` and **misses `r c5$fn`**.
+
+### Question 5: is this model good or bad? {.step}
+
+::: {.doit q="Part III · Q5 · notebook line 273"}
+Write your answer, then compare with the numbers below.
+:::
+
+Each common metric answers one question about the confusion matrix, using two of its cells:
+
+```{=html}
+<div class="calc-g">
+  <div><span>Accuracy</span><b>(TP + TN) / all = (`r c5$tp` + `r big(c5$tn)`) / `r big(n_test)` = `r f3(acc5)`</b><small>share of all predictions that are right</small></div>
+  <div class="hl"><span>Recall</span><b>TP / (TP + FN) = `r c5$tp` / `r c5$tp + c5$fn` = `r f3(rec5)`</b><small>share of the sick we find · also called sensitivity</small></div>
+  <div><span>Precision</span><b>TP / (TP + FP) = `r c5$tp` / `r c5$tp + c5$fp` = `r f3(pre5)`</b><small>share of our flags that are right</small></div>
+  <div><span>Specificity</span><b>TN / (TN + FP) = `r big(c5$tn)` / `r big(c5$tn + c5$fp)` = `r f3(spe5)`</b><small>share of the healthy we leave alone</small></div>
+  <div class="hl"><span>F1</span><b>2 × P × R / (P + R) = `r f3(f15)`</b><small>one score, high only if precision and recall both are</small></div>
+</div>
+```
+
+::: {.idea}
+**With imbalanced classes, accuracy flatters.** A "model" that predicts "no diabetes" for everyone is right about everyone without diabetes: accuracy **`r f3(acc_none)`**. Ours scores `r f3(acc5)`, barely better. Recall tells the real story: our model finds only **`r round(100 * rec5)`%** of the people who have diabetes.
+:::
+
+::: {.callout-note title="The solutions round a little differently"}
+The solutions' table gives accuracy as 0.86 and F1 as about 0.25. With the same counts the exact values are 0.867 and 0.244.
+:::
+
+**Which mistake is worse?** (The table-partner questions at lines 275–280.) Imagine the model decides who gets invited for a free diabetes blood test. A **false negative** is a person with diabetes who never gets tested; a **false positive** costs one blood test. For **screening**, missing people is worse, so we want high **recall** and accept lower precision. If instead a flag meant starting medication straight away, false positives would matter more, and **precision** would be the priority. What counts as "good" depends on what the predictions are used for.
+
+::: {.quiz}
+Of 100 people the model flags as "diabetes", 56 really have it. Which metric is that?
+
+::: {.opt}
+Recall
+
+::: {.fb}
+Recall starts from the people who really have diabetes: how many of *them* did we find?
+:::
+:::
+
+::: {.opt .right}
+Precision
+
+::: {.fb}
+Yes: of the people we flagged, the share who really have it.
+:::
+:::
+
+::: {.opt}
+Accuracy
+
+::: {.fb}
+Accuracy counts all correct predictions, flagged or not.
+:::
+:::
+:::
+
+### Question 6: what happens if we move the threshold? {.step}
+
+::: {.doit q="Part III · Q6 · notebook line 288"}
+What's the problem with a threshold of 0.8? What happens to precision and recall if the threshold goes up, or down?
+:::
+
+Three possible thresholds: 0.5, 0.3 and 0.1. Moving the line left, every red bar to the right of the line is a person with diabetes we now catch; every grey bar to the right is a false alarm.
+
+```{r}
+#| fig-width: 7
+#| fig-height: 3.8
+score_plot(0.5) +
+  geom_vline(xintercept = c(0.3, 0.1), linetype = "dashed", colour = c(red, pink), linewidth = 1) +
+  annotate("label", x = c(0.51, 0.31, 0.11), y = c(1250, 1100, 950), hjust = 0, fontface = "bold",
+           label = c("0.5", "0.3", "0.1"), colour = c(dark, red, pink))
+```
+
+```{=html}
+<div class="calc-g">
+  <div><span>Threshold 0.5</span><b>find `r c5$tp` of `r c5$tp + c5$fn`, with `r c5$fp` false alarms</b></div>
+  <div><span>Threshold 0.3</span><b>find `r c3$tp`, with `r c3$fp` false alarms</b></div>
+  <div class="hl"><span>Threshold 0.1</span><b>find `r c1$tp`, with `r big(c1$fp)` false alarms</b></div>
+</div>
+```
+
+- **Lower** the threshold: more people are flagged. Recall goes **up**, precision goes **down**.
+- **Raise** it: fewer flags, more of them right. Precision up, recall down.
+- **0.8** is a poor choice here: hardly anyone gets a probability that high, so recall would be close to zero.
+
+### Question 7: precision, recall and F1 for seven thresholds {.step}
+
+::: {.doit q="Part III · Q7 · notebook line 293"}
+On the **training** set, compute precision, recall and F1 for thresholds 0.1, 0.2, …, 0.7.
+:::
+
+Why the training set? Choosing a threshold is part of building the model, like choosing the lasso's penalty last week. We choose it on the training set and keep the test set for the final check (Q10).
+
+This is the hardest code of the lab. Take it one piece at a time:
+
+::: {.anatomy}
+`class_metrics <-` [`metric_set(precision, recall, f_meas)`]{.tok}
+
+1. **Bundle three metrics into one function**, as `metric_set(rsq, rmse)` last week. `f_meas` is the F1-score.
+:::
+
+::: {.anatomy}
+`class_metrics <-` [`partial(class_metrics, event_level = "second")`]{.tok}
+
+1. **Tell it which class to score.** The class we care about, `"1"`, is the **second** level of the factor. Without this, R treats `"0"` as the event and your precision and recall will look suspiciously high, around 0.9. `partial()` fixes the argument once, so you don't have to repeat it.
+:::
+
+::: {.anatomy}
+`ev_metrics <-` [`map_dfr(`]{.tok}`alpha_list,` [`~ augment(model, new_data = train) |> mutate(.pred = … .pred_1 > .x …) |> class_metrics(…)`]{.tok} `|>` [`mutate(alpha = .x)`]{.tok}`)`
+
+1. **Run some code once for each threshold** in `alpha_list`, and stack the results into one table.
+2. **The code to run**: last week's evaluation pipeline. `.x` is the current threshold.
+3. **Label each row** with its threshold, so you can plot by it later.
+:::
+
+Step through what happens for one threshold, then all seven:
+
+::::: {.walk}
+:::: {.walk-code}
+```r
+augment(model, new_data = train) |>
+  mutate(.pred = as.factor(if_else(.pred_1 > 0.3, "1", "0"))) |>
+  class_metrics(truth = diabetes, estimate = .pred)
+```
+::::
+
+:::: {.walk-step lines="1-2"}
+For one threshold, here 0.3: predictions on the training set, cut at 0.3. Only the truth, the probability and the new class are shown.
+
+```{r}
+augment(model, new_data = train) |>
+  mutate(.pred = as.factor(if_else(.pred_1 > 0.3, "1", "0"))) |>
+  select(diabetes, .pred_1, .pred) |>
+  head(5)
+```
+::::
+
+:::: {.walk-step lines="1-3"}
+`class_metrics()` scores that one threshold: three rows, one per metric.
+
+```{r}
+augment(model, new_data = train) |>
+  mutate(.pred = as.factor(if_else(.pred_1 > 0.3, "1", "0"))) |>
+  class_metrics(truth = diabetes, estimate = .pred)
+```
+::::
+:::::
+
+`map_dfr()` does exactly this for every threshold in `alpha_list`, replacing 0.3 with `.x`, and stacks the seven results: 21 rows.
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+# Create a list of probability thresholds
+alpha_list <- c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7)
+
+# Define our metric set with precision, recall, and F1-score
+class_metrics <- metric_set(precision, recall, f_meas)
+class_metrics <- partial(
+  class_metrics,
+  event_level = "second"
+)
+
+ev_metrics <- map_dfr(
+  alpha_list,
+  ~ augment(model, new_data = train) |>
+    mutate(.pred = as.factor(if_else(.pred_1 > .x, "1", "0"))) |>
+    class_metrics(truth = diabetes, estimate = .pred) |>
+    mutate(alpha = .x), # Add the actual alpha value
+  .id = NULL # Remove the automatic ID column
+)
+```
+:::
+
+::: {.expect data-label="What you should see (ev_metrics, shown with one column per metric to save space)"}
+```{r}
+ev_wide |> mutate(across(-alpha, ~ round(.x, 3)))
+```
+:::
+
+### Question 8: plot the metrics against the threshold {.step}
+
+::: {.doit q="Part III · Q8 · notebook line 301"}
+Plot the three metrics against the threshold, one colour per metric.
+:::
+
+`ev_metrics` is already in the right shape for this: one row per threshold and metric. Put `alpha` on x, `.estimate` on y and `.metric` on colour.
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+ev_metrics |>
+  mutate(.metric = if_else(.metric == "f_meas", "F1-Score", str_to_title(.metric))) |>
+  ggplot(aes(alpha, .estimate, colour = .metric)) +
+  geom_line(linetype = "dashed") +
+  geom_point() +
+  scale_colour_uchicago() +
+  labs(
+    x = "Probability threshold",
+    y = "Evaluation metric estimate",
+    colour = "Evaluation metric"
+  ) +
+  theme_minimal()
+```
+
+The `mutate()` only makes the legend labels nicer: `f_meas` becomes "F1-Score", `precision` becomes "Precision".
+:::
+
+::: {.expect}
+```{r}
+#| fig-width: 7
+#| fig-height: 3.8
+ev_metrics |>
+  mutate(.metric = if_else(.metric == "f_meas", "F1-Score", str_to_title(.metric))) |>
+  ggplot(aes(alpha, .estimate, colour = .metric)) +
+  geom_line(linetype = "dashed") +
+  geom_point() +
+  scale_colour_uchicago() +
+  labs(x = "Probability threshold", y = "Evaluation metric estimate", colour = "Evaluation metric") +
+  theme_guide()
+```
+:::
+
+As the threshold rises, recall falls steeply and precision creeps up. **F1 is highest at `r best_alpha`** (`r f3(evw(best_alpha, "f_meas"))`), against `r f3(evw(0.5, "f_meas"))` at the default 0.5.
+
+### Question 9: the precision–recall curve {.step}
+
+::: {.doit q="Part III · Q9 · notebook line 309"}
+Plot precision (y) against recall (x), one point per threshold. What trade-off do you see?
+:::
+
+For this plot, precision and recall must be two separate **columns**, so that one can go on each axis. `pivot_wider()` (Lab 1) does that:
+
+::: {.anatomy}
+`ev_metrics |>` [`filter(.metric %in% c("precision", "recall"))`]{.tok} `|>` [`pivot_wider(id_cols = alpha, names_from = .metric, values_from = .estimate)`]{.tok}
+
+1. **Keep the two metrics** we need.
+2. **One row per threshold, one column per metric.**
+:::
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+ev_metrics |>
+  filter(.metric %in% c("precision", "recall")) |>
+  pivot_wider(
+    id_cols = alpha,
+    names_from = .metric,
+    values_from = .estimate
+  ) |>
+  ggplot(aes(x = recall, y = precision)) +
+  geom_point(color = "turquoise4", size = 2) +
+  geom_text(
+    aes(label = paste0("α = ", alpha)),
+    position = position_nudge(x = -0.045)
+  ) +
+  geom_line(linetype = "dashed", color = "turquoise4") +
+  theme_minimal()
+```
+:::
+
+::: {.expect}
+```{r}
+#| fig-width: 7
+#| fig-height: 4
+ev_metrics |>
+  filter(.metric %in% c("precision", "recall")) |>
+  pivot_wider(id_cols = alpha, names_from = .metric, values_from = .estimate) |>
+  ggplot(aes(x = recall, y = precision)) +
+  geom_point(color = "turquoise4", size = 2) +
+  geom_text(aes(label = paste0("α = ", alpha)), position = position_nudge(x = -0.045)) +
+  geom_line(linetype = "dashed", color = "turquoise4") +
+  labs(x = "Recall", y = "Precision") +
+  theme_guide()
+```
+:::
+
+Each point is one threshold. Moving right (lower threshold), we find more of the people with diabetes (recall up) but each flag is less often right (precision down). You can't have both for free: the threshold is how you choose the balance.
+
+::: {.callout-warning collapse="true" title="The title of this plot in the solutions is the wrong way round"}
+It says "when the probability threshold is lowered, recall decreases and precision increases". It's the other way: lowering the threshold **raises** recall and **lowers** precision, as the text under the plot in the solutions says.
+:::
+
+### Question 10: did the model overfit? {.step}
+
+::: {.doit q="Part III · Q10 · notebook line 319"}
+Take the threshold with the best F1 on the training set. Apply the model to the test set with that threshold and compute its F1. Compare.
+:::
+
+Two new small functions find the best threshold:
+
+::: {.anatomy}
+`best_alpha <- ev_metrics |> filter(.metric == "f_meas") |>` [`slice_max(.estimate)`]{.tok} `|>` [`pull(alpha)`]{.tok}
+
+1. **Keep the row with the largest value** of `.estimate`: the best F1.
+2. **Take out one column as a plain value**: the threshold itself.
+:::
+
+Then it's Q3's threshold rule and Q7's scoring, on the test set, with `best_alpha` instead of 0.5:
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+best_alpha <-
+  ev_metrics |>
+  filter(.metric == "f_meas") |>
+  slice_max(.estimate) |>
+  pull(alpha)
+
+model |>
+  augment(new_data = test) |>
+  mutate(prediction = if_else(.pred_1 > best_alpha, 1, 0),
+         prediction = as.factor(prediction)) |>
+  f_meas(truth = diabetes, estimate = prediction, event_level = "second")
+```
+:::
+
+::: {.expect}
+```{r}
+best_alpha
+
+model |>
+  augment(new_data = test) |>
+  mutate(prediction = if_else(.pred_1 > best_alpha, 1, 0),
+         prediction = as.factor(prediction)) |>
+  f_meas(truth = diabetes, estimate = prediction, event_level = "second")
+```
+:::
+
+| Threshold `r best_alpha` | F1 |
+|---|---|
+| Training set | `r f3(evw(best_alpha, "f_meas"))` |
+| Test set | `r f3(f1_test_best)` |
+
+**No overfitting**: the model does just as well on people it has never seen. (Compare last week, when a model with 67 coefficients on 486 students did far worse on the test set.) But an F1 below 0.5 is still not great: people with and without diabetes look very similar on these features, and no threshold can fix that.
+
+At threshold `r best_alpha`, on the test set, the model finds `r c2$tp` of the `r c2$tp + c2$fn` people with diabetes (`r round(100 * c2$tp / (c2$tp + c2$fn))`%), with `r big(c2$fp)` false alarms: about `r sprintf("%.1f", c2$fp / c2$tp)` false alarms for every person found. Compare 0.5: `r c5$tp` found, `r round(100 * rec5)`%.
+
+::: {.quiz}
+You choose the threshold that gives the best F1 **on the test set**, and report that F1 as your model's performance. What's the problem?
+
+::: {.opt .right}
+The test set was used to make a choice, so its score is no longer a fair, fresh exam
+
+::: {.fb}
+Exactly. Choose on the training set, check on the test set. That's why Q7 uses `train`.
+:::
+:::
+
+::: {.opt}
+There's no problem: the test set is the right place to measure performance
+
+::: {.fb}
+It's the right place to *measure*, but not to *choose*. Once you've tuned on it, it's part of the training.
+:::
+:::
+
+::: {.opt}
+F1 can't be computed on a test set
+
+::: {.fb}
+It can; Q10 does exactly that.
+:::
+:::
+:::
+
+## Wrap-up {#wrapup}
+
+### What you learned {.step}
+
+:::: {.legend}
+::: {.l-idea}
+**Logistic regression**
+Bends a line into an S-curve, so predictions are probabilities between 0 and 1. A coefficient is a change in the log-odds: its sign says which way, and `exp()` turns it into an odds ratio.
+:::
+::: {.l-idea}
+**Thresholds**
+A threshold turns probabilities into yes or no. 0.5 is only a default: choose it on the training set, check it on the test set.
+:::
+::: {.l-idea}
+**The confusion matrix**
+Four boxes: TP, FP, FN, TN. Recall (how many of the 1s we find) and precision (how many of our flags are right) trade off as the threshold moves.
+:::
+::: {.l-idea}
+**Imbalance**
+When one class is rare, accuracy flatters. Predicting "no" for everyone already scores 86% here.
+:::
+::::
+
+**One question to take away:** you're designing a screening programme. Which threshold would you pick, and how many false alarms per person found would you accept?
+
+**Further reading**
+
+- [*An Introduction to Statistical Learning*](https://www.statlearning.com), free online: chapter 4, sections 4.1–4.3, on logistic regression.
+- [*Tidy Modeling with R*](https://www.tmwr.org), free online: chapter 9, on judging model effectiveness.
+- The [yardstick metric reference](https://yardstick.tidymodels.org/reference/), for every metric used today.
+
+### Glossary {#glossary}
+
+Underlined words on this page are explained in this list. Click or tap one anywhere on the page to see what it means and where it was first explained.
+
+::: {.glossary}
+
+| Word | Meaning |
+|---|---|
+| **accuracy** | The share of all predictions that are right. Misleading when one class is rare |
+| **classification** | Predicting a category (here: diabetes yes or no) instead of a number |
+| **coefficient** []{match="coefficients?"} | A number the model learns for each feature. In logistic regression, a change in the log-odds |
+| **confusion matrix** | A table counting true positives, false positives, false negatives and true negatives |
+| **F1** []{match="F1-score;F1"} | One score combining precision and recall; high only if both are high |
+| **factor** []{match="factors?"} | R's type for categories. The outcome of a classification model must be a factor |
+| **false negative** []{match="false negatives?"} | Has the condition, but the model says no |
+| **false positive** []{match="false positives?;false alarms?"} | Doesn't have the condition, but the model says yes |
+| **imbalanced** []{match="imbalanced;imbalance"} | When one class is much rarer than the other, like diabetes here (13.8%) |
+| **intercept** | The model's baseline, before any feature does anything |
+| **log-odds** | The scale `summary()` prints coefficients on. `exp()` turns a coefficient into an odds ratio |
+| **logistic regression** | A model that predicts a probability between 0 and 1 by bending a line into an S-curve |
+| **odds** | The chance something happens over the chance it doesn't. A 1-in-10 chance is odds of 1 to 9 |
+| **odds ratio** []{match="odds ratios?"} | `exp(coefficient)`: how much a feature multiplies the odds. Above 1 raises them, below 1 lowers them |
+| **overfitting** | Learning quirks of the training data, so the model does worse on new data |
+| **p-value** []{match="p-values?"} | If the true effect were zero, how surprising a result like this would be. Small means surprising |
+| **precision** | Of the people flagged, the share who really have the condition. TP / (TP + FP) |
+| **prevalence** | The share of people who have a condition |
+| **recall** []{match="recall;sensitivity"} | Of the people who have the condition, the share the model finds. TP / (TP + FN). Also called sensitivity |
+| **specificity** | Of the people without the condition, the share the model leaves alone. TN / (TN + FP) |
+| **strata** []{match="strata;stratif\\w*"} | Splitting so that both sets keep the same share of each outcome class |
+| **test set** | The data held back to score the finished model |
+| **threshold** []{match="thresholds?"} | The probability above which we predict "yes". 0.5 by default |
+| **training set** []{match="training sets?;training data"} | The data the model is fitted on |
+| **true negative** []{match="true negatives?"} | Doesn't have the condition, and the model says no |
+| **true positive** []{match="true positives?"} | Has the condition, and the model says yes |
+:::
