@@ -45,7 +45,7 @@ Solution slides (class `.solution`) walk through the code one step at a time: th
 ::::
 ```
 
-`lines` takes ranges such as `1-4` or `1,3-4`. The behaviour is in `_extensions/lse/walk.html`.
+`lines` takes ranges such as `1-4` or `1,3-4`. The behaviour is in `_extensions/lse/walk.html`. For a long code block, `:::: {.walk .dense}` uses a smaller code font so all lines fit.
 
 ## Anatomy and multiple-choice slides
 
@@ -73,6 +73,8 @@ A multiple-choice check is a `.mcq` div with one `.opt` per answer (the right on
 ```
 
 `.ask` marks a question to the room; `.anat-read` is a one-line reading of the formula under an anatomy.
+
+A confusion matrix (from Lab 4) is a `.cmat` div: a header row of three `.h` cells (the first `.h.blank`), then per row a `.h` label and two cells, `.ok` for correct predictions and `.bad` for errors, each holding `<b>name</b>`, an optional `<span>count</span>` and `<small>meaning</small>`.
 
 A step-by-step calculation is a `.calc` div of rows, each `<div><span class="cl">label</span><span class="cx">expression</span></div>`; give later rows `class="fragment"` (with `data-fragment-index` to sync them with other fragments) so each click adds one line, and `.hl` to the line that matters. Add `.sm` for a smaller version inside a column or card.
 
