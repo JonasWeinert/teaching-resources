@@ -1923,3 +1923,24 @@ Wrap-up, 4 minutes.
 ::: {.notes}
 - Preview next week.
 :::
+
+## 30 seconds of feedback {.closing}
+
+:::: {.columns style="align-items:center"}
+
+::: {.column width="45%" style="text-align:center"}
+![](images/feedback-qr.svg){width="380" fig-alt="QR code linking to the feedback survey"}
+:::
+
+::: {.column width="55%"}
+::: {.card .dark}
+[How was today's lab?]{.ct}
+Scan the code, or open <a href="https://forms.gle/i3uobCAaGmkzf1ns7" style="color:#fff;text-decoration:underline">forms.gle/i3uobCAaGmkzf1ns7</a>. It takes 30 seconds and changes what next week looks like.
+:::
+:::
+
+::::
+
+::: {.notes}
+- Leave this slide up while people pack up. Ask them to fill it in before leaving.
+:::
