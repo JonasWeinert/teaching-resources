@@ -2,7 +2,7 @@
 
 Quarto revealjs decks in the LSE style from `slidereference/`.
 
-The solution slides run real R code, so rendering needs R with `tidyverse`, `psymetadata` and `gt`, and the lab data in `W*/notebooksanddata/`. That folder is git-ignored, so only a machine that has the data can re-render a deck.
+The solution slides run real R code, so rendering needs R with `tidyverse`, `psymetadata` and `gt` (plus `ggsci`, `ggthemes`, `psychTools`, `patchwork` and `colorspace` for Lab 2), and the lab data in `W*/notebooksanddata/`. That folder is git-ignored, so only a machine that has the data can re-render a deck.
 
 ## Render
 
