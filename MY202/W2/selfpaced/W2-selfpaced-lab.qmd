@@ -1,0 +1,1026 @@
+---
+title: "Data visualisation: building plots with ggplot"
+subtitle: "MY202 · Lab 2 · Self-paced guide"
+author: "Jonas Weinert"
+date: today
+date-format: "D MMMM YYYY"
+format: lse-html
+
+execute:
+  echo: false
+  message: false
+  warning: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+# The outputs on this page are real: they come from running the lab code on the lab data.
+library("ggsci")
+library("ggthemes")
+library("psychTools")
+library("psymetadata")
+library("tidyverse")
+library("patchwork")
+knitr::opts_knit$set(root.dir = "../notebooksanddata")
+options(width = 72)
+
+theme_guide <- function() {
+  theme_minimal() +
+    theme(panel.grid.minor = element_blank(), legend.position = "bottom")
+}
+red <- "#E2001A"; dark <- "#8C0014"; pink <- "#F28A94"; grey <- "#6B6B6B"; navy <- "#1F4E79"; green <- "#1D7A46"
+okabe <- c("#E69F00", "#0072B2")
+f2 <- function(x) sprintf("%.2f", x)
+big <- function(x) format(x, big.mark = ",")
+```
+
+```{r}
+#| label: data
+#| include: false
+hs_data <- holzinger.swineford |> as_tibble()
+n_hs <- nrow(hs_data)
+n_school <- count(hs_data, school) |> deframe()
+n_tests <- sum(str_detect(names(hs_data), "^t\\d"))
+cubes_5_7 <- mean(hs_data$t02_cubes >= 5 & hs_data$t02_cubes <= 7)
+n_cubes <- n_distinct(hs_data$t02_cubes)
+r_vis <- cor(hs_data$t01_visperc, hs_data$t03_frmbord)
+n_spots <- nrow(distinct(hs_data, t01_visperc, t03_frmbord))
+med_g <- hs_data |> group_by(grade) |> summarise(m = median(t16_figrrecg)) |> deframe()
+mean_s <- hs_data |> group_by(female) |> summarise(m = mean(t23_series)) |> deframe()
+
+nu <- as_tibble(nuijten2020)
+n_es <- nrow(nu)
+n_studies <- n_distinct(nu$study_id)
+by_year <- nu |> count(year)
+peak_year <- by_year |> slice_max(n) |> pull(year)
+peak_n <- max(by_year$n)
+
+# The solutions' theme functions
+theme_histogram <- function() {
+  theme_minimal() + theme(panel.grid.minor = element_blank(), panel.grid.major.x = element_blank())
+}
+theme_bar <- function() {
+  theme_minimal() + theme(panel.grid.minor = element_blank(), panel.grid.major.y = element_blank())
+}
+theme_scatter <- function() {
+  theme_minimal() + theme(panel.grid.minor = element_blank(), legend.position = "bottom")
+}
+theme_line <- function() {
+  theme_minimal() + theme(panel.grid.minor = element_blank(), panel.grid.major.x = element_blank())
+}
+theme_boxplot <- function() {
+  theme_minimal() + theme(panel.grid = element_blank(), legend.position = "none")
+}
+theme_density <- function() {
+  theme_minimal() + theme(panel.grid = element_blank(), legend.position = "bottom")
+}
+my_theme <- function() {
+  theme(panel.grid = element_blank(), axis.ticks = element_blank(),
+        panel.background = element_rect(fill = "transparent"))
+}
+
+# Six questions, six charts
+thumb <- function(p, title, sub) {
+  p + theme_void(base_size = 11) +
+    theme(plot.title = element_text(face = "bold", colour = dark, size = 12),
+          plot.subtitle = element_text(colour = grey, size = 9.5, margin = margin(b = 6)),
+          plot.margin = margin(6, 10, 6, 10), legend.position = "none") +
+    labs(title = title, subtitle = sub)
+}
+thumbs <- list(
+  thumb(ggplot(hs_data, aes(t02_cubes)) + geom_histogram(bins = 20, fill = "#BDBDBD", colour = "white"),
+        "2.1 Histogram", "How is one number spread out?"),
+  thumb(ggplot(count(hs_data, school), aes(n, school)) + geom_col(fill = red, width = 0.6),
+        "2.2 Bar chart", "How many in each group?"),
+  thumb(ggplot(hs_data, aes(t01_visperc, t03_frmbord, colour = school)) +
+          geom_jitter(size = 1, alpha = 0.6, position = position_jitter(seed = 1)) + scale_colour_manual(values = c(red, navy)),
+        "2.3 Scatter plot", "Do two numbers move together?"),
+  thumb(ggplot(by_year, aes(year, n)) + geom_line(colour = navy, linewidth = 0.8),
+        "2.4 Line plot", "How does it change over time?"),
+  thumb(ggplot(hs_data, aes(factor(grade), t16_figrrecg)) + geom_boxplot(fill = pink, outlier.size = 0.8),
+        "2.5 Box plot", "Groups compared: middle and spread"),
+  thumb(ggplot(mutate(hs_data, g = factor(female)), aes(t23_series, fill = g)) + geom_density(alpha = 0.4, colour = NA) +
+          scale_fill_manual(values = c(navy, red)),
+        "2.6 Density plot", "Groups compared: the whole shape")
+)
+
+# Reading a box plot, on the grade 8 figure recognition scores
+g8 <- hs_data |> filter(grade == 8)
+q8 <- quantile(g8$t16_figrrecg, c(0.25, 0.5, 0.75))
+iqr8 <- q8[[3]] - q8[[1]]
+hi8 <- max(g8$t16_figrrecg[g8$t16_figrrecg <= q8[[3]] + 1.5 * iqr8])
+
+cb_plot <- function(cols, shapes = FALSE, title) {
+  p <- ggplot(hs_data, aes(t01_visperc, t03_frmbord, colour = school))
+  p <- if (shapes) p + geom_jitter(aes(shape = school), size = 1.8, alpha = 0.8, position = position_jitter(seed = 1))
+       else p + geom_jitter(size = 1.8, alpha = 0.8, position = position_jitter(seed = 1))
+  p + scale_colour_manual(values = unname(cols), name = NULL) +
+    scale_shape_manual(values = c(16, 17), name = NULL) +
+    theme_guide() + theme(plot.title = element_text(face = "bold", size = 11)) +
+    labs(x = "Visual perception", y = "Form board", title = title)
+}
+```
+
+## Before you start
+
+This page walks you through Lab 2 one small step at a time. It assumes you have done Lab 1, so you know what a notebook, a chunk, a pipe `|>`, `count()`, `mutate()` and `group_by()` are. **ggplot is new**: everything about it is explained the first time it appears, and there is a [glossary](#glossary) at the end.
+
+**What's new this week.** Last week you summarised and reshaped data. This week you **draw** it, with `ggplot2`, the plotting part of the tidyverse. You'll make six kinds of chart. For each one, the notebook asks for the same three things: a **theme** (the look), the **plot** itself, and an **annotation**: one sentence that says what the plot shows. The last part matters as much as the code. A chart is only useful if a reader can tell what you found.
+
+:::: {.legend}
+::: {.l-do}
+**Your turn**
+Something to do in the notebook. The box says which notebook lines to go to.
+:::
+::: {.l-see}
+**What you should see**
+The real result R gives back. Compare it with yours.
+:::
+::: {.l-idea}
+**Big idea**
+A concept worth remembering beyond today.
+:::
+::: {.l-quiz}
+**Check yourself**
+A quick question. Click an answer to see if you were right.
+:::
+::::
+
+At the end of each step there is a **Mark as done** button. Your ticks are saved in this browser, so you can close the page and pick up where you left off.
+
+The student notebook has an empty `# Code here` chunk for each of the six exercises. **Try each one first**; the code is in a "Show the code" box underneath if you get stuck. Your plot doesn't have to look exactly like the one shown: colours and themes are your choice.
+
+::: {.callout-note title="Plan for about 2 hours"}
+Setup and the data take about 15 minutes, how a ggplot is built 30, the six exercises about an hour, and the design principles 15.
+:::
+
+### Open the notebook and run the setup chunks {.step}
+
+::: {.doit q="Setup · notebook lines 16–23 and 29–36"}
+1. Open the Lab 2 **student notebook** on Nuvolos. The packages are already installed there.
+2. Run the chunk at **lines 16–23**. It loads five packages.
+3. Run the chunk at **lines 29–36**. It creates an object called `hs_data` and prints it.
+:::
+
+| Package | What it gives you |
+|---|---|
+| `tidyverse` | `dplyr` from Lab 1, and **`ggplot2`**, today's plotting package. Loading `tidyverse` loads both. |
+| `ggthemes` | More ready-made themes, such as `theme_clean()`. |
+| `ggsci` | Colour palettes from scientific journals and TV shows: `scale_colour_cosmic()`, `scale_fill_lancet()`… |
+| `psychTools` | Contains the **Holzinger-Swineford** data, used in five of the six exercises. |
+| `psymetadata` | Contains the **Nuijten (2020)** data, used in exercise 2.4. You met this package in Lab 1. |
+
+::: {.callout-tip collapse="true" title="No read_csv() today?"}
+Right: both data sets come **inside** R packages. Once `psychTools` is loaded, an object called `holzinger.swineford` simply exists. The chunk at line 29 only turns it into a tibble with `as_tibble()`, so it prints neatly, and saves it as `hs_data`.
+:::
+
+## Part 1: Meet the data {#part1}
+
+### The Holzinger-Swineford data {.step}
+
+`hs_data` has one row per child: **`r n_hs` children** in grades 7 and 8 at two US schools, who sat **`r n_tests` mental ability tests** in the late 1930s. It's a classic data set in psychology.
+
+::: {.expect data-label="What you should see at line 34 (the first columns)"}
+```{r}
+hs_data |> select(1:10)
+```
+:::
+
+| Column | What it is |
+|---|---|
+| `school` | Pasteur (`r n_school[["Pasteur"]]` children) or Grant-White (`r n_school[["Grant-White"]]`) |
+| `grade` | 7 or 8. Stored as a **number** |
+| `female` | **1 = male, 2 = female**. Not 0/1! |
+| `ageyr`, `mo`, `agemo` | Age in years, extra months, and age in months |
+| `t01_visperc` … `t26_flags` | One score per test. Today: `t01_visperc` (visual perception), `t02_cubes` (spatial cubes), `t03_frmbord` (form board: fitting shapes together), `t08_wordclas` (word classification), `t09_wordmean` (word meaning), `t16_figrrecg` (figure recognition: remembering shapes), `t23_series` (completing number series) |
+
+::: {.callout-tip collapse="true" title="How to find this out yourself (line 38)"}
+Type `?holzinger.swineford` in the console (the bottom-left pane in RStudio) and press Enter. The help page lists every column. This works for any data set that comes with a package, for example `?nuijten2020`.
+:::
+
+### The Nuijten (2020) data {.step}
+
+Exercise 2.4 uses a second data set, `nuijten2020`. Nuijten and colleagues collected the results of **131 published reviews** of intelligence research. Each review summarised many primary studies, and each row of `nuijten2020` is **one result from one of those studies**: `r big(n_es)` rows. The column you need is `year`, the year the primary study came out.
+
+::: {.idea}
+**Before you plot, ask: what is one row?** In `hs_data`, one row is one child. In `nuijten2020`, one row is one **result**, and one study can report several. That difference comes back in exercise 2.4.
+:::
+
+## Part 2.0: How a ggplot is built {#part20}
+
+**About 30 minutes.** Everything in this part is already written in the notebook (lines 54–122): you run it and understand it. The exercises after it are where you write your own.
+
+### The three parts of every ggplot {.step}
+
+::: {.doit q="Part 2.0 · notebook lines 58–64"}
+Run the first plot chunk.
+:::
+
+::: {.anatomy}
+[`hs_data |>`]{.tok} [`ggplot(`]{.tok}[`aes(t08_wordclas, t09_wordmean)`]{.tok}`)` [`+`]{.tok} [`geom_point()`]{.tok}
+
+1. **Data.** Which table to plot, piped in as in Lab 1.
+2. **Start a plot.** `ggplot()` makes an empty canvas for that data.
+3. **Aesthetics: which column goes where.** Inside `aes()`, the first column goes on the x axis (across), the second on the y axis (up). Later you'll also see `colour =` and `fill =` in here.
+4. **Add a layer.** A plot is built by **adding** pieces with `+`. Not `|>`: the pipe hands data to a function; `+` adds something to a plot.
+5. **Geometry: how to draw each row.** `geom_point()` draws a dot for each child. Swap it for another `geom_` and the same data become a different chart.
+:::
+
+::: {.expect}
+```{r}
+#| fig-width: 6
+#| fig-height: 4
+hs_data |>
+  ggplot(aes(t08_wordclas, t09_wordmean)) +
+  geom_point()
+```
+:::
+
+In words: *take `hs_data`, put word classification on x and word meaning on y, and draw a dot for each child.* Children who do well on one word test tend to do well on the other.
+
+::: {.idea}
+**Every ggplot is data + aesthetics + a geom**, joined with `+`. This is called the **grammar of graphics**: instead of choosing from a menu of chart types, you say which column goes where and which shape to draw.
+:::
+
+::: {.callout-warning collapse="true" title="The most common error this week"}
+```
+Error: `mapping` must be created by `aes()`
+Did you use `%>%` or `|>` instead of `+`?
+```
+You wrote `|>` after `ggplot(...)`. Use `+` from `ggplot()` onwards. A related problem: if a `+` is missing at the end of a line, R stops there and the layers below it are never added (or you get an error on the next line).
+:::
+
+### Building a plot one layer at a time {.step}
+
+Each layer you add changes one thing in the picture. Step through the code: every step highlights the line it adds.
+
+::::: {.walk}
+:::: {.walk-code}
+```r
+hs_data |>
+  ggplot(aes(t08_wordclas, t09_wordmean)) +
+  geom_point() +
+  labs(x = "Word classification",
+       y = "Word meaning") +
+  theme_minimal()
+```
+::::
+
+:::: {.walk-step lines="1-2"}
+`ggplot()` and `aes()` alone: the axes are set up from the data, but nothing is drawn, because there's no geom yet.
+
+```{r}
+#| fig-width: 6
+#| fig-height: 3.6
+hs_data |> ggplot(aes(t08_wordclas, t09_wordmean))
+```
+::::
+
+:::: {.walk-step lines="1-3"}
+`geom_point()`: one dot per child.
+
+```{r}
+#| fig-width: 6
+#| fig-height: 3.6
+hs_data |> ggplot(aes(t08_wordclas, t09_wordmean)) + geom_point()
+```
+::::
+
+:::: {.walk-step lines="1-5"}
+`labs()` replaces the column names on the axes with words a reader understands.
+
+```{r}
+#| fig-width: 6
+#| fig-height: 3.6
+hs_data |> ggplot(aes(t08_wordclas, t09_wordmean)) + geom_point() +
+  labs(x = "Word classification", y = "Word meaning")
+```
+::::
+
+:::: {.walk-step lines="1-6"}
+A **theme** changes the look, never the data. `theme_minimal()` removes the grey background.
+
+```{r}
+#| fig-width: 6
+#| fig-height: 3.6
+hs_data |> ggplot(aes(t08_wordclas, t09_wordmean)) + geom_point() +
+  labs(x = "Word classification", y = "Word meaning") + theme_minimal()
+```
+::::
+:::::
+
+### Changing the look with `theme()` {.step}
+
+::: {.doit q="Part 2.0 · notebook lines 68–98"}
+Run the chunk at **lines 68–79**, then the one at **lines 83–98**.
+:::
+
+`theme()` controls every part of a plot that isn't data: background, grid lines, axis ticks, fonts, where the legend goes. Each line inside it names one part and says what to do with it. The second chunk saves the same style under a name, so you can reuse it:
+
+::: {.anatomy}
+[`my_theme <- function() {`]{.tok} [`theme(`]{.tok}[`panel.grid = element_blank()`]{.tok}`, axis.ticks = element_blank(),` [`panel.background = element_rect(fill = "transparent")`]{.tok}`) }`
+
+1. **Save the style under a name.** `function() { … }` makes a function with no inputs. Calling `my_theme()` later runs what's inside.
+2. **One plot part per line**, written as *name of the part* `=` *what to do*.
+3. **`element_blank()` removes a part.** Here the grid lines; then the axis ticks.
+4. **`element_rect()` restyles a rectangle.** Here the background becomes see-through.
+:::
+
+::: {.expect data-label="What you should see at line 93"}
+```{r}
+#| fig-width: 6
+#| fig-height: 3.6
+hs_data |>
+  ggplot(aes(t08_wordclas, t09_wordmean)) +
+  geom_point() +
+  my_theme()
+```
+:::
+
+Why a function? You'll style six plots today. Write the look once, use it everywhere, and all your plots match.
+
+::: {.callout-tip collapse="true" title="How do I find the name of a plot part?"}
+Nobody remembers them all. Type `theme(` in RStudio and press [Tab]{.kbd} to see the list, or ask an LLM in plain words: "in ggplot, how do I remove the vertical grid lines?" (answer: `panel.grid.major.x = element_blank()`). The notebook's **hot take** (line 52) is exactly this: let AI help with the syntax, and spend your own time on what the plot should say.
+:::
+
+### Ready-made themes {.step}
+
+::: {.doit q="Part 2.0 · notebook lines 102–116"}
+Run the `theme_minimal()` chunk and the `ggthemes::theme_clean()` chunk.
+:::
+
+```{r}
+#| fig-width: 9
+#| fig-height: 2.8
+look <- function(p, title) p + labs(title = title) + theme(plot.title = element_text(face = "bold", size = 11))
+base <- hs_data |> ggplot(aes(t08_wordclas, t09_wordmean)) + geom_point(size = 0.8)
+wrap_plots(
+  look(base, "default"),
+  look(base + my_theme(), "my_theme()"),
+  look(base + theme_minimal(), "theme_minimal()"),
+  look(base + ggthemes::theme_clean(), "theme_clean()"),
+  nrow = 1
+)
+```
+
+Same data, same points, four looks. `ggthemes::` in front of a function says which package it comes from; it isn't needed once the package is loaded, but it helps the reader. For fun, lines 118–122 link to more theme packages. (The *ggpomological* link points to the tvthemes page by mistake; ggpomological is at [github.com/gadenbuie/ggpomological](https://github.com/gadenbuie/ggpomological).)
+
+::: {.idea}
+**Start from a ready-made theme, then adjust.** Every solution today writes its theme function the same way: `theme_minimal() + theme(…your changes…)`. The full theme comes first because it resets everything; your changes come after and win.
+:::
+
+::: {.quiz}
+You write `theme(panel.grid = element_blank()) + theme_minimal()`. What happens to the grid lines?
+
+::: {.opt}
+They're removed
+
+::: {.fb}
+Not quite. `theme_minimal()` comes last and sets the whole look again, grid lines included.
+:::
+:::
+
+::: {.opt .right}
+They come back
+
+::: {.fb}
+Yes. The later theme overwrites the earlier one. Put the ready-made theme first and your changes after it.
+:::
+:::
+
+::: {.opt}
+R gives an error
+
+::: {.fb}
+No error: both are valid layers. The order decides which one wins.
+:::
+:::
+:::
+
+### The annotation: a caption that says what you found {.step}
+
+Every exercise chunk in the notebook starts like this (line 133):
+
+```r
+#| fig-cap: "ANNOTATION HERE"
+
+# Code here
+```
+
+`#| fig-cap:` is a **chunk option**. It's read by Quarto when you **render** the notebook (the Render button), not by R, so it must be the first line of the chunk, and you'll only see the caption in the rendered document. Replace `ANNOTATION HERE` with one sentence about your plot. `**…**` makes text bold, so the solutions write `"**Figure 1:** …"`.
+
+Compare two captions for the same histogram:
+
+| Caption | |
+|---|---|
+| "Figure 1: Histogram of cube test scores." | **Describes** the plot. The reader can see that it's a histogram. |
+| "Figure 1: Most students score between 5 and 7 on the cubes test." | **Says what it shows.** That's the finding. |
+
+::: {.idea}
+**A good caption is the finding, in one sentence.** Test it: cover the plot. Does the caption alone tell someone what you found?
+:::
+
+### Which chart for which question? {.step}
+
+Start from the question you want to answer, then pick the chart. The six exercises cover six common questions:
+
+```{r}
+#| fig-width: 9
+#| fig-height: 4.6
+wrap_plots(thumbs, nrow = 2)
+```
+
+| Question | Chart | ggplot geom | Exercise |
+|---|---|---|---|
+| How is one number spread out? | Histogram | `geom_histogram()` | 2.1 |
+| How many are in each group? | Bar chart | `geom_col()` or `geom_bar()` | 2.2 |
+| Do two numbers move together? | Scatter plot | `geom_point()` or `geom_jitter()` | 2.3 |
+| How does something change over time? | Line plot | `geom_line()` or `geom_area()` | 2.4 |
+| How do groups compare (middle and spread)? | Box plot | `geom_boxplot()` | 2.5 |
+| How do groups compare (the whole shape)? | Density plot | `geom_density()` | 2.6 |
+
+## Part 2: The six design exercises {#exercises}
+
+**About an hour.** For each one: write a theme function, the plot, and a caption. Try first; then open "Show the code".
+
+### 2.1 A histogram of cube scores {.step}
+
+::: {.doit q="2.1 · notebook line 132"}
+Make a histogram of `t02_cubes`, with a theme function, readable axis labels and a caption.
+:::
+
+A **histogram** splits the range of scores into equal slices (**bins**), counts how many children fall in each, and draws one bar per bin. You only give ggplot one column, on the x axis; the counts on the y axis are worked out for you.
+
+Two arguments of `geom_histogram()` that confuse everybody: `colour =` is the **outline** of each bar, `fill =` is the **inside**.
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+theme_histogram <- function() {
+  theme_minimal() +
+    theme(
+      panel.grid.minor = element_blank(),
+      panel.grid.major.x = element_blank()
+    )
+}
+
+hs_data |>
+  ggplot(aes(t02_cubes)) +
+  geom_histogram(
+    bins = 20,
+    colour = "black",
+    fill = "lightgrey",
+    alpha = 0.5
+  ) +
+  theme_histogram() +
+  labs(x = "Cube test scores", y = "Count")
+```
+
+`alpha = 0.5` makes the fill half see-through. The theme removes the vertical grid lines, which a histogram doesn't need. The solutions also add `as_tibble() |>` after `hs_data`; it does no harm, but `hs_data` is already a tibble.
+:::
+
+::: {.expect}
+```{r}
+#| fig-width: 6
+#| fig-height: 3.6
+#| fig-cap: "**Figure 1:** Most students score between 5 and 7 on the cubes test."
+hs_data |>
+  ggplot(aes(t02_cubes)) +
+  geom_histogram(bins = 20, colour = "black", fill = "lightgrey", alpha = 0.5) +
+  theme_histogram() +
+  labs(x = "Cube test scores", y = "Count")
+```
+:::
+
+`r round(100 * cubes_5_7)`% of the children score between 5 and 7, with a peak around 6 and a longer tail to the right. The solutions' caption says the scores are "normally distributed"; "roughly bell-shaped, with a longer right tail" is more accurate, and "most students score between 5 and 7" tells the reader more.
+
+::: {.idea}
+**The number of bins is a design choice.** Too few and the shape disappears; too many and you see noise. ggplot's default is 30, and it prints a message (*`stat_bin()` using `bins = 30`*) to remind you to choose. Try a few values.
+:::
+
+```{r}
+#| fig-width: 9
+#| fig-height: 2.8
+bp <- function(b) ggplot(hs_data, aes(t02_cubes)) + geom_histogram(bins = b, fill = "#BDBDBD", colour = "white") +
+  theme_guide() + theme(panel.grid.major.x = element_blank(), plot.title = element_text(face = "bold")) +
+  labs(x = "Cube test score", y = NULL, title = paste(b, "bins"))
+bp(5) + bp(20) + bp(60)
+```
+
+With 5 bins, everything sits in a few blocks. With 60, there are gaps, because the cube scores only take `r n_cubes` different values (quarter points). 20 shows the shape.
+
+### 2.2 A bar chart of students per school {.step}
+
+::: {.doit q="2.2 · notebook line 147"}
+Count the students in each `school`, and plot the counts as a bar chart.
+:::
+
+This is two jobs: **summarise** with `count()` (Lab 1), then **plot the summary**. The plot gets a two-row table, not the `r n_hs` children:
+
+::: {.expect data-label="What count(school) gives"}
+```{r}
+hs_data |> count(school)
+```
+:::
+
+`geom_col()` draws one bar per row, as long as the number you give it. Put `n` on the x axis and `school` on the y axis, and the bars lie on their side, so the names are easy to read.
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+theme_bar <- function() {
+  theme_minimal() +
+    theme(
+      panel.grid.minor = element_blank(),
+      panel.grid.major.y = element_blank()
+    )
+}
+
+hs_data |>
+  count(school) |>
+  ggplot(aes(n, school)) +
+  geom_col() +
+  theme_bar() +
+  labs(x = "Number of students", y = "School")
+```
+:::
+
+::: {.expect}
+```{r}
+#| fig-width: 6
+#| fig-height: 2.6
+#| fig-cap: "**Figure 2:** There are slightly more students from Pasteur than from Grant-White."
+hs_data |>
+  count(school) |>
+  ggplot(aes(n, school)) +
+  geom_col() +
+  theme_bar() +
+  labs(x = "Number of students", y = "School")
+```
+:::
+
+::: {.callout-tip collapse="true" title="geom_col() or geom_bar()?"}
+`geom_col()` needs the counts in the data, so you `count()` first. `geom_bar()` counts the rows itself: `hs_data |> ggplot(aes(y = school)) + geom_bar()` draws the same chart without `count()`. Use whichever you find clearer.
+:::
+
+::: {.quiz}
+Why do bar charts (unlike scatter plots) have to start at zero?
+
+::: {.opt}
+Because ggplot can't draw them any other way
+
+::: {.fb}
+ggplot could; it chooses zero on purpose.
+:::
+:::
+
+::: {.opt .right}
+Because the reader compares the lengths of the bars
+
+::: {.fb}
+Yes. If the axis started at 140, Pasteur's bar (156) would look three times as long as Grant-White's (145). The length must stand for the number.
+:::
+:::
+
+::: {.opt}
+It's just a convention with no reason behind it
+
+::: {.fb}
+There's a good reason: readers judge bars by their length.
+:::
+:::
+:::
+
+### 2.3 A scatter plot, coloured by school {.step}
+
+::: {.doit q="2.3 · notebook line 162"}
+Plot `t01_visperc` (x) against `t03_frmbord` (y), with a different colour for each `school`.
+:::
+
+To colour by a column, add `colour = school` **inside** `aes()`. ggplot then picks one colour per school and adds a legend.
+
+::: {.idea}
+**Inside `aes()` or outside?** Anything that should change with the data goes **inside** `aes()`: `aes(colour = school)` means "colour depends on the school". Anything fixed goes **outside**, in the geom: `geom_point(colour = "navy")` means "make every dot navy".
+:::
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+theme_scatter <- function() {
+  theme_minimal() +
+    theme(panel.grid.minor = element_blank(), legend.position = "bottom")
+}
+
+hs_data |>
+  ggplot(aes(t01_visperc, t03_frmbord, colour = school)) +
+  geom_jitter(alpha = 0.5, size = 2) +
+  theme_scatter() +
+  scale_colour_cosmic() +
+  labs(
+    x = "Visual Perception",
+    y = "Form Board",
+    colour = "School"
+  )
+```
+
+- `scale_colour_cosmic()` swaps the default colours for a palette from `ggsci`. Others: `scale_colour_npg()`, `scale_colour_lancet()`, `scale_colour_simpsons()`. Use `scale_colour_…` for points and lines, `scale_fill_…` for bars and areas.
+- `colour = "School"` inside `labs()` sets the legend's title.
+- `legend.position = "bottom"` in the theme moves the legend under the plot.
+:::
+
+::: {.expect}
+```{r}
+#| fig-width: 6
+#| fig-height: 4
+#| fig-cap: "**Figure 3:** In both schools, students who score higher on visual perception tend to score higher on the form board."
+set.seed(1)
+hs_data |>
+  ggplot(aes(t01_visperc, t03_frmbord, colour = school)) +
+  geom_jitter(alpha = 0.5, size = 2) +
+  theme_scatter() +
+  scale_colour_cosmic() +
+  labs(x = "Visual Perception", y = "Form Board", colour = "School")
+```
+:::
+
+The cloud slopes upwards, but it's wide: the **correlation** is `r f2(r_vis)` (1 would be a perfect line, 0 no relationship). "Tend to" is the right strength of claim. The two schools overlap completely, which is a finding too: there's no school difference here.
+
+**Why `geom_jitter()` and not `geom_point()`?** Test scores come in fixed steps, so the `r n_hs` children share only `r n_spots` positions in this plot. With `geom_point()`, children with the same two scores sit exactly on top of each other and you can't see them. This is called **overplotting**.
+
+```{r}
+#| fig-width: 9
+#| fig-height: 3.3
+op <- function(jit) {
+  g <- if (jit) geom_jitter(alpha = 0.5, size = 1.8, colour = navy, position = position_jitter(width = 0.1, height = 0.15, seed = 1))
+       else geom_point(alpha = 0.5, size = 1.8, colour = navy)
+  ggplot(hs_data, aes(t01_visperc, t03_frmbord)) + g + theme_guide() +
+    theme(plot.title = element_text(face = "bold", size = 11)) +
+    labs(x = "Visual perception", y = "Form board", title = if (jit) "geom_jitter(): nudged a little" else "geom_point(): stacked on top of each other")
+}
+op(FALSE) + op(TRUE)
+```
+
+`geom_jitter()` moves each dot a tiny random amount, so stacked dots spread out. `alpha = 0.5` makes the dots half see-through, so where several overlap, the spot looks darker. Jitter is random, so the picture changes slightly every time you run it; put `set.seed(1)` before the plot to fix it.
+
+### 2.4 A line plot of results per year {.step}
+
+::: {.doit q="2.4 · notebook line 177"}
+Count the rows of `nuijten2020` by `year`, then draw a line (or area) plot of the counts.
+:::
+
+Same two jobs as 2.2: `count(year)` makes a table with one row per year and a column `n`; then `geom_line()` joins the points in order of `year`. `nuijten2020` is a plain data frame, so pipe it through `as_tibble()` first, or it prints all `r big(n_es)` rows.
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+theme_line <- function() {
+  theme_minimal() +
+    theme(
+      panel.grid.minor = element_blank(),
+      panel.grid.major.x = element_blank()
+    )
+}
+
+nuijten2020 |>
+  as_tibble() |>
+  count(year) |>
+  ggplot(aes(year, n)) +
+  geom_line(colour = "midnightblue") +
+  theme_line() +
+  labs(x = "Year", y = "Number of Studies in Nuijten (2020)")
+```
+
+`colour = "midnightblue"` is **outside** `aes()`: one fixed colour, so no legend. For an area plot, use `geom_area(fill = "midnightblue", alpha = 0.5)` instead of `geom_line()`.
+:::
+
+::: {.expect}
+```{r}
+#| fig-width: 6
+#| fig-height: 3.6
+#| fig-cap: "**Figure 4:** Most of the results in Nuijten (2020) come from studies published in the 1990s and 2000s."
+nuijten2020 |>
+  as_tibble() |>
+  count(year) |>
+  ggplot(aes(year, n)) +
+  geom_line(colour = "midnightblue") +
+  theme_line() +
+  labs(x = "Year", y = "Number of results in Nuijten (2020)")
+```
+:::
+
+Two things to be careful about:
+
+1. **What does `count()` count?** Rows. One row here is one **result**, not one study: the `r big(n_es)` rows come from `r big(n_studies)` different studies, because some studies report several results. The solutions' y label says "Number of Studies"; "Number of results" is correct. (The plot above uses that label.)
+2. **Why the drop after 2008?** The peak is in `r peak_year` (`r peak_n` results). After that the line falls fast, but not because people stopped studying intelligence. The reviews in this data set were done by about 2014, and recent studies hadn't been included in reviews yet. The drop is about how the data were **collected**, not about the world.
+
+::: {.quiz}
+A friend looks at Figure 4 and says: "Intelligence research collapsed after 2008." What's the best reply?
+
+::: {.opt}
+"Yes, the line clearly falls."
+
+::: {.fb}
+The line falls, but the plot counts results that ended up in reviews, not all research.
+:::
+:::
+
+::: {.opt .right}
+"The data stop where the reviews stopped collecting. Recent studies weren't in them yet."
+
+::: {.fb}
+Yes. Always ask how the data were collected before reading a trend.
+:::
+:::
+
+::: {.opt}
+"The y axis should start at zero."
+
+::: {.fb}
+It does already. The problem is what the data cover, not the axis.
+:::
+:::
+:::
+
+The notebook calls this data set "longitudinal". Strictly it isn't: longitudinal data follow the **same** people or units over time. Here each row is a different study, with the year it came out. A line of counts per year is still fine.
+
+### 2.5 Box plots by grade {.step}
+
+::: {.doit q="2.5 · notebook line 193"}
+Compare the figure recognition scores (`t16_figrrecg`) of grade 7 and grade 8. The task at line 191 says "use a **histogram**"; it means a **box plot**, which is what the section is about.
+:::
+
+A **box plot** squeezes a group into five numbers:
+
+```{r}
+#| fig-width: 6.5
+#| fig-height: 4
+lab <- function(y, text, col = dark) annotate("text", x = 1.4, y = y, hjust = 0, label = text, colour = col, fontface = "bold", size = 3.6)
+ggplot(g8, aes(x = 1, y = t16_figrrecg)) +
+  geom_boxplot(width = 0.5, fill = pink, alpha = 0.6, colour = dark, outlier.shape = NA) +
+  geom_jitter(alpha = 0.25, colour = grey, size = 1.5, position = position_jitter(width = 0.12, height = 0, seed = 2)) +
+  lab(q8[[2]], paste0("median ", sprintf("%.2f", q8[[2]]), ": half above, half below")) +
+  lab(q8[[3]] + 0.15, "75% of students below this line") +
+  lab(q8[[1]] - 0.15, "25% below this line") +
+  lab(hi8, "whisker: the furthest point within 1.5 boxes", grey) +
+  lab(3.4, "outliers: further out, drawn one by one", grey) +
+  coord_cartesian(xlim = c(0.6, 2.8), ylim = c(2.5, 9.3)) +
+  theme_guide() + theme(axis.text.x = element_blank(), panel.grid.major.x = element_blank()) +
+  labs(x = paste0("Grade 8 (", nrow(g8), " students, one grey dot each)"), y = "Figure recognition score")
+```
+
+- The **box** holds the middle half of the children; the line inside is the **median**.
+- The **whiskers** reach out to the furthest child who is still within 1.5 box-heights of the box.
+- Anyone further out is an **outlier**, drawn as a single dot: worth a second look.
+
+Because each group becomes one small box, several groups fit side by side. What a box plot hides is the **shape**: two peaks look the same as one. That's what 2.6 is for.
+
+**One trap.** `grade` is stored as a number (7 or 8). Given a number on the x axis, ggplot draws **one** box for everybody and warns *Continuous x aesthetic -- did you forget aes(group = ...)?* Wrap it in `as.factor()` to turn 7 and 8 into two groups:
+
+```{r}
+#| fig-width: 8
+#| fig-height: 2.8
+(hs_data |> ggplot(aes(grade, t16_figrrecg)) + geom_boxplot() + theme_guide() + labs(title = "aes(grade, …)")) +
+  (hs_data |> ggplot(aes(as.factor(grade), t16_figrrecg)) + geom_boxplot() + theme_guide() + labs(title = "aes(as.factor(grade), …)"))
+```
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+theme_boxplot <- function() {
+  theme_minimal() +
+    theme(panel.grid = element_blank(), legend.position = "none")
+}
+
+hs_data |>
+  ggplot(aes(as.factor(grade), t16_figrrecg)) +
+  geom_boxplot(alpha = 0.75) +
+  theme_boxplot() +
+  scale_fill_bmj() +
+  labs(x = "Grade", y = "Figure Recognition Scores")
+```
+
+Two lines of the solution do nothing: `scale_fill_bmj()` changes the fill colours, but nothing is mapped to `fill`; and `alpha = 0.75` has no fill to fade. To use the BMJ colours, add `fill = as.factor(grade)` inside `aes()`. Then `legend.position = "none"` makes sense too: the x axis already names the groups.
+:::
+
+::: {.expect}
+```{r}
+#| fig-width: 6
+#| fig-height: 3.6
+#| fig-cap: "**Figure 5:** Figure recognition scores are slightly higher in grade 8 than in grade 7."
+hs_data |>
+  ggplot(aes(as.factor(grade), t16_figrrecg, fill = as.factor(grade))) +
+  geom_boxplot(alpha = 0.75) +
+  theme_boxplot() +
+  scale_fill_bmj() +
+  labs(x = "Grade", y = "Figure Recognition Scores")
+```
+:::
+
+The plot above adds `fill = as.factor(grade)`, so the BMJ colours show. The medians are `r f2(med_g[["7"]])` (grade 7) and `r f2(med_g[["8"]])` (grade 8): a small difference, and the boxes overlap a lot. One grade 7 child scored below 1, far from everyone else: an outlier.
+
+### 2.6 Density plots by gender {.step}
+
+::: {.doit q="2.6 · notebook line 208"}
+Show the distribution of `t23_series` (series completion) for boys and girls, as density plots.
+:::
+
+A **density plot** is a smoothed histogram: a curve instead of bars. With one curve per group, you can compare the whole **shape** of the groups. Two steps:
+
+1. **Make a column with words.** `female` is 1 for male and 2 for female. `if_else()` turns that into labels: *test*, *value if TRUE*, *value if FALSE*.
+2. **`fill = gender` inside `aes()`**, so each group gets its own colour; `alpha` makes the curves see-through so you can see both where they overlap.
+
+::: {.anatomy}
+`mutate(gender =` [`if_else(`]{.tok}[`female == 2`]{.tok}`,` [`"Female"`]{.tok}`,` [`"Male"`]{.tok}`))`
+
+1. **Choose between two values**, row by row.
+2. **The test.** `==` compares (Lab 1): is `female` equal to 2?
+3. **The value where the test is TRUE.**
+4. **The value where it's FALSE.**
+:::
+
+::: {.expect data-label="What the new column looks like"}
+```{r}
+hs_data |>
+  mutate(gender = if_else(female == 2, "Female", "Male")) |>
+  select(female, gender, t23_series) |>
+  head(5)
+```
+:::
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+theme_density <- function() {
+  theme_minimal() +
+    theme(panel.grid = element_blank(), legend.position = "bottom")
+}
+
+hs_data |>
+  mutate(gender = if_else(female == 2, "Female", "Male")) |>
+  ggplot(aes(t23_series, fill = gender)) +
+  geom_density(alpha = 0.325) +
+  theme_density() +
+  scale_fill_lancet() +
+  labs(x = "Series Completion Scores", y = "Density", fill = NULL)
+```
+
+`fill = NULL` inside `labs()` removes the legend's title: "Female" and "Male" speak for themselves.
+:::
+
+::: {.expect}
+```{r}
+#| fig-width: 6
+#| fig-height: 3.6
+#| fig-cap: "**Figure 6:** Boys and girls have almost the same series completion scores."
+hs_data |>
+  mutate(gender = if_else(female == 2, "Female", "Male")) |>
+  ggplot(aes(t23_series, fill = gender)) +
+  geom_density(alpha = 0.325) +
+  theme_density() +
+  scale_fill_lancet() +
+  labs(x = "Series Completion Scores", y = "Density", fill = NULL)
+```
+:::
+
+The two curves lie almost on top of each other (average scores `r f2(mean_s[["1"]])` for boys and `r f2(mean_s[["2"]])` for girls). The solutions' caption says "There are **no** differences". A plot can't show *no* difference, only a small one; "almost the same" is what we can honestly say.
+
+::: {.callout-tip collapse="true" title="What is 'density' on the y axis?"}
+Not a count of children. Each curve is scaled so that the area under it is 1. That makes groups of different sizes comparable: you compare **shapes**, not heights in children.
+:::
+
+::: {.quiz}
+You write `ggplot(aes(t23_series, fill = "gender"))`, with quotation marks. What happens?
+
+::: {.opt}
+One curve per gender, as before
+
+::: {.fb}
+No: with quotes, `"gender"` is just a piece of text, the same for every row.
+:::
+:::
+
+::: {.opt .right}
+One curve for everybody, and a legend with a single entry "gender"
+
+::: {.fb}
+Yes. Inside `aes()`, a column name goes without quotes. With quotes, every row gets the same value, the text "gender".
+:::
+:::
+
+::: {.opt}
+An error
+
+::: {.fb}
+R doesn't complain; it just doesn't do what you meant. That's what makes this mistake hard to spot.
+:::
+:::
+:::
+
+## Part 3: Design principles {#design}
+
+**About 15 minutes.** The notebook ends with five principles (lines 215–229). Here they are with today's examples.
+
+### Five principles for any chart {.step}
+
+| Principle | What it means | Today's example |
+|---|---|---|
+| **Accessibility** | Works for colour-blind readers and in black and white. Use shape or position as well as colour. | Below |
+| **Clarity** | Every element earns its place. Remove what you don't need. | Removing grid lines in every theme function; jitter and `alpha` against overplotting |
+| **Context** | Enough to understand the plot on its own: labels in words, units, a caption, the source. | `labs()` and the captions |
+| **Consistency** | Same scales, colours and style across related plots. | Theme functions you reuse |
+| **Focus** | Point the reader to the finding: colour or size for what matters, grey for the rest. | The makeover below |
+
+The goal is understanding, not showing off: clarity over complexity.
+
+### Colour for everyone {.step}
+
+About **1 in 12 men** and 1 in 200 women have a red–green colour vision deficiency. Here's the scatter plot from 2.3 in red and green, the same plot as someone with that deficiency might see it (a simulation, made with `colorspace::deutan()`), and a fix:
+
+```{r}
+#| fig-width: 9
+#| fig-height: 3.4
+rg <- c(red, green)
+cb_plot(rg, title = "Red and green") +
+  cb_plot(colorspace::deutan(rg), title = "Simulated colour blindness") +
+  cb_plot(okabe, shapes = TRUE, title = "Okabe–Ito + shapes")
+```
+
+In the middle plot the two schools become one. Two fixes, best used together:
+
+1. **A colour-blind safe palette.** `scale_colour_viridis_d()` is built into ggplot. The Okabe–Ito colours (orange `"#E69F00"` and blue `"#0072B2"` above) can be set with `scale_colour_manual(values = c("#E69F00", "#0072B2"))`.
+2. **A second cue that isn't colour.** Add `shape = school` inside `aes()`: circles for one school, triangles for the other. It also survives printing in black and white.
+
+### A makeover {.step}
+
+Same data, same chart type. What changed?
+
+```{r}
+#| fig-width: 9
+#| fig-height: 3.4
+before <- hs_data |> ggplot(aes(as.factor(grade), t16_figrrecg)) + geom_boxplot() + theme_grey()
+after <- hs_data |>
+  ggplot(aes(as.factor(grade), t16_figrrecg)) +
+  geom_boxplot(fill = c("#D9D9D9", pink), colour = c(grey, dark), width = 0.5) +
+  theme_guide() + theme(panel.grid = element_blank(), plot.title = element_text(face = "bold", size = 11), plot.title.position = "plot") +
+  labs(x = "Grade", y = "Figure recognition score", title = "Grade 8 scores a little higher than grade 7")
+before + after
+```
+
+- **Context:** axis labels in words instead of `as.factor(grade)` and `t16_figrrecg`; the finding as the title.
+- **Clarity:** the grey background and grid lines are gone.
+- **Focus:** the group the title talks about is in colour; the other is grey.
+
+::: {.doit q="Check your own plots"}
+Pick your favourite of today's six plots. Cover it and read only the caption: does it say what you found? Then check it against the five principles and change **one** thing.
+:::
+
+## Wrap-up {#wrapup}
+
+### What you learned {.step}
+
+:::: {.legend}
+::: {.l-idea}
+**The grammar of graphics**
+Every ggplot is data + aesthetics (`aes()`) + a geom, joined with `+`. What changes with the data goes inside `aes()`; fixed settings go outside.
+:::
+::: {.l-idea}
+**Pick the chart from the question**
+Spread: histogram. Counts: bar chart. Two numbers: scatter plot. Time: line plot. Groups: box or density plot.
+:::
+::: {.l-idea}
+**Look before you claim**
+Ask what one row is; choose bins, jitter and `as.factor()` on purpose; ask how the data were collected before reading a trend.
+:::
+::: {.l-idea}
+**Design for the reader**
+A theme function for a consistent look, labels in words, a caption that says the finding, and colours everyone can tell apart.
+:::
+::::
+
+**One question to take away:** pick your best plot from today. What would a reader learn from its caption alone?
+
+**Further reading**
+
+- [*R for Data Science (2e)*](https://r4ds.hadley.nz), free online: chapters 1 (data visualisation), 9 (layers) and 11 (communication).
+- Claus Wilke, [*Fundamentals of Data Visualization*](https://clauswilke.com/dataviz/), free online: choosing charts, colour and good design.
+- Posit's [ggplot2 cheat sheet](https://rstudio.github.io/cheatsheets/data-visualization.pdf): every geom on two pages. Also under *Help → Cheat Sheets* in RStudio.
+
+### Glossary {#glossary}
+
+Underlined words on this page are explained in this list. Click or tap one anywhere on the page to see what it means and where it was first explained.
+
+::: {.glossary}
+
+| Word | Meaning |
+|---|---|
+| **aesthetics** []{match="aesthetics?;aes\\(\\)"} | The link between a column and something you see: x position, y position, colour, fill, shape. Set inside `aes()` |
+| **alpha** | How see-through something is: 0 is invisible, 1 is solid |
+| **bins** []{match="bins?"} | The equal slices a histogram splits the scores into. Each bar counts the rows in one bin |
+| **box plot** []{match="box plots?"} | A chart that shows a group as a box (the middle half), a median line, whiskers and outliers |
+| **chunk option** []{match="chunk options?"} | A line starting with `#\|` at the top of a chunk, read by Quarto when rendering. `fig-cap` sets the caption |
+| **correlation** | A number from −1 to 1 for how closely two numbers move together. 0 means no straight-line relationship |
+| **density plot** []{match="density plots?"} | A smoothed histogram: a curve whose area is 1, useful for comparing the shape of groups |
+| **geom** []{match="geoms?"} | The shape ggplot draws for each row: points, bars, lines, boxes |
+| **grammar of graphics** | The idea behind ggplot: a plot is data + aesthetics + geoms, built up in layers |
+| **histogram** []{match="histograms?"} | A chart of how one number is spread out: bars that count the rows in each bin |
+| **jitter** []{match="jitter\\w*"} | Moving each point a tiny random amount, so points on top of each other become visible |
+| **median** | The middle value: half the group is above it, half below |
+| **outlier** []{match="outliers?"} | A value far from the rest. In a box plot, any point beyond the whiskers |
+| **overplotting** | Points hiding on top of each other in a scatter plot |
+| **theme** []{match="themes?"} | Everything about a plot's look that isn't data: background, grid lines, fonts, legend position |
+:::
