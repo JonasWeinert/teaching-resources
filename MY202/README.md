@@ -76,6 +76,8 @@ A multiple-choice check is a `.mcq` div with one `.opt` per answer (the right on
 
 A confusion matrix (from Lab 4) is a `.cmat` div: a header row of three `.h` cells (the first `.h.blank`), then per row a `.h` label and two cells, `.ok` for correct predictions and `.bad` for errors, each holding `<b>name</b>`, an optional `<span>count</span>` and `<small>meaning</small>`.
 
+Cross-validation folds (from Lab 5) are a `.folds` div with `--n` set to the number of blocks per row: a `.row.head` of labels, then one `.row` per round holding a `.lab` span, one `<i>` per block (`.hold` for the held-out block, `.off` for a block not used in that round) and a `.sc` span for the score. Give rows `class="fragment"` to add them click by click.
+
 A step-by-step calculation is a `.calc` div of rows, each `<div><span class="cl">label</span><span class="cx">expression</span></div>`; give later rows `class="fragment"` (with `data-fragment-index` to sync them with other fragments) so each click adds one line, and `.hl` to the line that matters. Add `.sm` for a smaller version inside a column or card.
 
 A visual that builds up click by click is a `::: {.r-stack}` holding one R chunk per step, each chunk after the first wrapped in `::: {.fragment fragment-index=n}`. Every version must have the same figure size and axis limits, so the deck's `*_step(k)` helpers draw the same plot up to step *k*. Give the explanation beside it the same fragment indices, and the picture and the words advance together.
