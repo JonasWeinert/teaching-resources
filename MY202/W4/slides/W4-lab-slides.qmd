@@ -589,7 +589,7 @@ Pairs, 30 seconds: sort the three examples. Then click through the three groups.
 
 ::: {.anatomy}
 ```{=html}
-<p class="anat-code" style="font-size:0.6em"><span class="tok">continuous_vars &lt;- c("age", "bmi")</span>
+<p class="anat-code" style="font-size:0.5em"><span class="tok">continuous_vars &lt;- c("age", "bmi")</span>
 discrete_vars &lt;- c("gen_hlth", "education", "income")
 categorical_vars &lt;- c("diabetes", "high_bp", "high_chol", …, "sex")
 
@@ -597,17 +597,16 @@ diabetes_data &lt;- diabetes_data |&gt; mutate(
   <span class="tok">across(</span><span class="tok">all_of(continuous_vars)</span>, <span class="tok">~ as.numeric(.x)</span>),
   across(all_of(discrete_vars), ~ <span class="tok">as.integer(.x)</span>),
   across(all_of(categorical_vars), ~ <span class="tok">as.factor(.x)</span>))
-
 <span class="tok">map_chr(diabetes_data, class)</span></p>
 ```
 
-1. **Three vectors of column names**, one per type: the answer to Step 2, written as code.
-2. **Do the same thing to many columns**: one line instead of one `mutate()` per column.
+1. **Three vectors of column names**, one per type: Step 2's answer as code.
+2. **Do the same to many columns**, in one line.
 3. **Which columns**: every name in the vector.
-4. **What to do to each.** `~` makes a mini-function; `.x` stands for "the current column".
+4. **What to do to each.** `~` makes a mini-function, `.x` the current column.
 5. **Ordered levels** become whole numbers.
 6. **Categories** become factors, including the outcome.
-7. **Step 4, check**: `map_chr()` runs `class()` on every column and returns one word each.
+7. **Step 4, check**: one `class()` per column.
 :::
 
 ::: {.notes}
@@ -663,7 +662,6 @@ diabetes_data |>
 
 - `diabetes == "1"` is TRUE/FALSE; `mean()` of TRUE/FALSE is the share of TRUEs
 - *argument is not numeric*: `diabetes` is a factor now; compare it with `"1"`, don't average it
-- Empty plot? Every ggplot line except the last needs a `+`
 :::
 :::
 
@@ -762,12 +760,12 @@ From a line to an S-curve · probabilities · thresholds · odds
 
 :::: {.columns style="align-items:start"}
 
-::: {.column width="60%"}
+::: {.column width="56%"}
 ::: {.r-stack}
 ```{r}
 #| echo: false
 #| fig-width: 6
-#| fig-height: 3.8
+#| fig-height: 3.4
 lin_step(1)
 ```
 
@@ -775,7 +773,7 @@ lin_step(1)
 ```{r}
 #| echo: false
 #| fig-width: 6
-#| fig-height: 3.8
+#| fig-height: 3.4
 lin_step(2)
 ```
 :::
@@ -784,7 +782,7 @@ lin_step(2)
 ```{r}
 #| echo: false
 #| fig-width: 6
-#| fig-height: 3.8
+#| fig-height: 3.4
 lin_step(3)
 ```
 :::
@@ -793,15 +791,15 @@ lin_step(3)
 ```{r}
 #| echo: false
 #| fig-width: 6
-#| fig-height: 3.8
+#| fig-height: 3.4
 lin_step(4)
 ```
 :::
 :::
 :::
 
-::: {.column width="40%"}
-A made-up chess club: how many games each player had played, and whether they **won** (1) or **lost** (0) their next one.
+::: {.column width="44%"}
+A made-up chess club: games played so far, and whether the next one was **won** (1) or **lost** (0).
 
 ::: {.fragment fragment-index=0}
 ::: {.ask}
@@ -955,7 +953,7 @@ Who says it should be 0.5? When the 1s are rare, as with diabetes, it often shou
 ```{r}
 #| echo: false
 #| fig-width: 10.5
-#| fig-height: 3.5
+#| fig-height: 3
 dial_step(1)
 ```
 
@@ -963,7 +961,7 @@ dial_step(1)
 ```{r}
 #| echo: false
 #| fig-width: 10.5
-#| fig-height: 3.5
+#| fig-height: 3
 dial_step(2)
 ```
 :::
@@ -972,7 +970,7 @@ dial_step(2)
 ```{r}
 #| echo: false
 #| fig-width: 10.5
-#| fig-height: 3.5
+#| fig-height: 3
 dial_step(3)
 ```
 :::
@@ -981,7 +979,7 @@ dial_step(3)
 ```{r}
 #| echo: false
 #| fig-width: 10.5
-#| fig-height: 3.5
+#| fig-height: 3
 dial_step(4)
 ```
 :::
@@ -990,7 +988,7 @@ dial_step(4)
 ```{r}
 #| echo: false
 #| fig-width: 10.5
-#| fig-height: 3.5
+#| fig-height: 3
 dial_step(5)
 ```
 :::
@@ -1012,7 +1010,7 @@ Rising: more of the feature, more risk. Falling: more of the feature, less risk.
 ::: {.fragment fragment-index=3}
 ::: {.card .compact .dark}
 [Where it starts]{.ct}
-The baseline risk before the feature does anything. These dials are the coefficients that `summary()` prints, on the **log-odds** scale. You never compute that by hand: `exp()` turns each into an **odds ratio**.
+The baseline risk before the feature does anything. These dials are the coefficients `summary()` prints, on the **log-odds** scale; `exp()` turns each into an **odds ratio**.
 :::
 :::
 :::
@@ -1034,16 +1032,16 @@ Timing: 2 minutes. No formulas: the S-curve has two dials, and fitting the model
 
 :::: {.columns style="align-items:start"}
 
-::: {.column width="56%"}
+::: {.column width="54%"}
 ```{r}
 #| echo: false
 #| fig-width: 5.6
-#| fig-height: 4.3
+#| fig-height: 3.9
 or_plot()
 ```
 :::
 
-::: {.column width="44%"}
+::: {.column width="46%"}
 ::: {.card .compact}
 [Odds ratio (OR) = exp(estimate)]{.ct}
 **Odds**: a 1-in-10 chance is odds of 1 to 9. The **OR** says how much a feature multiplies the odds. High blood pressure: OR = `r f2(or("high_bp1"))`.
@@ -1052,7 +1050,7 @@ or_plot()
 ::: {.fragment}
 ::: {.card .compact .line}
 [Read it like this]{.ct}
-OR > 1: higher odds. OR < 1: lower odds. OR = 1: no difference. BMI, OR `r f2(or("bmi"))`: about `r round(100 * (or("bmi") - 1))`% higher odds per point. Heavy drinker, OR `r f2(or("hvy_alcohol_consump1"))`: about `r round(100 * (1 - or("hvy_alcohol_consump1")))`% lower odds. Shown: the `r nrow(or_df) - n_unclear` features with p < 0.05.
+OR > 1: higher odds. OR < 1: lower odds. OR = 1: no difference. BMI, OR `r f2(or("bmi"))`: about `r round(100 * (or("bmi") - 1))`% higher odds per point. Heavy drinker, OR `r f2(or("hvy_alcohol_consump1"))`: about `r round(100 * (1 - or("hvy_alcohol_consump1")))`% lower odds.
 :::
 :::
 
@@ -1072,7 +1070,7 @@ Timing: 3 minutes. This is the one plot students need to read their model.
 - Each dot is one coefficient from today's model, turned into an odds ratio with exp(). The two examples on the card are the notebook's own (completed notebook lines 406–407), so students will recognise them in the solutions. Read the top few: general health, high blood pressure, cholesterol check, high cholesterol. Then the one below 1 that stands out: heavy drinking. It comes back in the discussion after the exercise (reverse causation).
 - "Odds" in plain words: a 10% chance is odds of 1 to 9; doubling the odds gives 2 to 9, about 18%. For small risks, "× 2 the odds" is close to "× 2 the risk". For big risks it's less; don't go into it unless asked.
 - Per-unit features (BMI, age, general health) are per one step: BMI × 1.06 per point looks small, but 10 points is about × 1.8.
-- Not shown: the features with p-values above 0.05; the data can't tell them apart from "no difference".
+- Shown: the 11 features with p < 0.05. Not shown: the rest; the data can't tell them apart from "no difference".
 :::
 
 ## Exercises: Part II {.yourturn}
@@ -1464,13 +1462,13 @@ The model decides who gets invited for a free diabetes blood test. Which is wors
 
 ::: {.cards .c2}
 ::: {.fragment}
-::: {.card}
+::: {.card .compact}
 [Screening: miss nobody]{.ct}
 A **false negative** is a person with diabetes who is never tested. A **false positive** costs one blood test. We want high **recall**, and accept lower precision.
 :::
 :::
 ::: {.fragment}
-::: {.card .line}
+::: {.card .compact .line}
 [Treatment: be sure]{.ct}
 If a flag meant starting medication straight away, a **false positive** treats a healthy person. Then **precision** matters more.
 :::
@@ -1478,7 +1476,7 @@ If a flag meant starting medication straight away, a **false positive** treats a
 :::
 
 ::: {.fragment}
-::: {.punch}
+::: {.punch style="margin-top:0.6em"}
 "Good" depends on what the predictions are used for. The threshold is how we choose.
 :::
 :::
@@ -1571,11 +1569,9 @@ Hardly anyone gets a probability that high: recall close to 0.
 
 ::: {.anatomy}
 ```{=html}
-<p class="anat-code" style="font-size:0.55em">alpha_list &lt;- c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7)
-
+<p class="anat-code" style="font-size:0.5em">alpha_list &lt;- c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7)
 class_metrics &lt;- <span class="tok">metric_set(precision, recall, f_meas)</span>
 class_metrics &lt;- <span class="tok">partial(class_metrics, event_level = "second")</span>
-
 ev_metrics &lt;- <span class="tok">map_dfr(</span>
   alpha_list,
   <span class="tok">~ augment(model, new_data = train)</span> |&gt;
