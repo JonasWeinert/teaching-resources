@@ -723,7 +723,7 @@ hs_data |>
 
 - *`stat_bin()` using `bins = 30`*: a message, not an error. Set `bins =` yourself
 - *Can't find the plot*: every line except the last needs a `+`
-- `geom_bar()` counts for you: `ggplot(aes(y = school)) + geom_bar()` skips `count()`
+- `geom_bar()` counts for you, so you can skip `count()`
 :::
 :::
 

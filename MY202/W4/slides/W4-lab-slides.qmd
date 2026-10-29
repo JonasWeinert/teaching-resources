@@ -589,7 +589,7 @@ Pairs, 30 seconds: sort the three examples. Then click through the three groups.
 
 ::: {.anatomy}
 ```{=html}
-<p class="anat-code" style="font-size:0.5em"><span class="tok">continuous_vars &lt;- c("age", "bmi")</span>
+<p class="anat-code" style="font-size:0.46em"><span class="tok">continuous_vars &lt;- c("age", "bmi")</span>
 discrete_vars &lt;- c("gen_hlth", "education", "income")
 categorical_vars &lt;- c("diabetes", "high_bp", "high_chol", …, "sex")
 
@@ -1044,20 +1044,20 @@ or_plot()
 ::: {.column width="46%"}
 ::: {.card .compact}
 [Odds ratio (OR) = exp(estimate)]{.ct}
-**Odds**: a 1-in-10 chance is odds of 1 to 9. The **OR** says how much a feature multiplies the odds. High blood pressure: OR = `r f2(or("high_bp1"))`.
+**Odds**: a 1-in-10 chance is odds of 1 to 9. The **OR** multiplies the odds. High blood pressure: `r f2(or("high_bp1"))`.
 :::
 
 ::: {.fragment}
 ::: {.card .compact .line}
 [Read it like this]{.ct}
-OR > 1: higher odds. OR < 1: lower odds. OR = 1: no difference. BMI, OR `r f2(or("bmi"))`: about `r round(100 * (or("bmi") - 1))`% higher odds per point. Heavy drinker, OR `r f2(or("hvy_alcohol_consump1"))`: about `r round(100 * (1 - or("hvy_alcohol_consump1")))`% lower odds.
+Above 1: higher odds; below 1: lower; 1: no difference. BMI `r f2(or("bmi"))`: `r round(100 * (or("bmi") - 1))`% higher odds per point. Heavy drinker `r f2(or("hvy_alcohol_consump1"))`: `r round(100 * (1 - or("hvy_alcohol_consump1")))`% lower.
 :::
 :::
 
 ::: {.fragment}
 ::: {.card .compact .dark}
 [What OR `r f2(or("high_bp1"))` means for a person]{.ct}
-Someone with a 10% chance ("1 in 10") would be at about `r round(100 * p_after(0.1, co("high_bp1")))`% with high blood pressure, everything else the same. Roughly double, when the risk is small.
+A 10% chance becomes about `r round(100 * p_after(0.1, co("high_bp1")))`% with high blood pressure, all else equal: roughly double, when the risk is small.
 :::
 :::
 :::
