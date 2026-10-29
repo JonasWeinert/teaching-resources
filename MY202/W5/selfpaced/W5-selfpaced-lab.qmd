@@ -1,0 +1,1073 @@
+---
+title: "Neighbours and trees: tuning models with cross-validation"
+subtitle: "MY202 · Lab 5 · Self-paced guide"
+author: "Jonas Weinert"
+date: today
+date-format: "D MMMM YYYY"
+format: lse-html
+
+execute:
+  echo: false
+  message: false
+  warning: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+# The outputs on this page are real: they come from running the lab code on the lab data.
+knitr::opts_knit$set(root.dir = "../notebooksanddata")
+```
+
+```{r}
+#| label: shared
+#| include: false
+# The guide uses exactly the same data, cached results and examples (the flats, the Swiftie table) as the
+# Lab 5 slides: it runs the slides' setup, data and visuals chunks, so the two can never disagree.
+deck <- readLines("../slides/W5-lab-slides.qmd")
+chunk_code <- function(label) {
+  start <- which(deck == paste0("#| label: ", label))
+  ends <- which(deck == "```")
+  deck[(start + 1):(min(ends[ends > start]) - 1)]
+}
+code <- unlist(lapply(c("setup", "data", "visuals"), chunk_code))
+code <- code[!grepl("^#\\|", code) & !grepl("opts_knit", code)]
+eval(parse(text = code), envir = globalenv())
+options(width = 72, tibble.print_min = 12, tibble.print_max = 20)
+
+theme_guide <- function() {
+  theme_minimal() +
+    theme(panel.grid.minor = element_blank(), legend.position = "bottom")
+}
+# the five rounds of 5-fold cross-validation, as a picture
+folds_plot <- function() {
+  d <- expand_grid(round = 1:5, fold = 1:5) |>
+    mutate(held = round == fold, role = if_else(held, "held out: scored", "used to fit"))
+  ggplot(d, aes(fold, fct_rev(factor(paste("Round", round))), fill = role)) +
+    geom_tile(colour = "white", linewidth = 2) +
+    geom_text(aes(label = if_else(held, "mock", "fit"), colour = held), fontface = "bold", show.legend = FALSE) +
+    scale_fill_manual(values = c(`held out: scored` = dark, `used to fit` = "#F6D5D9"), name = NULL) +
+    scale_colour_manual(values = c(`TRUE` = "white", `FALSE` = grey)) +
+    scale_x_continuous(breaks = 1:5, labels = paste("fold", 1:5), position = "top") +
+    theme_minimal(base_size = 13) +
+    theme(panel.grid = element_blank(), legend.position = "bottom") +
+    labs(x = NULL, y = NULL)
+}
+```
+
+## Before you start
+
+This page walks you through Lab 5 one small step at a time. It assumes you have done Labs 1 to 4: you know notebooks, chunks, the pipe `|>`, `ggplot`, and Lab 4's `initial_split()`, `fit()`, `augment()` and F1. Everything new is explained the first time it appears, and there is a [glossary](#glossary) at the end.
+
+**What's new this week.** Two new kinds of model, and one new method:
+
+- **k nearest neighbours** predicts from the most similar rows in the training data.
+- **Decision trees**, and two ways of combining many trees: **random forests** and **boosting**.
+- **Cross-validation** lets you choose a model's settings fairly, without touching the test set.
+
+The page follows the lab in the same rhythm every time: first **the idea**, with an everyday example you can work out in your head; then **the code**, piece by piece; then **your turn** in the notebook.
+
+:::: {.legend}
+::: {.l-do}
+**Your turn**
+Something to do in the notebook. The box says which notebook lines to go to.
+:::
+::: {.l-see}
+**What you should see**
+The real result R gives back. Compare it with yours.
+:::
+::: {.l-idea}
+**Big idea**
+A concept worth remembering beyond today.
+:::
+::: {.l-quiz}
+**Check yourself**
+A quick question. Click an answer to see if you were right.
+:::
+::::
+
+At the end of each step there is a **Mark as done** button. Your ticks are saved in this browser, so you can close the page and pick up where you left off.
+
+The student notebook (`my202-05-lab-students.qmd`) gives some chunks ready to run, sketches some with gaps in `[square brackets]`, and leaves others empty (`# Code here`). Where you have to write code, **try it first**; the code is in a "Show the code" box underneath if you get stuck. All line numbers on this page refer to the student notebook.
+
+::: {.callout-note title="Plan for about 3 hours"}
+Part I (k nearest neighbours and cross-validation) takes about 1½ hours; one step runs for a few minutes on its own, so put the kettle on. Part II (trees, forests, boosting) takes about 1½ hours.
+:::
+
+### Open the notebook and run the library chunk {.step}
+
+::: {.doit q="Setup · notebook lines 27–36"}
+1. Open the Lab 5 **student notebook** on Nuvolos. The packages and the data are already installed there.
+2. Run the chunk at **lines 27–36**. It loads eight packages.
+:::
+
+| Package | What it gives you |
+|---|---|
+| `tidymodels` | The modelling family from Labs 3 and 4. New today: `vfold_cv()`, `tune()`, `recipe()`, `workflow()`, `tune_grid()`, and the model functions `nearest_neighbor()`, `decision_tree()`, `rand_forest()`, `boost_tree()`. |
+| `tidyverse`, `ggsci`, `viridis` | Wrangling, plots and colour scales, as before. |
+| `doParallel` | Lets R use all your computer's cores at once, so the slow step runs faster. |
+| `rpart.plot` | Draws a decision tree as a flow chart. |
+| `ranger`, `xgboost` | The packages that grow random forests and boosted trees. |
+
+::: {.callout-tip collapse="true" title="What about kknn?"}
+The k nearest neighbours model needs a package called `kknn`. It isn't in the library chunk, but tidymodels loads it by itself when the model is fitted. On Nuvolos it is installed; on your own computer, run `install.packages("kknn")` once.
+:::
+
+## Part I: k nearest neighbours {#part1}
+
+**About 1½ hours.** Predict whether someone has PTSD from two survey answers, and learn how to choose a model's settings fairly.
+
+### Meet the data {.step}
+
+::: {.doit q="Part I · notebook lines 44–70"}
+Run the chunk. It reads the data and draws a plot.
+:::
+
+The data come from an online health questionnaire in Mexico: **`r big(n_ptsd)` people**. For each person:
+
+| Column | What it is |
+|---|---|
+| `anxiety` | Answer to an anxiety question, 0–10 |
+| `acute_stress` | Answer to an acute-stress question, 0–10 |
+| `ptsd` | The **outcome**: 1 = has PTSD, 0 = doesn't. The chunk makes it a factor, as Lab 4 taught: a classifier needs its outcome to be a factor. |
+
+**`r round(100 * prev_ptsd)`%** have PTSD. Two features is very few, but it means we can draw the whole data set as a picture. That picture is called the **feature space**: one axis per feature.
+
+::: {.expect}
+```{r}
+#| fig-width: 6
+#| fig-height: 5
+space_plot()
+```
+:::
+
+Both questions only take whole numbers from 0 to 10, so there are only **`r n_cells` possible combinations**. The chunk groups people by their combination (`group_by()`), and computes the share with PTSD in each (`summarise()`). Each dot is one combination, which we'll call a **cell**: about `r round(mean(ptsd_cells$n))` people on average.
+
+Bottom-left, almost nobody has PTSD; top-right, most people do. In between it's gradual. Where would you draw the line between "yes" and "no"? Every model in this lab is a different way of drawing that line.
+
+### The idea: how does an estate agent price a flat? {.step}
+
+Forget PTSD for a moment. A flat comes on the market: **55 m², six minutes' walk from the Tube**. Will it sell within a month? You have last year's sales:
+
+```{=html}
+<table class="mini">
+<tr><th>Flat</th><th>Size (m²)</th><th>Walk to Tube</th><th>Sold within a month?</th></tr>
+<tr class="hlrow"><td>A</td><td>58</td><td>5 min</td><td>yes</td></tr>
+<tr class="hlrow"><td>B</td><td>52</td><td>8 min</td><td>yes</td></tr>
+<tr class="hlrow"><td>C</td><td>61</td><td>7 min</td><td>no</td></tr>
+<tr class="hlrow"><td>D</td><td>50</td><td>4 min</td><td>yes</td></tr>
+<tr class="hlrow"><td>E</td><td>57</td><td>9 min</td><td>no</td></tr>
+<tr><td>F</td><td>95</td><td>6 min</td><td>no</td></tr>
+<tr><td>G</td><td>55</td><td>20 min</td><td>no</td></tr>
+<tr><td>H</td><td>40</td><td>15 min</td><td>yes</td></tr>
+<tr><td><b>New</b></td><td><b>55</b></td><td><b>6 min</b></td><td><b>?</b></td></tr>
+</table>
+```
+
+What would an estate agent do? They'd look at the **comparables**, the sales most like this one: A to E (highlighted). F is far bigger; G and H are far from the Tube. Of those five, 3 sold and 2 didn't, so the agent's guess is **"sells"**.
+
+That is the whole algorithm. **k nearest neighbours (kNN)**: to predict a new row, find the *k* most similar rows in the training data and let them vote. Here *k* = 5.
+
+### The idea: the vote depends on k {.step}
+
+Here is the same idea with 160 made-up flats. Each dot is a flat; red ones sold within a month. The diamond is the new flat. The dashed circle shows its *k* nearest neighbours, for three values of *k*:
+
+```{r}
+#| fig-width: 10
+#| fig-height: 4
+patchwork::wrap_plots(flat_step(1), flat_step(5), flat_step(15), nrow = 1, guides = "collect") &
+  theme(legend.position = "bottom", plot.title = element_text(size = 11))
+```
+
+```{=html}
+<div class="calc-g">
+  <div><span>k = 1</span><b>`r flat_votes(1)["yes"]` sold, `r flat_votes(1)["no"]` didn't → doesn't sell</b><small>one flat decides</small></div>
+  <div><span>k = 5</span><b>`r flat_votes(5)["yes"]` sold, `r flat_votes(5)["no"]` didn't → sells</b></div>
+  <div class="hl"><span>k = 15</span><b>`r flat_votes(15)["yes"]` sold, `r flat_votes(15)["no"]` didn't → sells</b><small>same data, same flat, a different answer from k = 1</small></div>
+</div>
+```
+
+With *k* = 1, a single odd sale decides. More neighbours give a steadier answer. But nothing in the data tells you what *k* should be.
+
+::: {.idea}
+A setting that you choose, and `fit()` doesn't learn from the data, is called a **hyperparameter**. *k* is one. So was the lasso's penalty λ in Lab 3. This lab is about choosing them well.
+:::
+
+If you colour every point of the picture by how its neighbours would vote, you get the model's **decision boundary**: the line between "yes" and "no".
+
+```{r}
+#| fig-width: 10
+#| fig-height: 4
+patchwork::wrap_plots(bound_step(1), bound_step(5), bound_step(50), nrow = 1, guides = "collect") &
+  theme(legend.position = "bottom", plot.title = element_text(size = 12))
+```
+
+- **k = 1**: an island around every flat. Every training flat is classified correctly, and every odd sale becomes a rule.
+- **k = 50**: smooth. The oddities are averaged away.
+
+The course team has fitted kNN on the real PTSD data for four values of *k*. Shaded cells are where the model predicts PTSD:
+
+```{r}
+#| fig-width: 10
+#| fig-height: 3.8
+bounds_plot()
+```
+
+With *k* = 100 the model barely finds the "yes" region; with 1,000 it draws a broad band where anxiety **and** stress are high. Which *k* is right? The picture can't tell us. We need a score.
+
+::: {.callout-tip collapse="true" title="Why does k = 100 do so badly here?"}
+Each cell holds about `r round(mean(ptsd_cells$n))` people with *identical* answers. With 100 neighbours, the model can't see past the new person's own cell. And the `kknn` package weights neighbours by their distance, which goes wrong when every distance is zero. That's why the notebook starts *k* at 100: below that, the model breaks down completely.
+:::
+
+### The idea: choosing k without cheating {.step}
+
+The obvious plan: try several values of *k*, score each, keep the best. But score it on which rows?
+
+**On the training rows?** Here's how three values of *k* score on the 160 flats they were fitted on:
+
+```{=html}
+<div class="calc-g">
+  <div class="hl"><span>k = 1</span><b>`r round(100 * trap_at(1, "training"))`% right</b><small>each flat's nearest neighbour is itself</small></div>
+  <div><span>k = 5</span><b>`r round(100 * trap_at(5, "training"))`%</b></div>
+  <div><span>k = 50</span><b>`r round(100 * trap_at(50, "training"))`%</b></div>
+</div>
+```
+
+*k* = 1 always wins on the training set, and it's a lie: each flat's nearest neighbour is the flat itself, so it "predicts" every training flat perfectly. A score on the training rows rewards **memorising**.
+
+**On the test set?** No. Lab 4's rule: the test set is the final exam. If you use it to choose *k*, its score is no longer a fair, fresh check.
+
+**On held-out training rows.** Hold some training flats back, fit on the rest, score on the ones held back. Now the ranking reverses:
+
+```{=html}
+<div class="calc-g">
+  <div><span>k = 1</span><b>`r round(100 * trap_at(1, "cv"))`% right on held-out flats</b></div>
+  <div><span>k = 5</span><b>`r round(100 * trap_at(5, "cv"))`%</b></div>
+  <div class="hl"><span>k = 50</span><b>`r round(100 * trap_at(50, "cv"))`%</b><small>the winner</small></div>
+</div>
+```
+
+**Cross-validation** makes this systematic. Think of it as mock exams. Cut the training set into 5 equal parts called **folds**. Revise on four, sit the fifth as a mock. Then rotate, so every fold is the mock once:
+
+```{r}
+#| fig-width: 7
+#| fig-height: 3.2
+folds_plot()
+```
+
+Each round gives a score for each *k*; the **mean of the five** is that *k*'s cross-validated score. Keep the *k* with the best mean. Then fit once more, on the whole training set, with that *k*. Only then, once, touch the test set.
+
+::: {.idea}
+**Three sets of rows, three jobs.** Fit on the training rows. Choose settings on held-out folds *of* the training rows. Judge the finished model on the test set, once.
+:::
+
+::: {.quiz}
+You're choosing between 4 values of *k* with 5-fold cross-validation. How many kNN models get fitted while choosing?
+
+::: {.opt}
+4: one per value of *k*
+
+::: {.fb}
+Each value of *k* is fitted once per round, and there are 5 rounds.
+:::
+:::
+
+::: {.opt .right}
+20: each *k* in each of the 5 rounds
+
+::: {.fb}
+Yes. 4 × 5 = 20. None of them is the final model: that's fitted afterwards, once, on the whole training set.
+:::
+:::
+
+::: {.opt}
+5: one per fold
+
+::: {.fb}
+Each round fits every candidate *k*, not just one model.
+:::
+:::
+:::
+
+### Split the data and make the folds {.step}
+
+::: {.doit q="Part I · notebook lines 105–111"}
+In the empty chunk, split `ptsd` into 75% training and 25% test, stratified by `ptsd`, then cut the training set into **5** folds. Use `set.seed(123)` so your numbers match this page.
+:::
+
+::: {.callout-warning title="The notebook's task list says 10 folds and k from 1 to 200"}
+The list at lines 94–103 is from an older version. Follow the solutions: **5 folds** (`v = 5`), and **k = 100, 500, 1,000 and 3,000**.
+:::
+
+The first four lines are Lab 4's split. The new line is `vfold_cv()`:
+
+::: {.anatomy}
+`ptsd_cv <-` [`vfold_cv(`]{.tok}[`ptsd_train`]{.tok}`,` [`v = 5`]{.tok}`)`
+
+1. **Cut a data set into folds** for cross-validation.
+2. **The training set only.** The test set is not involved.
+3. **How many folds.** It's `v`, not `k`, because *k* is already taken by the neighbours.
+:::
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+set.seed(123)
+
+ptsd_split <- initial_split(ptsd, prop = 0.75, strata = ptsd)
+ptsd_train <- training(ptsd_split)
+ptsd_test <- testing(ptsd_split)
+ptsd_cv <- vfold_cv(ptsd_train, v = 5)
+
+ptsd_cv
+```
+:::
+
+::: {.expect}
+```{r}
+ptsd_cv
+```
+:::
+
+Five rows, one per round. `<19939/4985>` means that round fits on `r big(res$ptsd_cv_sizes$analysis[1])` rows and scores on `r big(res$ptsd_cv_sizes$assessment[1])` held-out rows.
+
+### Specify the model, leaving k open {.step}
+
+::: {.doit q="Part I · notebook lines 113–119"}
+In the empty chunk, specify a kNN model for classification whose number of neighbours will be tuned. Save it as `knn_model`.
+:::
+
+::: {.anatomy}
+`knn_model <-` [`nearest_neighbor(`]{.tok}`neighbors =` [`tune()`]{.tok}`) |>` [`set_mode("classification")`]{.tok} `|>` [`set_engine("kknn")`]{.tok}
+
+1. **Which kind of model**, like `linear_reg()` and `logistic_reg()` before.
+2. **A placeholder.** Instead of a number, `tune()` says "try several values here; cross-validation will pick one".
+3. **Say the job.** kNN can classify (a vote) or predict a number (an average), so you have to say which.
+4. **The engine**: the package that does the work.
+:::
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+knn_model <-
+  nearest_neighbor(neighbors = tune()) |>
+  set_mode("classification") |>
+  set_engine("kknn")
+```
+:::
+
+Nothing has been fitted yet. `knn_model` is only a description of a model. Print it and you'll see `neighbors = tune()`.
+
+### The idea: why normalise? {.step}
+
+The note at **line 123** says: "You will need to normalise both predictors as k-NN uses distances." Why?
+
+Back to the flats. Flat F is the same distance from the Tube as the new flat but 40 m² bigger. Flat G is the same size but 14 minutes further away. Which one is more similar? kNN adds up the gaps, so the answer depends on the **units**:
+
+```{=html}
+<div class="calc-g">
+  <div><span>m² and minutes</span><b>F: 40 · G: 14</b><small>G is "closer"</small></div>
+  <div><span>ft² and minutes</span><b>F: 431 · G: 14</b><small>G, by a mile</small></div>
+  <div><span>m² and seconds</span><b>F: 40 · G: 840</b><small>now F is closer</small></div>
+  <div class="hl"><span>In standard deviations</span><b>F: 40 / `r round(sd_size)` = `r f1(40 / sd_size)` · G: 14 / `r f1(sd_mins)` = `r f1(14 / sd_mins)`</b><small>F is closer</small></div>
+</div>
+```
+
+Nothing about the flats changed, only the units, and the answer flipped. The fix: measure every gap in **standard deviations**, "how unusual is this gap?". Subtract each feature's mean and divide by its standard deviation, so every feature has mean 0 and SD 1. That's called **normalising**.
+
+::: {.idea}
+Any model that measures **distances** (like kNN) needs its features normalised. Models that ask "is income below $50k?" (like trees, in Part II) don't: a cut-off doesn't care about units.
+:::
+
+### The recipe and the workflow {.step}
+
+::: {.doit q="Part I · notebook lines 121–129"}
+In the empty chunk, write a recipe that normalises the predictors, then bundle it with `knn_model` into a workflow called `wf_knn`.
+:::
+
+Two new objects:
+
+::: {.anatomy}
+`knn_rec <-` [`recipe(ptsd ~ ., data = ptsd_train)`]{.tok} `|>` [`step_normalize(all_numeric_predictors())`]{.tok}
+
+1. **A recipe**: the formula, plus the preparation steps to run before fitting. `ptsd ~ .` means "predict `ptsd` from every other column".
+2. **A step**: normalise every numeric feature (mean 0, SD 1). The outcome is left alone.
+:::
+
+::: {.anatomy}
+`wf_knn <-` [`workflow()`]{.tok} `|>` [`add_model(knn_model)`]{.tok} `|>` [`add_recipe(knn_rec)`]{.tok}
+
+1. **A workflow** bundles the preparation and the model, so one `fit()` does both.
+2. **The model**, from the previous step.
+3. **The recipe.** Anything you later predict on, the folds or the test set, gets exactly the same preparation.
+:::
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+knn_rec <-
+  recipe(ptsd ~ ., data = ptsd_train) |>
+  step_normalize(all_numeric_predictors())
+
+wf_knn <-
+  workflow() |>
+  add_model(knn_model) |>
+  add_recipe(knn_rec)
+```
+:::
+
+::: {.callout-tip collapse="true" title="Why not just normalise the data once, before splitting?"}
+Because the means and SDs would then be computed from *all* the rows, including the test set, so a little information about the test set would leak into the model. Inside a recipe, they are computed from the rows being fitted on, every time.
+:::
+
+### Tune: score every k on every fold {.step}
+
+::: {.doit q="Part I · notebook lines 131–152"}
+1. In the chunk at **line 133**, make a metric set (recall, precision, F1) and a grid of the four values of *k*, then switch on parallel processing.
+2. In the chunk at **lines 141–152**, fill in the four `[brackets]`, remove the `#` signs, and run it. **It takes a few minutes.**
+:::
+
+::: {.anatomy}
+`grid_knn <-` [`tibble(neighbors = c(100, 500, 1000, 3000))`]{.tok}
+
+1. **The candidates**: a table with one column per `tune()` placeholder and one row per value to try. The column name must match the argument, `neighbors`.
+:::
+
+::: {.anatomy}
+`knn_model_cv <-` [`tune_grid(`]{.tok}`wf_knn,` [`resamples = ptsd_cv`]{.tok}`, metrics = class_metrics, grid = grid_knn,` [`control = control_resamples(event_level = "second")`]{.tok}`)`
+
+1. **Cross-validation in one function**: for every candidate, for every fold: fit on four folds, score the fifth.
+2. **The folds** from the split step.
+3. **Score the 1s.** As in Lab 4, the class we care about (`"1"`, PTSD) is the second level. Here it is passed through `control`.
+:::
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+class_metrics <- metric_set(recall, precision, f_meas)
+
+grid_knn <- tibble(neighbors = c(100, 500, 1000, 3000))
+
+doParallel::registerDoParallel()
+
+knn_model_cv <-
+  tune_grid(
+    wf_knn,
+    resamples = ptsd_cv,
+    metrics = class_metrics,
+    grid = grid_knn,
+    control = control_resamples(event_level = "second")
+  )
+```
+:::
+
+While it runs: 4 candidates × 5 folds = 20 fits. Each fit has to search through about 20,000 rows for the nearest neighbours of each of about 5,000 others. That's why kNN is slow to predict. On a laptop it takes about 2½ minutes.
+
+### Which k is best? {.step}
+
+::: {.doit q="Part I · notebook lines 154–173"}
+First print `knn_model_cv |> collect_metrics()` on its own line. Then run the plot chunk, which is given.
+:::
+
+`collect_metrics()` averages the five rounds: one row per *k* and metric.
+
+::: {.expect}
+```{r}
+res$knn_cv_metrics |> select(neighbors, .metric, mean, n, std_err) |> mutate(across(c(mean, std_err), ~ round(.x, 3)))
+```
+:::
+
+`mean` is the cross-validated score, `n` = 5 rounds, and `std_err` says how much the rounds disagreed. The plot shows the same numbers:
+
+::: {.expect}
+```{r}
+#| fig-width: 7
+#| fig-height: 4
+cv_plot() + theme_guide()
+```
+:::
+
+Recall climbs as *k* grows; precision hardly changes. F1 is best at **`r big(best_k)`**, with `r big(1000)` almost as good: `r f3(cv_at(best_k, "f_meas"))` against `r f3(cv_at(1000, "f_meas"))`. That difference is smaller than one standard error, so the two are really a tie.
+
+::: {.callout-tip collapse="true" title="Why does mutate(neighbors = as.factor(neighbors)) come first?"}
+As numbers, 100, 500, 1,000 and 3,000 would be spaced out along the axis, with 3,000 far to the right. As a factor, they are four evenly spaced categories, which is easier to read.
+:::
+
+### Pick the best k and fit the final model {.step}
+
+::: {.doit q="Part I · notebook lines 175–186"}
+Run the chunk. It's given. The fit takes about half a minute.
+:::
+
+::: {.anatomy}
+`highest_f1 <-` [`select_best(knn_model_cv, metric = "f_meas")`]{.tok} `;  wf_knn |>` [`finalize_workflow(highest_f1)`]{.tok} `|>` [`fit(ptsd_train)`]{.tok}
+
+1. **The winning row of the grid**, by F1.
+2. **Replace `tune()` with that value.**
+3. **Fit once, on the whole training set.** This is the model you keep; the 20 tuning fits are thrown away.
+:::
+
+::: {.expect data-label="What you should see (highest_f1)"}
+```{r}
+res$knn_best
+```
+:::
+
+### Your turn: score the final model {.step}
+
+::: {.doit q="Part I · notebook lines 188–198"}
+In the empty chunk, compute the F1 of `knn_model_final` on the **test** set, and on the training set for comparison. Then answer the question at line 198: which *k* performed best, and do you see overfitting?
+:::
+
+This is Lab 4's scoring, unchanged: `augment()` adds the predictions, then `f_meas()` compares them with the truth.
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+knn_model_final |>
+  augment(new_data = ptsd_train) |>
+  f_meas(truth = ptsd, estimate = .pred_class, event_level = "second")
+
+knn_model_final |>
+  augment(new_data = ptsd_test) |>
+  f_meas(truth = ptsd, estimate = .pred_class, event_level = "second")
+```
+:::
+
+::: {.expect}
+```{r}
+res$knn_train_f1
+res$knn_test_f1
+```
+:::
+
+```{=html}
+<div class="calc-g">
+  <div><span>Cross-validated</span><b>F1 = `r f3(cv_at(best_k, "f_meas"))`</b><small>held-out folds of the training set</small></div>
+  <div><span>Training set</span><b>F1 = `r f3(knn_train_f1)`</b></div>
+  <div class="hl"><span>Test set</span><b>F1 = `r f3(knn_test_f1)`</b><small>the honest number</small></div>
+</div>
+```
+
+::: {.callout-tip collapse="true" title="Show an answer to line 198"}
+*k* = `r big(best_k)` scored best, with 1,000 essentially tied. There is **no overfitting**: the training and test F1 are the same. The cross-validated score also predicted the test score well, which is what it's for.
+:::
+
+::: {.callout-note title="A reality check"}
+The simplest possible rule, "predict the majority of your own cell" (worked out on the training set), scores F1 **`r f3(cell_f1)`** on the test set. With only two whole-number features, that's about as good as any model can get, and the tuned kNN matches it.
+:::
+
+## Part II: trees, forests, boosting {#part2}
+
+**About 1½ hours.** Predict the weekly cost of childcare in US counties. You'll fit three models in a row: one tree, a forest and boosted trees. Each starts with a game.
+
+### Meet the data, split it, write the recipe {.step}
+
+::: {.doit q="Part II · notebook lines 296–318"}
+Run the two chunks. Both are given: the first reads the data and splits it, the second writes the recipe.
+:::
+
+The data have one row per **county and year**: `r big(nrow(childcare))` rows, `r big(n_counties)` counties, 2008 to 2018. The outcome is `mcsa`, the median weekly price of full-time centre-based care for a school-age child (median: **$`r round(med_cost)`**). The notebook's table lists all the other columns: unemployment, women's work, poverty, income, population, household types and jobs.
+
+This is **regression** again, as in Lab 3: we predict a number, and score with RMSE and R².
+
+**The split is by year, not at random:** 2008–2016 to train (`r big(nrow(childcare_train))` rows), 2017–2018 to test (`r big(nrow(childcare_test))` rows). Each county appears in every year. A random split would put a county's 2017 row in training and its 2018 row in the test set, so the model would nearly have seen the answer. Splitting by year asks the honest question: can we predict next year from the past?
+
+::: {.anatomy}
+`childcare_rec <-` [`recipe(mcsa ~ ., data = childcare_train)`]{.tok} `|>` [`update_role(starts_with(c("county", "state")), new_role = "id")`]{.tok}
+
+1. **Predict the price from every other column.**
+2. **Keep, but don't use.** The county and state names and codes become `id` columns: still in the table as labels, but not given to the model. Without this, the model would treat the county code as a number.
+:::
+
+That leaves **`r n_feat` features**. There is no `step_normalize()` this time; you'll see why.
+
+### The idea: who's a Swiftie? {.step}
+
+Twelve people, five facts about each, and whether they're a Taylor Swift fan:
+
+```{=html}
+<table class="mini sw">
+<tr><th>Person</th><th>Age</th><th>Likes pop</th><th>Plays guitar</th><th>Enjoys lyrics</th><th>Follows trends</th><th>Swiftie?</th></tr>
+`r sw_rows(pick_pop = FALSE)`
+</table>
+```
+
+**The game:** you may ask **one** yes/no question. Then you have to guess "Swiftie" or "not" for each group of answers. Which question gets the most people right? Try it before reading on.
+
+::: {.callout-tip collapse="true" title="Show the scores"}
+```{=html}
+<div class="calc-g">
+  <div><span>Plays guitar?</span><b>`r sw_sc["guitar"]` of 12 right</b></div>
+  <div><span>Age under `r sw_age_cut`?</span><b>`r sw_sc["age"]` of 12</b><small>the best age cut-off</small></div>
+  <div><span>Enjoys lyrics?</span><b>`r sw_sc["lyrics"]` of 12</b></div>
+  <div><span>Follows trends?</span><b>`r sw_sc["trends"]` of 12</b></div>
+  <div class="hl"><span>Likes pop?</span><b>`r sw_sc["pop"]` of 12</b><small>pop fans: 5 of 6 are Swifties; the rest: 1 of 6</small></div>
+</div>
+```
+
+"Likes pop?" wins. Guess "Swiftie" for the pop fans and "not" for everyone else: only K and L are wrong.
+:::
+
+That's the first **split** of a **decision tree**: try every question, and for a number like age every possible cut-off. Keep the one that sorts the people most cleanly.
+
+**Then ask again, inside each group.** Among the six pop fans, "enjoys lyrics?" separates all of them: K is the pop fan who doesn't care about lyrics. Among the six non-pop fans, no question does better than just saying "not". So the tree is:
+
+```{=html}
+<div class="qtree">
+  <div class="q" style="grid-column:1 / 5">Likes pop?</div>
+  <div class="q" style="grid-column:1 / 3"><span class="e">yes · A B D G I K</span>Enjoys lyrics?</div>
+  <div class="leaf no" style="grid-column:3 / 5"><span class="e">no · C E F H J L</span><b>not a Swiftie</b>5 of 6 right</div>
+  <div class="leaf yes" style="grid-column:1 / 2"><span class="e">yes</span><b>Swiftie</b>A B D G I</div>
+  <div class="leaf no" style="grid-column:2 / 3"><span class="e">no</span><b>not</b>K</div>
+</div>
+```
+
+Eleven of twelve right with two questions. Each final box is called a **leaf**. A tree is just a flow chart, and anyone can read it.
+
+**What about L, the Swiftie who isn't a pop fan?** Among the non-pop fans, one question does find L: "age 30 or over?". L is 31, the oldest in the table. Add it and the tree is perfect on the table. But would you bet that non-pop fans over 30 are Swifties? That question was invented for one person. A tree that keeps asking until every leaf is pure has **memorised** its training data: **overfitting**. Real trees stop early: a leaf must hold enough rows, and a split must improve things enough to be worth it.
+
+::: {.quiz}
+A decision tree is grown until every leaf holds exactly one person from the training data. What happens?
+
+::: {.opt}
+It's perfect on new data too
+
+::: {.fb}
+It's perfect on the *training* data only. Many of its questions were invented for one person, like "age 30 or over?" for L.
+:::
+:::
+
+::: {.opt .right}
+It's perfect on the training data, and worse on new data: it has overfitted
+
+::: {.fb}
+Yes. Same lesson as *k* = 1 in Part I: perfect on its own rows, because it memorised them.
+:::
+:::
+
+::: {.opt}
+It can't be grown that far
+
+::: {.fb}
+It can, if you turn off the brakes. The default settings stop much earlier.
+:::
+:::
+:::
+
+### The idea: the same game with prices {.step}
+
+Our outcome is a price, not yes/no. The game changes in two small ways. Here it is with one feature, county income, so it can be drawn:
+
+```{r}
+#| fig-width: 7.5
+#| fig-height: 4
+split_step(4) + theme_guide() + theme(plot.title = element_text(size = 12))
+```
+
+- **The question is a cut-off.** The tree tries every income as a cut-off, the way we tried every age. The cleanest one: **income below `r dollar(cut1, scale = 1e-3, suffix = "k", accuracy = 0.1)`?** (dashed line).
+- **The guess is the average.** Each side predicts the **mean** price of its counties: $`r round(leaf1[1])` and $`r round(leaf1[2])` (red). "Cleanest" now means the smallest squared error, the idea behind RMSE.
+- **Ask again inside each side**: two levels (blue), three (green). The result is a **staircase**.
+
+`decision_tree()` plays this game on all `r n_feat` columns at once.
+
+### Task 1: your first tree {.step}
+
+::: {.doit q="Part II · Task 1 · notebook lines 320–338"}
+1. In the chunk, specify a decision tree for regression with the `rpart` engine, and fit it in a workflow with `childcare_rec`. Call the fitted workflow `dt_fit`.
+2. Run the given `rpart.plot()` line to draw it.
+3. Score the training set and the test set with the given `metric_set(rsq, rmse)`.
+4. Answer the question at line 338.
+:::
+
+The pattern is Part I's, without `tune()`: nothing to choose, so you fit straight away.
+
+::: {.anatomy}
+`dt_model <-` [`decision_tree()`]{.tok} `|>` [`set_mode("regression")`]{.tok} `|> set_engine("rpart")`
+
+1. **A single tree**, with the package's built-in brakes.
+2. **A price**, so every leaf predicts a mean.
+:::
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+dt_model <-
+  decision_tree() |>
+  set_mode("regression") |>
+  set_engine("rpart")
+
+dt_fit <-
+  workflow() |>
+  add_recipe(childcare_rec) |>
+  add_model(dt_model) |>
+  fit(data = childcare_train)
+
+rpart.plot(extract_fit_engine(dt_fit), roundint = FALSE)
+
+regress_metrics <- metric_set(rsq, rmse)
+
+dt_fit |>
+  augment(new_data = childcare_train) |>
+  regress_metrics(mcsa, .pred)
+
+dt_fit |>
+  augment(new_data = childcare_test) |>
+  regress_metrics(mcsa, .pred)
+```
+
+`extract_fit_engine()` takes the tree out of the workflow, because `rpart.plot()` needs the original `rpart` object, as `summary()` did in Lab 4.
+:::
+
+::: {.expect}
+```{r}
+#| fig-width: 9
+#| fig-height: 4.6
+rpart.plot(res$dt_rpart, roundint = FALSE)
+```
+:::
+
+How to read a box: the top number is the predicted weekly price, the bottom one the share of training rows that end up there. Below each box is the question; "yes" goes left.
+
+::: {.expect data-label="What you should see (training set, then test set)"}
+```{r}
+res$dt_metrics |> filter(set == "train") |> select(-set) |> mutate(.estimate = round(.estimate, 3))
+res$dt_metrics |> filter(set == "test") |> select(-set) |> mutate(.estimate = round(.estimate, 3))
+```
+:::
+
+Test RMSE **`r f1(dt_test)`** dollars a week. Is that good? Predicting the training mean for every county would give `r f1(base_rmse)`. So the tree helps, but it's coarse: everyone in a leaf gets the same price, and there are only `r n_leaves` leaves. That's the number for the next two models to beat.
+
+::: {.callout-tip collapse="true" title="Show an answer to line 338"}
+A tree is **greedy**: at each step it takes whichever question splits best right now. The first question is `one_race_a < `r f1(first_split)``, the share of residents who are Asian. That isn't a cause of childcare prices. It marks the big coastal metro areas, where everything is expensive: a **proxy**. Then come income (`mhi_2018`), the year (prices rose after 2012), the number of households and women's jobs (`femp_sales`, `femp_m`). `r length(vars_used)` of the `r n_feat` columns are used; the notebook's answer lists five of them and misses `study_year`. The notebook prints an answer under the question too: try your own first.
+:::
+
+### The idea: a forest is a crowd {.step}
+
+One tree is readable but coarse, and a little different data would give a different tree. Here's a fix, back on the Swiftie table.
+
+Ask **three friends** to play the game, but each one sees only **8 of the 12 people** (picked at random) and may ask only **2 of the 5 questions** (also random). Each grows a one-question tree:
+
+```{=html}
+<div class="friends">
+`r friend_tree(1)`
+`r friend_tree(2)`
+`r friend_tree(3)`
+</div>
+```
+
+Different evidence leads to different first questions. Now a new person, **Mia: 22, not a pop fan, plays guitar, enjoys lyrics, follows trends**. The friends vote `r paste(sw_votes, collapse = ", ")`: **`r sw_forest`**, 2 to 1. Our single tree said "not", because it only looks at pop.
+
+That's a **random forest**: many trees, each grown on a random **resample** of the rows and allowed only a random handful of columns at each split. They **vote**; for a price, they **average**.
+
+Why hide people and questions from each friend? If everyone saw everything, all three would ask "likes pop?" and the vote would be three copies of one opinion. A crowd is only wise when it disagrees.
+
+On the childcare prices: three trees on three resamples of the counties give three different staircases. The average of fifty is smooth:
+
+```{r}
+#| fig-width: 7.5
+#| fig-height: 4
+bag_step(5) + theme_guide() + theme(plot.title = element_text(size = 12))
+```
+
+Each tree's odd steps land in different places, so they cancel out in the average.
+
+### Task 2: fit a random forest {.step}
+
+::: {.doit q="Part II · Task 2 · notebook lines 343–358"}
+1. Fill in the sketch: `mtry = round(sqrt(52), 0)`, `trees = 1e3` (1,000), engine `ranger`.
+2. Fit it in a workflow with `childcare_rec`, as `rf_fit`. It takes about 20 seconds to a minute.
+3. Score the training set and the test set, and answer the question at line 358.
+:::
+
+::: {.anatomy}
+[`rand_forest(`]{.tok}[`mtry = round(sqrt(52), 0)`]{.tok}`,` [`trees = 1e3`]{.tok}`) |> set_mode("regression") |>` [`set_engine("ranger")`]{.tok}
+
+1. **Many trees, averaged.**
+2. **Columns per split**: at each question, a tree may only look at 7 randomly chosen columns out of 52, like the friends' "2 of 5". √52 ≈ 7 is a common rule of thumb.
+3. **How many trees**: 1,000 friends. More only costs time.
+4. **The package** that grows the forest.
+:::
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+rf_model <-
+  rand_forest(mtry = round(sqrt(52), 0), trees = 1e3) |>
+  set_mode("regression") |>
+  set_engine("ranger", num.threads = parallel::detectCores() - 1)
+
+rf_fit <-
+  workflow() |>
+  add_recipe(childcare_rec) |>
+  add_model(rf_model) |>
+  fit(data = childcare_train)
+
+rf_fit |>
+  augment(new_data = childcare_train) |>
+  regress_metrics(mcsa, .pred)
+
+rf_fit |>
+  augment(new_data = childcare_test) |>
+  regress_metrics(mcsa, .pred)
+```
+
+`num.threads` (from the solutions) makes `ranger` use all your cores but one: much faster. The notebook's sketch leaves it out; both are right.
+:::
+
+::: {.expect data-label="What you should see (training set, then test set)"}
+```{r}
+res$rf_metrics |> filter(set == "train") |> select(-set) |> mutate(.estimate = round(.estimate, 3))
+res$rf_metrics |> filter(set == "test") |> select(-set) |> mutate(.estimate = round(.estimate, 3))
+```
+:::
+
+::: {.callout-tip collapse="true" title="Show an answer to line 358"}
+**Better predictions?** Yes, clearly: test RMSE `r f1(rf_test)` against the tree's `r f1(dt_test)`, about a quarter less.
+
+**Overfitting?** The training RMSE, `r f1(rf_train)`, is tiny, far below the test RMSE. For a forest that's normal and says little: each training row was used to grow most of the trees, so the forest has seen it. Judge an ensemble on the test set, where it beats the tree. Part of the remaining gap is time: prices rose after 2016, and the model never saw those years.
+:::
+
+Your numbers may differ in the first decimal: a forest is random, and the notebook sets no seed.
+
+### The idea: boosting is a relay {.step}
+
+A forest's friends work at the same time and never talk. **Boosting** does the opposite: the friends take turns, and each one is told who the previous ones got wrong. Back to the Swiftie table:
+
+```{=html}
+<table class="mini sw">
+<tr><th>Person</th><th>Swiftie?</th><th>Friend 1<br>likes pop?</th><th>Friend 2<br>enjoys lyrics?</th><th>Friend 3<br>follows trends?</th><th>Together<br>2 of 3</th></tr>
+`r relay_rows()`
+</table>
+```
+
+- **Friend 1** plays the normal game and asks "likes pop?": 10 of 12, wrong about **K and L**.
+- **Friend 2** is told: "K and L count four times." Now the best question is one that gets K and L right: **"enjoys lyrics?"**. It's wrong about C, E and H instead.
+- **Friend 3** is told: "C, E, H, K and L count four times." **"Follows trends?"** gets all five right, and is wrong about B, F and J.
+- **Together**, by majority: nobody is wrong twice, so all **12 of 12** are right.
+
+Each friend alone is a weak model. Because each was aimed at the previous mistakes, their mistakes don't overlap, and together they're strong.
+
+With a price, "the mistakes" are the **leftovers**: how far off the trees so far still are, county by county. Each new small tree predicts the leftovers, and only a small part of its answer is added, set by the **learning rate**. Here is that on county income, after 1, 5, 20 and 100 small trees:
+
+```{r}
+#| fig-width: 7.5
+#| fig-height: 4
+boost_step(4) + theme_guide() + theme(plot.title = element_text(size = 12))
+```
+
+::: {.quiz}
+What's the main difference between a random forest and boosting?
+
+::: {.opt}
+A forest uses trees; boosting uses another kind of model
+
+::: {.fb}
+Both use many trees.
+:::
+:::
+
+::: {.opt .right}
+A forest's trees are grown independently and averaged; boosting's are grown one after another, each aimed at what the previous ones got wrong
+
+::: {.fb}
+Yes: a crowd that doesn't talk against a relay.
+:::
+:::
+
+::: {.opt}
+A forest can only classify; boosting can only predict numbers
+
+::: {.fb}
+Both can do both. Today both predict prices.
+:::
+:::
+:::
+
+### Task 3: fit XGBoost {.step}
+
+::: {.doit q="Part II · Task 3 · notebook lines 360–380"}
+1. Fill in the sketch: the same `mtry` and `trees` as the forest, plus `learn_rate = 0.1`, engine `xgboost`.
+2. Fit it as `xgb_fit` (the comment at line 374 says "random forest"; it means XGBoost). Score both sets and answer line 380.
+:::
+
+::: {.anatomy}
+[`boost_tree(`]{.tok}`mtry = round(sqrt(52), 0),` [`trees = 1000`]{.tok}`,` [`learn_rate = 0.1`]{.tok}`) |> set_mode("regression") |> set_engine("xgboost")`
+
+1. **Small trees in a relay**, added up. **XGBoost** is the best-known boosting package.
+2. **The length of the relay**: 1,000 trees.
+3. **Each tree's say**: a tenth of its answer is added. Smaller steps need more trees.
+:::
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+xgb_model <-
+  boost_tree(
+    mtry = round(sqrt(52), 0),
+    trees = 1000,
+    learn_rate = 0.1
+  ) |>
+  set_mode("regression") |>
+  set_engine("xgboost")
+
+xgb_fit <-
+  workflow() |>
+  add_recipe(childcare_rec) |>
+  add_model(xgb_model) |>
+  fit(data = childcare_train)
+
+xgb_fit |>
+  augment(new_data = childcare_train) |>
+  regress_metrics(mcsa, .pred)
+
+xgb_fit |>
+  augment(new_data = childcare_test) |>
+  regress_metrics(mcsa, .pred)
+```
+:::
+
+::: {.expect data-label="What you should see (training set, then test set)"}
+```{r}
+res$xgb_metrics |> filter(set == "train") |> select(-set) |> mutate(.estimate = round(.estimate, 3))
+res$xgb_metrics |> filter(set == "test") |> select(-set) |> mutate(.estimate = round(.estimate, 3))
+```
+:::
+
+::: {.callout-tip collapse="true" title="Show an answer to line 380"}
+Yes, a little better again: test RMSE `r f1(xgb_test)` against the forest's `r f1(rf_test)`. The training RMSE (`r f1(xgb_train)`) is near zero for the same reason as the forest's, so compare test scores. `trees` and `learn_rate` were not tuned: they are hyperparameters, and Part I's method (`tune()` and cross-validation) is how you'd choose them.
+:::
+
+### Task 4: compare the three models {.step}
+
+::: {.doit q="Part II · Task 4 · notebook lines 382–390"}
+Make one table with the test-set RMSE of all three models, and a bar chart of it.
+:::
+
+You could score each model separately and copy the numbers. Instead, use Lab 4's `map_dfr()`: run the same code on each item of a list, and stack the results.
+
+::: {.anatomy}
+[`list("Decision Tree" = dt_fit, "Random Forest" = rf_fit, "XGBoost" = xgb_fit)`]{.tok} `|>` [`map_dfr(~ augment(.x, new_data = childcare_test), .id = "model")`]{.tok} `|>` [`group_by(model)`]{.tok} `|> regress_metrics(mcsa, .pred)`
+
+1. **A named list** of the three fitted workflows.
+2. **Predict on the test set with each**, and stack the three tables. `.id = "model"` adds a column with the list names.
+3. **Score each model separately**: one RMSE per group.
+:::
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+model_results <-
+  list(
+    "Decision Tree" = dt_fit,
+    "Random Forest" = rf_fit,
+    "XGBoost"       = xgb_fit
+  ) |>
+  map_dfr(~ .x |> augment(new_data = childcare_test), .id = "model") |>
+  group_by(model) |>
+  regress_metrics(mcsa, .pred) |>
+  filter(.metric == "rmse")
+
+ggplot(model_results, aes(x = reorder(model, .estimate), y = .estimate, fill = model)) +
+  geom_col(show.legend = FALSE) +
+  geom_text(aes(label = round(.estimate, 1)), hjust = -0.1) +
+  coord_flip() +
+  labs(x = NULL, y = "RMSE (lower is better)") +
+  theme_minimal()
+```
+
+`reorder(model, .estimate)` sorts the bars by RMSE; `coord_flip()` turns them sideways so the names fit.
+:::
+
+::: {.expect}
+```{r}
+res$model_results |> filter(.metric == "rmse")
+```
+
+```{r}
+#| fig-width: 7
+#| fig-height: 3
+res$model_results |>
+  filter(.metric == "rmse") |>
+  ggplot(aes(x = reorder(model, .estimate), y = .estimate, fill = model)) +
+  geom_col(show.legend = FALSE, width = 0.65) +
+  geom_text(aes(label = round(.estimate, 1)), hjust = -0.15, fontface = "bold") +
+  coord_flip() +
+  scale_fill_manual(values = c(`Decision Tree` = grey, `Random Forest` = navy, XGBoost = red)) +
+  expand_limits(y = 36) +
+  theme_guide() +
+  theme(panel.grid.major.y = element_blank()) +
+  labs(x = NULL, y = "Test-set RMSE (lower is better)")
+```
+:::
+
+### Tree, forest, boosting: what's the difference? {.step}
+
+```{=html}
+<table class="mini cmp">
+<tr><th></th><th>One tree</th><th>Random forest</th><th>Boosting</th></tr>
+<tr><td><b>In the game</b></td><td>"Pop?", then "lyrics?"</td><td>Three friends who each saw part of the table, voting</td><td>A relay: each friend aimed at the last one's mistakes</td></tr>
+<tr><td><b>How the trees are grown</b></td><td>One, until the brakes stop it</td><td>Many, independently: each on a resample, with random columns</td><td>Many small ones in turn, each on the leftovers</td></tr>
+<tr><td><b>How they're combined</b></td><td>No combining</td><td>Average (or vote)</td><td>Added up, each with a small say</td></tr>
+<tr><td><b>Main settings</b></td><td><code>tree_depth</code>, <code>min_n</code></td><td><code>trees</code>, <code>mtry</code></td><td><code>trees</code>, <code>learn_rate</code>, <code>mtry</code></td></tr>
+<tr><td><b>Can you read it?</b></td><td>Yes: a flow chart</td><td>No</td><td>No</td></tr>
+<tr class="hlrow"><td><b>Test RMSE</b></td><td>`r f1(dt_test)`</td><td>`r f1(rf_test)`</td><td>`r f1(xgb_test)`</td></tr>
+</table>
+```
+
+::: {.idea}
+**Many trees beat one.** Both ensembles cut the tree's error by about a quarter. The price is that you can no longer read the model. If you must explain each prediction, to a parent or a council, a single tree may still be the right choice.
+:::
+
+## Wrap-up {#wrapup}
+
+### What you learned {.step}
+
+:::: {.legend}
+::: {.l-idea}
+**Hyperparameters and cross-validation**
+A hyperparameter is a setting you choose. Choose it on held-out folds of the training set (`vfold_cv()`, `tune()`, `tune_grid()`, `select_best()`), and keep the test set for the end.
+:::
+::: {.l-idea}
+**k nearest neighbours**
+The *k* most similar training rows vote. Small *k* memorises; large *k* is smooth. Normalise the features, because it measures distances.
+:::
+::: {.l-idea}
+**Decision trees**
+Ask the cleanest question, then again inside each group. Readable, but grown too far it memorises.
+:::
+::: {.l-idea}
+**Forests and boosting**
+A forest averages many independent trees; boosting adds small trees in turn, each aimed at the mistakes so far. Both beat one tree.
+:::
+::::
+
+**One question to take away:** you get the 2019 prices. Which model would you use, and what does the forest's training RMSE of $`r round(rf_train)` tell you about how it will do?
+
+**Further reading**
+
+- [*An Introduction to Statistical Learning*](https://www.statlearning.com), free online: section 5.1 (cross-validation) and sections 8.1–8.2 (trees, bagging, random forests, boosting).
+- [*Tidy Modeling with R*](https://www.tmwr.org), free online: chapters 10 (resampling), 12 (tuning) and 13 (grid search).
+- The [tidymodels "Get started" guides](https://www.tidymodels.org/start/): recipes, resampling and tuning.
+
+### Glossary {#glossary}
+
+Underlined words on this page are explained in this list. Click or tap one anywhere on the page to see what it means and where it was first explained.
+
+::: {.glossary}
+
+| Word | Meaning |
+|---|---|
+| **boosting** []{match="boosting;boosted trees?"} | Many small trees grown one after another, each aimed at what the previous ones still get wrong, then added up |
+| **cross-validation** []{match="cross-validation;cross-validated"} | Choosing settings by scoring them on held-out folds of the training set, in rotation |
+| **decision boundary** | The line in the feature space between where a model predicts "yes" and "no" |
+| **decision tree** []{match="decision trees?"} | A flow chart of yes/no questions, with a prediction in every leaf |
+| **feature space** | A picture of the data with one axis per feature |
+| **fold** []{match="folds?"} | One of the equal parts the training set is cut into for cross-validation |
+| **hyperparameter** []{match="hyperparameters?"} | A setting you choose, which `fit()` doesn't learn from the data: *k*, the number of trees, the learning rate |
+| **k nearest neighbours** []{match="k nearest neighbours;kNN"} | Predicting a new row from the *k* most similar training rows: a vote, or an average |
+| **leaf** []{match="leaf;leaves"} | A final box of a decision tree, where the prediction is made |
+| **learning rate** []{match="learning rate;learn_rate"} | In boosting, how much of each new tree's answer is added. Smaller steps need more trees |
+| **normalise** []{match="normalise;normalising;normalised"} | Rescale a feature to mean 0 and standard deviation 1, so units don't decide distances |
+| **overfitting** []{match="overfitting;overfitted"} | Learning the quirks of the training data, so the model does worse on new data |
+| **proxy** | A feature that predicts well because it stands in for something else, not because it causes the outcome |
+| **random forest** []{match="random forests?"} | Many trees grown independently on resamples of the rows, with random columns at each split, then averaged |
+| **recipe** []{match="recipes?"} | The formula plus the preparation steps to run before fitting |
+| **resample** []{match="resamples?"} | A random draw of rows from the training data, with replacement |
+| **split** []{match="split"} | One question in a decision tree |
+| **test set** | The data held back to judge the finished model, once |
+| **training set** []{match="training sets?;training rows"} | The data the model is fitted on |
+| **workflow** []{match="workflows?"} | A recipe and a model bundled together, so one `fit()` does both |
+| **XGBoost** | A widely used boosting package |
+:::
