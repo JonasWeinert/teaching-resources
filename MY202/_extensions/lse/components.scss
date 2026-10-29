@@ -162,6 +162,8 @@
 
 // cards stacked outside a grid (e.g. inside a column) get the same gap as grid cards
 .reveal :not(.cards) > .card + .card { margin-top: 18px; }
+// boxes stacked in a column also need air when they appear on a click (each is then wrapped in a .fragment div)
+.reveal :not(.cards) > :is(.card, .ask, .calc, .fragment:has(> :is(.card, .ask, .calc))) + :is(.fragment:has(> :is(.card, .ask, .calc)), .card, .ask, .calc) { margin-top: 12px; }
 
 // white footer, slide number and menu button on dark slides (section dividers)
 .reveal.has-dark-background .footer,
@@ -268,8 +270,10 @@
 .mcq .why p { margin: 0; }
 
 // ---------- question prompt ----------
-.ask { font-family: "Montserrat", sans-serif; font-weight: 700; color: var(--ink); font-size: 0.9em; margin: 0.2em 0 0.4em; }
-.ask::before { content: "?"; display: inline-flex; width: 1.3em; height: 1.3em; border-radius: 50%; background: var(--blue); color: #fff; align-items: center; justify-content: center; margin-right: 0.5em; font-size: 0.85em; }
+// the "?" badge sits on the first line of the question; the text wraps beside it, not under it
+.ask { display: flex; align-items: flex-start; gap: 0.5em; font-family: "Montserrat", sans-serif; font-weight: 700; color: var(--ink); font-size: 0.9em; margin: 0.2em 0 0.4em; }
+.ask::before { content: "?"; flex: none; display: inline-flex; width: 1.3em; height: 1.3em; margin-top: 0.08em; border-radius: 50%; background: var(--blue); color: #fff; align-items: center; justify-content: center; font-size: 0.85em; }
+.ask > p { margin: 0; flex: 1 1 auto; min-width: 0; }
 
 // ---------- split-the-data flow ----------
 .flow .step b { font-family: "Montserrat", sans-serif; font-size: 1.05em; }
@@ -339,3 +343,33 @@
 .folds .key i { display: inline-block; width: 1.2em; height: 1.2em; border-radius: 3px; vertical-align: middle; margin-right: 4px; background: var(--pale); }
 .folds .key i.hold { background: var(--blue); }
 .folds .key i.off { background: #F2F2F2; }
+
+// ---------- table rows that get highlighted on click (Lab 5) ----------
+// <tr class="fragment pick"> stays visible and turns pink when its fragment is shown.
+.reveal .slides section .fragment.pick { opacity: 1; visibility: inherit; }
+.reveal .slides section .fragment.pick.visible td { background: #FBE3E6; font-weight: 700; }
+.reveal table.mini td.new { background: var(--blue); color: #fff; font-weight: 700; }
+.reveal table.mini td.new code { color: #fff; }
+
+// ---------- question tree (Lab 5 game) ----------
+// A small flow chart of yes/no questions: .q boxes ask, .leaf boxes answer; grid-column placement is set inline.
+.qtree { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px 10px; font-size: 0.6em; line-height: 1.25; margin-top: 0.3em; }
+.qtree > div { border-radius: 10px; padding: 8px 10px; text-align: center; }
+.qtree .q { background: #fff; border: 2px solid var(--blue); color: var(--ink); font-family: "Montserrat", sans-serif; font-weight: 700; }
+.qtree .leaf { background: var(--pale); color: var(--ink); }
+.qtree .leaf.yes { background: #E8F5EE; border: 2px solid var(--green); }
+.qtree .leaf.no { background: #F2F2F2; border: 2px solid #BDBDBD; }
+.qtree .leaf.mixed { background: #FBE3E6; border: 2px solid var(--cyan); }
+.qtree .e { display: block; font-family: "Montserrat", sans-serif; font-weight: 700; font-size: 0.8em; text-transform: uppercase; letter-spacing: .05em; color: var(--grey); margin-bottom: 2px; }
+.qtree b { display: block; font-family: "Montserrat", sans-serif; }
+
+// ---------- the Swiftie game tables (Lab 5): yes/no cells, the outcome column, a marked row, right/wrong answers
+.reveal table.mini.sw td.y { color: var(--ink); font-weight: 700; }
+.reveal table.mini.sw td.n { color: #9A9A9A; }
+.reveal table.mini.sw td.sw-out { font-family: "Montserrat", sans-serif; font-weight: 700; color: var(--blue); }
+.reveal table.mini tr.hlrow td { background: #FBE3E6; font-weight: 700; }
+.reveal table.mini td.ok { color: var(--green); }
+.reveal table.mini td.bad { background: #FBE3E6; color: var(--cyan); font-weight: 700; }
+.reveal table.mini.relay td, .reveal table.mini.relay th { padding: 0.22em 0.8em 0.22em 0; }
+.reveal table.mini.cmp td, .reveal table.mini.cmp th { padding: 0.45em 0.9em 0.45em 0.4em; vertical-align: top; border-bottom: 1px solid #EEE; }
+.reveal table.mini.cmp th { font-family: "Montserrat", sans-serif; color: var(--blue); text-align: left; }

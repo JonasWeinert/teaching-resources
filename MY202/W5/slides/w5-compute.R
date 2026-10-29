@@ -1,4 +1,4 @@
-# Runs the Week 5 notebook pipeline (my202-05-lab-completed.qmd) and caches every number the deck shows in
+# Runs the Week 5 notebook pipeline (my202-05-lab-completed.qmd, 28 October 2026 version) and caches every number the deck shows in
 # W5/notebooksanddata/cache/w5-results.rds. The deck sources this file when the cache is missing. Run it from
 # W5/notebooksanddata:  Rscript ../slides/w5-compute.R   (the kNN tuning takes a few minutes).
 # Each block is skipped when the cache already holds its result, so a failed run can be resumed.
@@ -12,7 +12,7 @@ res_path <- "cache/w5-results.rds"
 out <- if (file.exists(res_path)) read_rds(res_path) else list()
 save <- function() write_rds(out, res_path)
 
-# ---------- Part I: kNN, as in the notebook (lines 116–223) ----------
+# ---------- Part I: kNN, as in the notebook (student lines 105–194; solutions 128–232) ----------
 ptsd <- read_csv("data/ptsd-for-knn.csv", show_col_types = FALSE) |> mutate(ptsd = as.factor(ptsd))
 set.seed(123)
 ptsd_split <- initial_split(ptsd, prop = 0.75, strata = ptsd)
@@ -45,24 +45,20 @@ if (is.null(out$knn_test_f1)) {
   save()
 }
 
-# ---------- Part II: trees, as in the notebook (lines 256–504) ----------
+# ---------- Part II: trees, as in the notebook (student lines 296–390; solutions 335–496) ----------
+# The notebook splits by year and keeps study_year as a predictor; only the county and state columns become ids.
 childcare <- read_csv("data/childcare-costs.csv", show_col_types = FALSE)
-childcare_train <- childcare |> filter(study_year <= 2016) |> arrange(study_year) |> mutate(study_date = as.Date(paste0(study_year, "-01-01")))
-childcare_test  <- childcare |> filter(study_year > 2016) |> mutate(study_date = as.Date(paste0(study_year, "-01-01")))
-childcare_cv <- sliding_period(childcare_train, index = study_date, period = "year", lookback = Inf, assess_stop = 1, step = 1)
+childcare_train <- childcare |> filter(study_year <= 2016)
+childcare_test  <- childcare |> filter(study_year > 2016)
 childcare_rec <- recipe(mcsa ~ ., data = childcare_train) |>
-  update_role(starts_with(c("county", "state")), new_role = "id") |>
-  update_role(c("study_date", "study_year"), new_role = "id")
+  update_role(starts_with(c("county", "state")), new_role = "id")
 regress_metrics <- metric_set(rsq, rmse)
 ev <- function(fit) bind_rows(train = fit |> augment(new_data = childcare_train) |> regress_metrics(mcsa, .pred),
                               test  = fit |> augment(new_data = childcare_test)  |> regress_metrics(mcsa, .pred), .id = "set")
-id_cols <- c("county_fips_code", "county_name", "state_name", "state_abbreviation", "study_date", "study_year")
+id_cols <- c("county_fips_code", "county_name", "state_name", "state_abbreviation")
 
 if (is.null(out$model_results)) {
-  out$cc_n <- c(train = nrow(childcare_train), test = nrow(childcare_test), folds = length(childcare_cv$splits))
-  out$cc_folds <- map_dfr(childcare_cv$splits, ~ tibble(
-    train_from = min(analysis(.x)$study_year), train_to = max(analysis(.x)$study_year), n_train = nrow(analysis(.x)),
-    assess_year = unique(assessment(.x)$study_year)[1], n_assess = nrow(assessment(.x))))
+  out$cc_n <- c(train = nrow(childcare_train), test = nrow(childcare_test))
   t <- tic()
   dt_model <- decision_tree() |> set_mode("regression") |> set_engine("rpart")
   dt_fit <- workflow() |> add_recipe(childcare_rec) |> add_model(dt_model) |> fit(data = childcare_train)
@@ -80,7 +76,7 @@ if (is.null(out$model_results)) {
   t <- tic()
   set.seed(123)
   xgb_model <- boost_tree(mtry = round(sqrt(52), 0), trees = 1000, learn_rate = 0.1) |> set_mode("regression") |>
-    set_engine("xgboost", nthread = parallel::detectCores() - 1, eval_metric = "rmse")
+    set_engine("xgboost")
   xgb_fit <- workflow() |> add_recipe(childcare_rec) |> add_model(xgb_model) |> fit(data = childcare_train)
   out$xgb_metrics <- ev(xgb_fit); tock(t, "xgboost")
   # test RMSE as trees are added: predict with the first n trees only

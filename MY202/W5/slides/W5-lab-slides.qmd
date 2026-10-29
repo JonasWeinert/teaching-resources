@@ -53,11 +53,12 @@ big <- function(x) format(x, big.mark = ",")
 ```{r}
 #| label: data
 #| include: false
-# Everything below follows my202-05-lab-completed.qmd. The numbers come from the cache written by w5-compute.R.
+# Everything below follows the Week 5 notebooks (my202-05-lab-students.qmd is what students run; the line numbers on the
+# slides refer to it; my202-05-lab-completed.qmd has the same code filled in). The numbers come from the cache written by w5-compute.R.
 if (!file.exists("cache/w5-results.rds")) source("../slides/w5-compute.R")
 res <- read_rds("cache/w5-results.rds")
 
-# Part I: the PTSD data and the split (lines 31–33, 118–123)
+# Part I: the PTSD data and the split (student lines 45–47 and 107–111; solutions 32–34 and 130–135)
 ptsd <- read_csv("data/ptsd-for-knn.csv") |> mutate(ptsd = as.factor(ptsd))
 n_ptsd <- nrow(ptsd)
 prev_ptsd <- mean(ptsd$ptsd == "1")
@@ -75,7 +76,7 @@ cell_f1 <- ptsd_test |>
   mutate(pred = factor(if_else(p > 0.5, "1", "0"), levels = c("0", "1"))) |>
   f_meas(truth = ptsd, estimate = pred, event_level = "second") |>
   pull(.estimate)
-# the tutors' pre-fitted models (lines 61–77): decision boundaries for four values of k
+# the tutors' pre-fitted models (solutions lines 62–78; not in the student notebook): decision boundaries for four values of k
 knn_models <- read_rds("models/knn_models_output.R")
 bounds <- knn_models |> unnest(grid)
 cvm <- res$knn_cv_metrics
@@ -85,12 +86,12 @@ best_k <- res$knn_best$neighbors
 knn_train_f1 <- res$knn_train_f1$.estimate
 knn_test_f1 <- res$knn_test_f1$.estimate
 
-# Part II: the childcare data and the split by time (lines 257–291)
+# Part II: the childcare data and the split by year (student lines 296–310; solutions 335–351)
 childcare <- read_csv("data/childcare-costs.csv")
-childcare_train <- childcare |> filter(study_year <= 2016) |> arrange(study_year) |> mutate(study_date = as.Date(paste0(study_year, "-01-01")))
-childcare_test <- childcare |> filter(study_year > 2016) |> mutate(study_date = as.Date(paste0(study_year, "-01-01")))
+childcare_train <- childcare |> filter(study_year <= 2016)
+childcare_test <- childcare |> filter(study_year > 2016)
 n_counties <- n_distinct(childcare$county_fips_code)
-n_feat <- ncol(childcare) - 7   # minus the outcome and the six id columns
+n_feat <- ncol(childcare) - 5   # minus the outcome and the four id columns (county and state labels); the year stays in
 med_cost <- median(childcare$mcsa)
 mt <- function(m, set, metric) res[[m]] |> filter(set == {{ set }}, .metric == metric) |> pull(.estimate)
 dt_test <- mt("dt_metrics", "test", "rmse"); dt_train <- mt("dt_metrics", "train", "rmse")
@@ -99,6 +100,13 @@ xgb_test <- mt("xgb_metrics", "test", "rmse"); xgb_train <- mt("xgb_metrics", "t
 dt_rsq <- mt("dt_metrics", "test", "rsq"); rf_rsq <- mt("rf_metrics", "test", "rsq"); xgb_rsq <- mt("xgb_metrics", "test", "rsq")
 base_rmse <- sqrt(mean((childcare_test$mcsa - mean(childcare_train$mcsa))^2))
 first_split <- res$dt_rpart$splits[1, "index"]
+# the primary split of each internal node (the splits table also lists competitors and surrogates)
+dt_nodes <- res$dt_rpart$frame |> filter(var != "<leaf>")
+dt_prim <- tibble(var = as.character(dt_nodes$var),
+                  cut = res$dt_rpart$splits[cumsum(c(1, head(1 + dt_nodes$ncompete + dt_nodes$nsurrogate, -1))), "index"])
+mhi_cut <- dt_prim$cut[dt_prim$var == "mhi_2018"][1]   # the first income question in the tree
+n_leaves <- sum(res$dt_rpart$frame$var == "<leaf>")
+vars_used <- setdiff(unique(as.character(res$dt_rpart$frame$var)), "<leaf>")
 ```
 
 ```{r}
@@ -140,7 +148,149 @@ knn_step <- function(k) {
     geom_point(data = newp, shape = 23, size = 5.5, fill = "white", colour = navy, stroke = 1.8)
 }
 
-# The notebook's feature-space plot (lines 36–55): one dot per cell, coloured by the share with PTSD
+# ---- Part I intuition: London flats. A made-up list of flats put on the market: size, minutes' walk to the Tube,
+# ---- and whether they sold within a month. The new flat we want to classify is 55 m², 6 minutes from the Tube.
+library("class")
+new_flat <- tibble(size = 55, mins = 6)
+sim_flats <- function(seed) {
+  set.seed(seed)
+  tibble(size = round(runif(160, 30, 120), 1), mins = round(runif(160, 1, 25), 1)) |>
+    mutate(p = plogis(1.4 - 0.035 * (size - 60) - 0.16 * (mins - 8)),
+           sold = factor(if_else(rbinom(n(), 1, p) == 1, "yes", "no"), levels = c("no", "yes")))
+}
+flat_vote <- function(d, k) { v <- table(d$sold[seq_len(k)]); if (v["yes"] > v["no"]) "yes" else "no" }
+# pick the first seed where 1 neighbour and 15 neighbours disagree about the new flat, so k visibly matters
+for (seed in 1:300) {
+  flats <- sim_flats(seed)
+  sd_size <- sd(flats$size); sd_mins <- sd(flats$mins)
+  flats <- flats |>
+    mutate(d = sqrt(((size - new_flat$size) / sd_size)^2 + ((mins - new_flat$mins) / sd_mins)^2)) |>
+    arrange(d)
+  if (flat_vote(flats, 1) != flat_vote(flats, 15) && flat_vote(flats, 5) == flat_vote(flats, 15)) break
+}
+flats_seed <- seed
+flat_votes <- function(k) { v <- table(flats$sold[seq_len(k)]); c(yes = unname(v["yes"]), no = unname(v["no"])) }
+flat_base <- function() {
+  ggplot(flats, aes(size, mins)) +
+    coord_fixed(ratio = sd_size / sd_mins, xlim = c(28, 122), ylim = c(0, 26)) +
+    scale_colour_manual(values = c(no = "#9E9E9E", yes = red), name = "Sold within a month") +
+    theme_slide() +
+    labs(x = "Size (m²)", y = "Walk to the Tube (minutes)")
+}
+flat_step <- function(k) {
+  p <- flat_base()
+  if (k > 0) {
+    r <- flats$d[k] + 0.02
+    ell <- tibble(t = seq(0, 2 * pi, length.out = 200)) |>
+      mutate(size = new_flat$size + r * sd_size * cos(t), mins = new_flat$mins + r * sd_mins * sin(t))
+    v <- flat_votes(k)
+    p <- p + geom_polygon(data = ell, fill = navy, alpha = 0.08) +
+      geom_path(data = ell, colour = navy, linetype = "dashed") +
+      geom_point(data = slice_head(flats, n = k), aes(colour = sold), size = 6.5, shape = 21, fill = NA, stroke = 1.4, show.legend = FALSE) +
+      labs(title = paste0("k = ", k, ":  ", v["yes"], " sold, ", v["no"], " didn't  →  ", if (v["yes"] > v["no"]) "sells" else "doesn't sell"))
+  } else p <- p + labs(title = "160 flats sold last year, and a new one. Will it sell within a month?")
+  p + geom_point(aes(colour = sold), size = 2.6, alpha = 0.85) +
+    geom_point(data = new_flat, shape = 23, size = 5.5, fill = "white", colour = navy, stroke = 1.8)
+}
+# the decision boundary for a given k, in the same picture
+flat_grid <- expand_grid(size = seq(28, 122, length.out = 120), mins = seq(0, 26, length.out = 120))
+zf <- function(d) cbind((d$size - mean(flats$size)) / sd_size, (d$mins - mean(flats$mins)) / sd_mins)
+bound_step <- function(k) {
+  g <- flat_grid |> mutate(pred = knn(zf(flats), zf(flat_grid), flats$sold, k = k))
+  flat_base() +
+    geom_tile(data = g, aes(fill = pred), alpha = 0.22, show.legend = FALSE) +
+    scale_fill_manual(values = c(no = "#9E9E9E", yes = red)) +
+    geom_point(aes(colour = sold), size = 2.2, alpha = 0.9) +
+    labs(title = paste0("k = ", k))
+}
+# the trap: how each k scores on its own training flats against held-out folds
+set.seed(5)
+flat_fold <- sample(rep(1:5, length.out = nrow(flats)))
+trap <- map_dfr(c(1, 5, 50), function(k) {
+  X <- zf(flats); y <- flats$sold
+  tibble(k = k,
+         training = mean(knn(X, X, y, k = k) == y),
+         cv = mean(map_dbl(1:5, ~ mean(knn(X[flat_fold != .x, ], X[flat_fold == .x, ], y[flat_fold != .x], k = k) == y[flat_fold == .x]))))
+})
+trap_at <- function(k, m) trap[[m]][trap$k == k]
+best_trap_k <- trap$k[which.max(trap$cv)]
+
+# ---- Part II intuition: the Swiftie game (last year's DS202 game, new table). Twelve people, five facts, Swiftie or not.
+# ---- Built so that: "likes pop?" is the single best question (10 of 12); among pop fans "enjoys lyrics?" finds K;
+# ---- among the rest only "age 30 or over?" finds L (overfitting); and pop, lyrics, trends are wrong about disjoint
+# ---- people (K L / C E H / B F J), so a three-friend relay gets everyone right.
+yn <- function(x) factor(x, levels = c("no", "yes"))
+sw <- tribble(~person, ~age, ~pop, ~guitar, ~lyrics, ~trends, ~swiftie,
+  "A", 19, "yes", "no",  "yes", "yes", "yes",   "B", 27, "yes", "yes", "yes", "no",  "yes",
+  "C", 20, "no",  "yes", "yes", "no",  "no",    "D", 24, "yes", "no",  "yes", "yes", "yes",
+  "E", 22, "no",  "yes", "yes", "no",  "no",    "F", 29, "no",  "yes", "no",  "yes", "no",
+  "G", 18, "yes", "no",  "yes", "yes", "yes",   "H", 21, "no",  "no",  "yes", "no",  "no",
+  "I", 26, "yes", "yes", "yes", "yes", "yes",   "J", 25, "no",  "no",  "no",  "yes", "no",
+  "K", 23, "yes", "yes", "no",  "no",  "no",    "L", 31, "no",  "no",  "yes", "yes", "yes") |>
+  mutate(across(pop:swiftie, yn))
+sw_score <- function(g, d = sw) sum(map_int(split(d$swiftie, g, drop = TRUE), ~ max(table(.x))))   # right answers, guessing each group's majority
+sw_ages <- sort(unique(sw$age))[-1]
+sw_age_sc <- map_int(sw_ages, ~ sw_score(sw$age < .x))
+sw_age_cut <- sw_ages[which.max(sw_age_sc)]
+sw_sc <- c(pop = sw_score(sw$pop), guitar = sw_score(sw$guitar), lyrics = sw_score(sw$lyrics), trends = sw_score(sw$trends), age = max(sw_age_sc))
+sw_wrong <- function(v) sw$person[(sw[[v]] == "yes") != (sw$swiftie == "yes")]
+stopifnot(sw_sc[["pop"]] == 10, all(sw_sc[-1] < 10), identical(sw_wrong("pop"), c("K", "L")),
+          identical(sw_wrong("lyrics"), c("C", "E", "H")), identical(sw_wrong("trends"), c("B", "F", "J")))
+sw_lab <- c(age = "Age", pop = "Likes pop", guitar = "Plays guitar", lyrics = "Enjoys lyrics", trends = "Follows trends")
+yn_td <- function(x) if (x == "yes") '<td class="y">yes</td>' else '<td class="n">no</td>'
+# the table as HTML rows; on the first slide the pop fans' rows light up at the second click
+sw_rows <- function(people = sw$person, cols = c("age", "pop", "guitar", "lyrics", "trends"), mark = NULL, pick_pop = is.null(mark)) {
+  d <- filter(sw, person %in% people)
+  paste0(pmap_chr(d, function(person, ...) {
+    r <- list(...)
+    cls <- if (person %in% mark) ' class="hlrow"' else if (pick_pop && r$pop == "yes") ' class="fragment pick" data-fragment-index="2"' else ""
+    cells <- map_chr(cols, ~ if (.x == "age") paste0("<td>", r$age, "</td>") else yn_td(as.character(r[[.x]])))
+    paste0("<tr", cls, "><td><b>", person, "</b></td>", paste(cells, collapse = ""),
+           '<td class="sw-out">', if (r$swiftie == "yes") "Swiftie" else "not", "</td></tr>")
+  }), collapse = "\n")
+}
+# three friends: each sees 8 of the 12 people and 2 of the 5 facts, and plays the one-question game
+mia <- tibble(age = 22, pop = yn("no"), guitar = yn("yes"), lyrics = yn("yes"), trends = yn("yes"))
+set.seed(1)
+sw_friends <- map(1:3, function(i) {
+  rows <- sort(sample(12, 8)); cols <- sample(names(sw_lab), 2)
+  fit <- rpart(as.formula(paste("swiftie ~", paste(cols, collapse = " + "))), data = sw[rows, ],
+               control = rpart.control(minsplit = 2, minbucket = 1, cp = 0, maxdepth = 1, xval = 0))
+  v <- as.character(fit$frame$var[1]); d <- sw[rows, ]
+  if (v == "age") { cut <- ceiling(fit$splits[1, "index"]); g <- d$age >= cut; q <- paste0("Age ", cut, " or over?") }
+  else { g <- d[[v]] == "yes"; q <- paste0(sw_lab[[v]], "?") }
+  leaf <- function(side) { s <- d[g == side, ]; k <- sum(s$swiftie == "yes"); n <- nrow(s)
+    list(who = paste(s$person, collapse = " "), guess = if (k > n - k) "Swiftie" else "not", right = max(k, n - k), n = n) }
+  list(rows = sw$person[rows], cols = cols, q = q, yes = leaf(TRUE), no = leaf(FALSE),
+       vote = if (as.character(predict(fit, mia, type = "class")) == "yes") "Swiftie" else "not")
+})
+sw_votes <- map_chr(sw_friends, "vote")
+sw_forest <- names(which.max(table(sw_votes)))
+stopifnot(n_distinct(map_chr(sw_friends, "q")) == 3, n_distinct(sw_votes) == 2)
+friend_tree <- function(i) {
+  f <- sw_friends[[i]]
+  lf <- function(l, side) sprintf('<div class="leaf %s"><span class="e">%s · %s</span><b>%s</b>%d of %d right</div>',
+                                  if (l$guess == "Swiftie") "yes" else "no", side, l$who, l$guess, l$right, l$n)
+  paste0('<div><p class="tbl-cap" style="margin:0">Friend ', i, '<small style="display:block;font-size:0.8em">saw ', paste(f$rows, collapse = " "),
+         '<br>may ask: ', paste(tolower(sw_lab[f$cols]), collapse = " or "), '</small></p>',
+         '<div class="qtree" style="grid-template-columns:1fr 1fr;font-size:0.5em">',
+         '<div class="q" style="grid-column:1 / 3">', f$q, '</div>', lf(f$yes, "yes"), lf(f$no, "no"),
+         '</div><p class="tbl-cap fragment" data-fragment-index="1" style="font-size:0.55em;margin:4px 0 0">Mia: ', f$vote, '</p></div>')
+}
+# the relay table: each friend's answer, wrong ones marked, revealed one column per click
+relay_rows <- function() {
+  paste0(pmap_chr(sw, function(person, swiftie, pop, lyrics, trends, ...) {
+    truth <- swiftie == "yes"
+    cell <- function(x, idx) { ok <- (x == "yes") == truth
+      sprintf('<td class="%s%s"%s>%s %s</td>', if (idx > 0) "fragment " else "", if (ok) "ok" else "bad",
+              if (idx > 0) sprintf(' data-fragment-index="%d"', idx) else "", if (x == "yes") "Swiftie" else "not", if (ok) "✓" else "✗") }
+    votes <- (pop == "yes") + (lyrics == "yes") + (trends == "yes")
+    paste0("<tr><td><b>", person, '</b></td><td class="sw-out">', if (truth) "Swiftie" else "not", "</td>",
+           cell(pop, 0), cell(lyrics, 1), cell(trends, 2), cell(if (votes >= 2) "yes" else "no", 3), "</tr>")
+  }), collapse = "\n")
+}
+
+# The notebook's feature-space plot (student lines 49–69): one dot per cell, coloured by the share with PTSD
 space_plot <- function() {
   ggplot(ptsd_cells, aes(anxiety, acute_stress, colour = ptsd)) +
     geom_point(size = 5) +
@@ -151,7 +301,7 @@ space_plot <- function() {
     theme(panel.grid = element_blank(), legend.position = "bottom", legend.key.width = unit(1.6, "cm")) +
     labs(x = "Anxiety question", y = "Acute stress question", colour = "Share with PTSD")
 }
-# The tutors' decision boundaries (lines 63–77)
+# The tutors' decision boundaries (solutions lines 64–78)
 bounds_plot <- function(ks = c(100, 200, 500, 1000)) {
   bounds |>
     filter(k %in% ks) |>
@@ -169,7 +319,7 @@ bounds_plot <- function(ks = c(100, 200, 500, 1000)) {
     theme(panel.grid = element_blank(), legend.position = "bottom", strip.text = element_text(face = "bold", size = 13)) +
     labs(x = "Anxiety", y = "Acute stress")
 }
-# The cross-validated metrics (Part I exercise, lines 181–195)
+# The cross-validated metrics (Part I exercise, student lines 158–172)
 cv_plot <- function() {
   cvm |>
     mutate(neighbors = as.factor(neighbors),
@@ -270,82 +420,26 @@ boost_step <- function(k) {
 ::: {.small-table}
 | Part | Topic | Functions | Mode | Time |
 |---|---|---|---|---|
-| | Setup and two warm-up questions | | together | 5 min |
-| I | *k* nearest neighbours and cross-validation | `vfold_cv()`, `tune()`, `recipe()`, `workflow()`, `tune_grid()`, `select_best()` | concept, together, then your turn | 38 min |
-| II | Decision trees, random forests, boosting | `sliding_period()`, `decision_tree()`, `rand_forest()`, `boost_tree()`, `rpart.plot()` | concept, together, then your turn | 40 min |
-| | Wrap-up (+ 3 min spare) | | | 4 min |
+| | Setup | | together | 3 min |
+| I | *k* nearest neighbours and cross-validation | `vfold_cv()`, `tune()`, `recipe()`, `workflow()`, `tune_grid()`, `select_best()` | concept → together, twice, then your turn | 37 min |
+| II | A tree, then a forest, then boosting: each a game, code together, your turn | `decision_tree()`, `rpart.plot()`, `rand_forest()`, `boost_tree()` | game → together → your turn, three times | 46 min |
+| | Wrap-up (+ 1 min spare) | | | 3 min |
 :::
 
 ::: {.source-note}
-**Together**: we type the code into the notebook, the slide explains each piece, and the line number says where. **Your turn**: a timer, tasks and an annotated syntax sheet, then the solutions step by step.
+Every block runs the same way: **a concept** with an everyday example, then **code together** (we type it into the notebook; the line number says where), then **your turn** (a timer, tasks and a syntax sheet, then the solutions step by step).
 :::
 
 ::: {.notes}
-Timing (90 minutes): setup and warm-up 5, Part I 38 (data and concept 10, code together 12, exercise 16), Part II 40 (data 2, concept 10, code together 5, two exercises 23), wrap-up 4, 3 minutes spare. Checkpoints: Part I by 0:05, the Part I exercise by 0:27, Part II by 0:43, the Task 1 exercise by 1:00, the Tasks 2–4 exercise by 1:10, wrap-up by 1:23. If behind, skip in this order: warm-up 1 (1 min), the boosting visual (say it in one sentence on the XGBoost card, 2 min), the "while it runs" question (1 min), then shorten the Tasks 2–4 timer from 9 to 7.
+Timing (90 minutes): setup 3, Part I 37 (data 3, kNN concept 8, choosing k 5, code together 9 with the wait, exercise 6, solutions 3, debrief 3), Part II 46 (data and split 3; tree: game 8, together 2½, Task 1 5 + solutions 3; forest: game 3½, together 1½, Task 2 4 + solutions 1; boosting: game 4½, together 1½, Tasks 3–4 6 + solutions 2; debrief 2), wrap-up 3, 1 minute spare. Checkpoints: Part I code by 0:23, Part II by 0:40, Task 1 by 1:00, Task 2 by 1:10, Tasks 3–4 by 1:22. If behind, skip in this order: the "while it runs" question (1 min), "A forest, with prices" (1½), "Boosting, with prices" (1½), the Part I debrief (2), then shorten the Tasks 3–4 timer to 5.
+
+Every block follows the notebook and runs concept → code together → your turn. Part I: the estate agent's comparables (kNN), the trap and mock exams (choosing k), then the split, folds and model together; why normalise, then the recipe and tuning together; then the exercise. Part II plays last year's Swiftie game three ways on one table: one tree (the cleanest question, then again inside each group, and the Swiftie who isn't a pop fan), a forest (three friends who each saw part of the table, voting) and boosting (a relay, each friend aimed at the last one's mistakes). Each game is followed by the same idea on the childcare prices, the code together, and the matching task.
 
 How the split was decided: the tidymodels machinery is all new this week (folds, `tune()`, recipes, workflows, `tune_grid()`), so Part I's set-up is **together**, piece by piece, and the exercise starts where students have the tools: reading `collect_metrics()`, plotting, `select_best()`, and last week's `augment()` + `f_meas()`. In Part II the three models reuse the same spec–workflow–fit pattern with a different model function each time, so Tasks 1–4 are **your turn** with a syntax sheet; only the split by time and the recipe with `update_role()` are new, and those are together.
 
 - Last week we fitted one model, logistic regression, and spent the lab deciding whether it was any good. This week: two new kinds of model, and a method for choosing between settings of a model without touching the test set.
-- Open the Week 5 notebook on Nuvolos and run the library chunk (lines 12–22) now. Two of the packages, `kknn` and `xgboost`, are new.
-:::
-
-# Tuning {.divider background-color="#8C0014"}
-
-::: {.kicker}
-Warm-up
-:::
-
-Two questions · settings you choose, and how to choose them
-
-## Warm-up 1 of 2
-
-```{=html}
-<div class="tracker"><span class="on">Warm-up</span><span>I · kNN + CV</span><span>II · Trees</span><span>Wrap-up</span></div>
-```
-
-::: {.ask}
-In Lab 3 the lasso had a `penalty` (λ). Who decided its value?
-:::
-
-```{=html}
-<div class="mcq">
-  <div class="opt"><b>A</b><code>fit()</code> estimated it from the data, like a coefficient</div>
-  <div class="opt right"><b>B</b>We did, before fitting: the data can't tell <code>fit()</code> what λ should be</div>
-  <div class="opt"><b>C</b>It's always 0.1</div>
-  <div class="opt"><b>D</b>I don't remember</div>
-  <div class="fragment why"><b>B.</b> λ is a <strong>hyperparameter</strong>: a knob on the outside of the machine. We tried a few values by hand in Lab 3. Today's models have knobs too (the number of neighbours, the number of trees), and today R turns them for us.</div>
-</div>
-```
-
-::: {.notes}
-Timing: two questions, one minute each. Hands up for each option, then click to reveal.
-
-- Gauge: retrieval from Lab 3's "parameters and hyperparameters" slide. If many pick A, spend an extra sentence on the `tune()` slide: tune() is the placeholder for exactly these knobs.
-:::
-
-## Warm-up 2 of 2
-
-```{=html}
-<div class="tracker"><span class="on">Warm-up</span><span>I · kNN + CV</span><span>II · Trees</span><span>Wrap-up</span></div>
-```
-
-::: {.ask}
-You try 7 values of a knob, score each on the **test set**, keep the best, and report its test score. What's wrong?
-:::
-
-```{=html}
-<div class="mcq">
-  <div class="opt"><b>A</b>Nothing: that's what the test set is for</div>
-  <div class="opt"><b>B</b>7 values is too few</div>
-  <div class="opt right"><b>C</b>The test set helped choose the winner, so its score is no longer a fresh exam: it flatters</div>
-  <div class="opt"><b>D</b>You should score on the training set instead</div>
-  <div class="fragment why"><b>C.</b> Pick the best of 7 on the test set and you've used the test set for training decisions. The fix is to choose on the training data only, by <strong>cross-validation</strong>, and open the test set once, at the end. That's Part I.</div>
-</div>
-```
-
-::: {.notes}
-- Gauge: D is the Lab 4 instinct turned the wrong way. If many pick A, the folds slide needs the full 3 minutes.
-- This is the organising idea of the day: three sets of rows with three jobs. Training rows fit; held-out folds of the training rows choose the knob; test rows judge once.
+- Open the Week 5 student workbook on Nuvolos and run the library chunk (lines 27–36) now. `ranger` and `xgboost` are new; `kknn`, which the kNN engine needs, is not in the chunk and loads by itself when the model is fitted, as long as it is installed.
+- The running examples: London flats for Part I, the Swiftie game for Part II.
 :::
 
 # *k* nearest neighbours {.divider background-color="#8C0014"}
@@ -359,11 +453,11 @@ Part I
 ## Meet the data: a feature space
 
 ```{=html}
-<div class="tracker"><span class="done">Warm-up</span><span class="on">I · kNN + CV</span><span>II · Trees</span><span>Wrap-up</span></div>
+<div class="tracker"><span class="on">I · kNN + CV</span><span>II · Trees</span><span>Forests</span><span>Boosting</span><span>Wrap-up</span></div>
 ```
 
 ```{=html}
-<p class="nbref"><b>Notebook</b> lines 30–56 <span><code>read_csv()</code>, then the plot of the feature space</span><i>run together</i></p>
+<p class="nbref"><b>Notebook</b> lines 44–70 <span><code>read_csv()</code>, then the plot of the feature space</span><i>run together</i></p>
 ```
 
 :::: {.columns style="align-items:start"}
@@ -400,80 +494,63 @@ Where would you draw the line between "yes" and "no"?
 ::::
 
 ::: {.notes}
-Timing: Part I is 38 minutes: this slide 3, the kNN concept 7, code together 12, the exercise 7 plus solutions 4 plus debrief 5.
+Timing: Part I is 41 minutes: this slide 3, the intuition block 14, code together 11, the exercise 6 plus solutions 3 plus debrief 4.
 
-- Run lines 30–56. The plot has a `group_by() |> summarise()` before the ggplot: one row per cell, with the share of that cell who have PTSD. It's a Lab 2 plot with a colour scale.
-- Bottom-left, nobody has PTSD; top-right, most do. In between it's gradual, and no straight line separates them cleanly. That's the "classroom discussion" in the notebook: ask for a boundary, get three different answers, then: every algorithm draws a boundary; they differ in how.
+- Run lines 44–70. The plot has a `group_by() |> summarise()` before the ggplot: one row per cell, with the share of that cell who have PTSD. It's a Lab 2 plot with a colour scale.
+- Bottom-left, nobody has PTSD; top-right, most do. In between it's gradual, and no straight line separates them cleanly. That's the "classroom discussion" in the notebook: ask for a boundary, get three different answers, then: every algorithm draws a boundary; they differ in how. Park the data here and go to the flats; we come back to this plot after cross-validation.
 - The paper behind the data (Garibay-Rubio et al. 2024) used many more questions; the lab keeps two so the space can be drawn.
 :::
 
-## *k* nearest neighbours: the neighbours vote
+## How does an estate agent price a flat?
 
 ```{=html}
-<div class="tracker"><span class="done">Warm-up</span><span class="on">I · kNN + CV</span><span>II · Trees</span><span>Wrap-up</span></div>
+<div class="tracker"><span class="on">I · kNN + CV</span><span>II · Trees</span><span>Forests</span><span>Boosting</span><span>Wrap-up</span></div>
 ```
 
 :::: {.columns style="align-items:start"}
 
-::: {.column width="54%"}
-::: {.r-stack}
-```{r}
-#| echo: false
-#| fig-width: 6
-#| fig-height: 3.4
-knn_step(0)
-```
-
-::: {.fragment fragment-index=1}
-```{r}
-#| echo: false
-#| fig-width: 6
-#| fig-height: 3.4
-knn_step(1)
-```
-:::
-
-::: {.fragment fragment-index=2}
-```{r}
-#| echo: false
-#| fig-width: 6
-#| fig-height: 3.4
-knn_step(5)
+::: {.column width="52%"}
+```{=html}
+<table class="mini" style="font-size:0.54em">
+<tr><th>Flat</th><th>Size (m²)</th><th>Walk to Tube</th><th>Sold within a month?</th></tr>
+<tr class="fragment pick" data-fragment-index="1"><td>A</td><td>58</td><td>5 min</td><td>yes</td></tr>
+<tr class="fragment pick" data-fragment-index="1"><td>B</td><td>52</td><td>8 min</td><td>yes</td></tr>
+<tr class="fragment pick" data-fragment-index="1"><td>C</td><td>61</td><td>7 min</td><td>no</td></tr>
+<tr class="fragment pick" data-fragment-index="1"><td>D</td><td>50</td><td>4 min</td><td>yes</td></tr>
+<tr class="fragment pick" data-fragment-index="1"><td>E</td><td>57</td><td>9 min</td><td>no</td></tr>
+<tr><td>F</td><td>95</td><td>6 min</td><td>no</td></tr>
+<tr><td>G</td><td>55</td><td>20 min</td><td>no</td></tr>
+<tr><td>H</td><td>40</td><td>15 min</td><td>yes</td></tr>
+<tr><td class="new">New flat</td><td class="new">55</td><td class="new">6 min</td><td class="new">?</td></tr>
+</table>
 ```
 :::
 
-::: {.fragment fragment-index=3}
-```{r}
-#| echo: false
-#| fig-width: 6
-#| fig-height: 3.4
-knn_step(15)
-```
+::: {.column width="48%"}
+::: {.ask}
+55 m², six minutes from the Tube: will it sell within a month? You have last year's sales.
 :::
-:::
-:::
-
-::: {.column width="46%"}
-No equation, no coefficients: the ***k* people most like** the new one vote.
 
 ::: {.fragment fragment-index=1}
 ::: {.card .compact}
-[Most like = closest]{.ct}
-Distance in the feature space. A feature with a bigger range would decide everything, so **normalise** first: that's the `recipe()` later.
+[Find the most similar flats]{.ct}
+The agent pulls the **comparables**, the sales most like this one: A to E. F is far bigger, G and H far from the Tube.
 :::
 :::
 
 ::: {.fragment fragment-index=2}
-::: {.card .compact .line}
-[The vote]{.ct}
-Majority wins. The share voting yes is `.pred_1`, as last week.
-:::
+```{=html}
+<div class="calc sm" style="margin-top:0.4em">
+  <div><span class="cl">5 most similar</span><span class="cx">A, B, C, D, E</span></div>
+  <div class="hl"><span class="cl">Their vote</span><span class="cx">3 sold, 2 didn't → <b>sells</b></span></div>
+</div>
+```
 :::
 
 ::: {.fragment fragment-index=3}
 ::: {.card .compact .dark}
-[k is yours to choose]{.ct}
-1 neighbour says no, 5 say yes, 15 say no. **k is a hyperparameter.** Which k is right?
+[That is the whole algorithm]{.ct}
+***k* nearest neighbours**: the *k* most similar rows vote. Here k = 5.
 :::
 :::
 :::
@@ -481,21 +558,167 @@ Majority wins. The share voting yes is `.pred_1`, as last week.
 ::::
 
 ::: {.notes}
-Timing: 2 minutes. A made-up cloud of people; grey = no, red = yes; the diamond is a new person.
+Timing: the Part I intuition block is 14 minutes across this slide and the next six: the agent 3, the vote 2, normalising 1, the boundary 2, the trap 2, cross-validation 3, back to PTSD 1.
 
-- Click: one neighbour. The nearest person says "no". Click: five, and the vote flips to yes. Click: fifteen, and it flips back. Same data, same new person, three different answers: k matters.
-- There is no fitting in the usual sense: the "model" is the training data itself. Predicting means searching it, which is why the tuning takes a while later.
-- The recipe's step_normalize() is the only pre-processing: both features on the same scale so that the distance is fair.
+- Ask the room first and wait. Someone will say "look at similar flats that sold". That's the algorithm; the rest is details.
+- Click: the five comparables. Click: they vote 3–2. Click: name it. Students have just run k nearest neighbours by hand.
+- Ask: what if we only looked at the single most similar flat, A? It sold, so "sells". Same answer here; next slide shows that it needn't be.
 :::
 
-## The boundary depends on *k*
+## *k* nearest neighbours: the neighbours vote
 
 ```{=html}
-<div class="tracker"><span class="done">Warm-up</span><span class="on">I · kNN + CV</span><span>II · Trees</span><span>Wrap-up</span></div>
+<div class="tracker"><span class="on">I · kNN + CV</span><span>II · Trees</span><span>Forests</span><span>Boosting</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="56%"}
+::: {.r-stack}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.1
+flat_step(0)
+```
+
+::: {.fragment fragment-index=1}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.1
+flat_step(1)
+```
+:::
+
+::: {.fragment fragment-index=2}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.1
+flat_step(5)
+```
+:::
+
+::: {.fragment fragment-index=3}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.1
+flat_step(15)
+```
+:::
+:::
+:::
+
+::: {.column width="44%"}
+160 flats: each a dot; the diamond is the new one.
+
+::: {.fragment fragment-index=1}
+::: {.card .compact}
+[k = 1: the single most similar]{.ct}
+One flat decides. Fast, and at the mercy of one odd sale.
+:::
+:::
+
+::: {.fragment fragment-index=2}
+::: {.card .compact .line}
+[k = 5, k = 15: a wider circle]{.ct}
+Steadier. Here the answer **flips** between k = 1 and k = 15: same flat, different prediction.
+:::
+:::
+
+::: {.fragment fragment-index=3}
+::: {.card .compact .dark}
+[k is a hyperparameter]{.ct}
+The data can't say what k should be. Like λ in Lab 3, **we** choose it.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+- Grey = didn't sell within a month, red = did. Click: the nearest flat alone. Click: five. Click: fifteen. The vote changes, so k matters.
+- The circle is "distance in the feature space": the sold flats that are close in size and close to the Tube. The share voting yes is the probability, `.pred_1`, as last week.
+- There is no fitting in the usual sense: the model is the training data itself. Predicting means searching it, which is why the tuning takes a while later.
+:::
+
+## The boundary depends on k
+
+```{=html}
+<div class="tracker"><span class="on">I · kNN + CV</span><span>II · Trees</span><span>Forests</span><span>Boosting</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="58%"}
+::: {.r-stack}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.1
+bound_step(1)
+```
+
+::: {.fragment fragment-index=1}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.1
+bound_step(5)
+```
+:::
+
+::: {.fragment fragment-index=2}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.1
+bound_step(50)
+```
+:::
+:::
+:::
+
+::: {.column width="42%"}
+Colour every point by its vote: the **decision boundary**.
+
+::: {.card .compact}
+[k = 1: an island for every flat]{.ct}
+Every training flat is classified right, and every odd sale becomes a rule.
+:::
+
+::: {.fragment fragment-index=1}
+::: {.card .compact .line}
+[k = 5, k = 50: smoother]{.ct}
+More voters average the oddities away; at k = 160 the whole picture is the majority colour.
+:::
+:::
+
+::: {.fragment fragment-index=2}
+::: {.card .compact .dark}
+[Which k is right?]{.ct}
+Not the picture's call: we need a **score** per k.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+- Click through k = 1, 5, 50. The jagged map at k = 1 is overfitting you can see: it has memorised the training flats, islands and all.
+- Last year's version of this used two clusters and k = 1 against k = 60; the point is the same.
+:::
+
+## Back to the PTSD data: the boundary depends on k
+
+```{=html}
+<div class="tracker"><span class="on">I · kNN + CV</span><span>II · Trees</span><span>Forests</span><span>Boosting</span><span>Wrap-up</span></div>
 ```
 
 ```{=html}
-<p class="nbref"><b>Notebook</b> lines 60–78 <span>"for tutors to run": four kNN models fitted in advance</span><i>demo</i></p>
+<p class="nbref"><b>Solutions notebook</b> lines 61–79 <span>"for tutors to run": four kNN models fitted in advance; not in the student workbook</span><i>demo</i></p>
 ```
 
 ```{r}
@@ -506,66 +729,124 @@ bounds_plot()
 ```
 
 ::: {.cards .c3 style="margin-top:0.2em"}
-::: {.fragment}
 ::: {.card .compact}
-[Small k: jagged]{.ct}
-With k = 100 and `r round(mean(ptsd_cells$n))` people per cell, the neighbours are mostly your **own cell**. The boundary follows each cell's quirks, and here it barely finds the "yes" region at all.
+[Same picture, real data]{.ct}
+Anxiety and acute stress instead of size and minutes; shaded = predicted PTSD. Every dot is a cell of about `r round(mean(ptsd_cells$n))` people.
 :::
+::: {.card .compact .line}
+[Small k, jagged; large k, smooth]{.ct}
+k = 100 can't see past its own cell and barely finds the "yes" region. k = 1,000 draws a broad diagonal band: high anxiety **and** high stress.
 :::
-::: {.fragment}
-::: {.card .compact}
-[Large k: smooth]{.ct}
-k = 1,000 pools several cells. The boundary is a broad diagonal band: "high anxiety **and** high stress".
-:::
-:::
-::: {.fragment}
 ::: {.card .compact .dark}
-[Which is right?]{.ct}
-Not the picture's call. We need a **score for each k**, computed without touching the test set.
-:::
+[Which k, then?]{.ct}
+The picture can't say. We need a **fair score** for each k: next.
 :::
 :::
 
 ::: {.notes}
-Timing: 2 minutes. These four models were fitted by the course team and saved; the notebook reads them from `models/knn_models_output.R` (line 61), so students don't wait for them. Shaded = predicted "yes".
+Timing: 1 minute. These four models were fitted by the course team and saved; the solutions notebook reads them from `models/knn_models_output.R` (line 62), so students don't wait for them. The chunk is not in the student workbook: show it from the slide.
 
-- Left to right: k grows and the blue region grows into a smooth band. At k = 100 the shaded cells are the three top-right corners only: a quirk of ties, see the lesson plan, but the picture of "too few neighbours" is right.
-- Too large a k would shade nothing or everything: with k = 33,000 every person has the same neighbours, the whole sample, and the vote is always "no" (66%). Somewhere in between is a sweet spot.
+- At k = 100 the shaded cells are the three top-right corners only: a quirk of ties on this integer grid (see the lesson plan), but the picture of "too few neighbours" is right.
 :::
 
-## Choosing *k* without the test set: cross-validation {.nostretch}
+## Choosing k: the trap
 
 ```{=html}
-<div class="tracker"><span class="done">Warm-up</span><span class="on">I · kNN + CV</span><span>II · Trees</span><span>Wrap-up</span></div>
+<div class="tracker"><span class="on">I · kNN + CV</span><span>II · Trees</span><span>Forests</span><span>Boosting</span><span>Wrap-up</span></div>
+```
+
+::: {.ask}
+Obvious plan: try every k, score each on the 160 flats, keep the best. What goes wrong?
+:::
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="50%"}
+```{=html}
+<p class="tbl-cap">Accuracy on the 160 training flats <small>share of flats classified right</small></p>
+<div class="bars">
+  <div><span>k = 1</span><i class="hot" style="width:`r round(100 * trap_at(1, "training"))`%"></i><b>`r round(100 * trap_at(1, "training"))`%</b></div>
+  <div><span>k = 5</span><i style="width:`r round(100 * trap_at(5, "training"))`%"></i><b>`r round(100 * trap_at(5, "training"))`%</b></div>
+  <div><span>k = 50</span><i style="width:`r round(100 * trap_at(50, "training"))`%"></i><b>`r round(100 * trap_at(50, "training"))`%</b></div>
+</div>
+```
+
+::: {.fragment fragment-index=2}
+```{=html}
+<p class="tbl-cap" style="margin-top:0.6em">Accuracy on flats held out of the fit <small>5-fold cross-validation, next slide</small></p>
+<div class="bars">
+  <div><span>k = 1</span><i style="width:`r round(100 * trap_at(1, "cv"))`%"></i><b>`r round(100 * trap_at(1, "cv"))`%</b></div>
+  <div><span>k = 5</span><i style="width:`r round(100 * trap_at(5, "cv"))`%"></i><b>`r round(100 * trap_at(5, "cv"))`%</b></div>
+  <div><span>k = 50</span><i class="hot" style="width:`r round(100 * trap_at(50, "cv"))`%"></i><b>`r round(100 * trap_at(50, "cv"))`%</b></div>
+</div>
+```
+:::
+:::
+
+::: {.column width="50%"}
+::: {.fragment fragment-index=1}
+::: {.card .compact .dark}
+[k = 1 always wins, and it's a lie]{.ct}
+Each flat's nearest neighbour is **itself**, so k = 1 gets every training flat right. The training score rewards memorising.
+:::
+:::
+
+::: {.fragment fragment-index=1}
+::: {.card .compact}
+[The test set can't choose either]{.ct}
+Last week's rule: the test set is the final exam, opened once. Use it to pick k and its score is no longer honest.
+:::
+:::
+
+::: {.fragment fragment-index=2}
+::: {.card .compact .line}
+[Score on flats the fit never saw]{.ct}
+Hold some training flats back, fit on the rest, score on the held-out ones. Now k = 1 is exposed and k = `r best_trap_k` wins.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+- Take an answer. The trap is the same as Lab 3's: a model flatters itself on the rows it was fitted on, and k = 1 is the extreme case, because the nearest neighbour of a training point is the point itself.
+- Click: the two cards. Click: the honest scores, from holding flats back. The ranking reverses.
+- "Held out" is the whole idea of cross-validation. Next slide makes it systematic.
+:::
+
+## Cross-validation: mock exams {.nostretch}
+
+```{=html}
+<div class="tracker"><span class="on">I · kNN + CV</span><span>II · Trees</span><span>Forests</span><span>Boosting</span><span>Wrap-up</span></div>
 ```
 
 ```{=html}
 <div class="folds" style="--n:5">
-  <div class="row head"><span class="lab"></span><i>fold 1</i><i>fold 2</i><i>fold 3</i><i>fold 4</i><i>fold 5</i><span class="sc">F1 for this k</span></div>
-  <div class="row fragment" data-fragment-index="1"><span class="lab">Round 1</span><i class="hold">test</i><i>fit</i><i>fit</i><i>fit</i><i>fit</i><span class="sc">score 1</span></div>
-  <div class="row fragment" data-fragment-index="2"><span class="lab">Round 2</span><i>fit</i><i class="hold">test</i><i>fit</i><i>fit</i><i>fit</i><span class="sc">score 2</span></div>
-  <div class="row fragment" data-fragment-index="2"><span class="lab">Round 3</span><i>fit</i><i>fit</i><i class="hold">test</i><i>fit</i><i>fit</i><span class="sc">score 3</span></div>
-  <div class="row fragment" data-fragment-index="2"><span class="lab">Round 4</span><i>fit</i><i>fit</i><i>fit</i><i class="hold">test</i><i>fit</i><span class="sc">score 4</span></div>
-  <div class="row fragment" data-fragment-index="2"><span class="lab">Round 5</span><i>fit</i><i>fit</i><i>fit</i><i>fit</i><i class="hold">test</i><span class="sc">score 5</span></div>
+  <div class="row head"><span class="lab"></span><i>fold 1</i><i>fold 2</i><i>fold 3</i><i>fold 4</i><i>fold 5</i><span class="sc">score for this k</span></div>
+  <div class="row fragment" data-fragment-index="1"><span class="lab">Round 1</span><i class="hold">mock</i><i>fit</i><i>fit</i><i>fit</i><i>fit</i><span class="sc">score 1</span></div>
+  <div class="row fragment" data-fragment-index="2"><span class="lab">Round 2</span><i>fit</i><i class="hold">mock</i><i>fit</i><i>fit</i><i>fit</i><span class="sc">score 2</span></div>
+  <div class="row fragment" data-fragment-index="2"><span class="lab">Round 3</span><i>fit</i><i>fit</i><i class="hold">mock</i><i>fit</i><i>fit</i><span class="sc">score 3</span></div>
+  <div class="row fragment" data-fragment-index="2"><span class="lab">Round 4</span><i>fit</i><i>fit</i><i>fit</i><i class="hold">mock</i><i>fit</i><span class="sc">score 4</span></div>
+  <div class="row fragment" data-fragment-index="2"><span class="lab">Round 5</span><i>fit</i><i>fit</i><i>fit</i><i>fit</i><i class="hold">mock</i><span class="sc">score 5</span></div>
   <div class="row sum fragment" data-fragment-index="3"><span class="lab"></span><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><span class="sc">mean of the 5</span></div>
 </div>
 ```
 
 ::: {.cards .c3 style="margin-top:0.5em"}
 ::: {.card .compact}
-[The training set, cut into 5 folds]{.ct}
-`vfold_cv(ptsd_train, v = 5)`. The **test set is not in the picture**: it stays sealed until the very end.
+[Five past papers]{.ct}
+Cut the **training set** into 5 folds, `vfold_cv(ptsd_train, v = 5)`. The test set is not in the picture: it's the real exam, sealed until the end.
 :::
 ::: {.fragment fragment-index=2}
 ::: {.card .compact .line}
-[Five rounds]{.ct}
-Each round fits on 4 folds and scores on the 5th. Every row is held out exactly once. Five "mini test sets", none of them the real one.
+[Revise on four, sit the fifth as a mock]{.ct}
+Each round fits on 4 folds and scores the 5th. Rotate, so every row is a mock question once. Five honest scores, none from the real exam.
 :::
 :::
 ::: {.fragment fragment-index=3}
 ::: {.card .compact .dark}
-[One number per k]{.ct}
-Average the five scores. Repeat for every k on the list; keep the k with the best average. Then, once, the test set.
+[Average, then pick]{.ct}
+One mean score per k. Repeat for every k on the list, keep the best, refit once on all five folds. Then, once, the test set.
 :::
 :::
 :::
@@ -573,20 +854,21 @@ Average the five scores. Repeat for every k on the list; keep the k with the bes
 ::: {.notes}
 Timing: 3 minutes. This is the slide to get right; everything in the code block implements it.
 
-- Click: round one, fold 1 is the mini test set. Click: the other four rounds. Click: the mean. That mean is what `collect_metrics()` reports as `mean`, with `n = 5` and a standard error.
-- Why not just one held-out piece? One split is noisy: it depends on which rows landed where. Five scores averaged are steadier, and every row gets to be tested.
+- Mock exams: you don't learn how well you'll do by re-reading the papers you revised from. You hold one back, sit it cold, and rotate.
+- Click: round one. Click: the other four. Click: the mean. That mean is what `collect_metrics()` reports as `mean`, with `n = 5` and a standard error.
+- Why five rounds and not one? One held-out piece is noisy: it depends on which rows landed there. Five scores averaged are steadier, and every row gets tested.
 - Cost: 5 fits per candidate k. 4 candidates today, so 20 fits before the final one.
-- "k-fold" uses k for the number of folds in textbooks; today k is the number of neighbours and v (`v = 5`) is the number of folds. Say it once to avoid the mix-up.
+- "k-fold" uses k for the number of folds in textbooks; today k is the number of neighbours and v (`v = 5`) is the number of folds. Say it once.
 :::
 
 ## Split and folds
 
 ```{=html}
-<div class="tracker"><span class="done">Warm-up</span><span class="on">I · kNN + CV</span><span>II · Trees</span><span>Wrap-up</span></div>
+<div class="tracker"><span class="on">I · kNN + CV</span><span>II · Trees</span><span>Forests</span><span>Boosting</span><span>Wrap-up</span></div>
 ```
 
 ```{=html}
-<p class="nbref"><b>Notebook</b> lines 116–126 <span>the split, then the folds</span><i>code together</i></p>
+<p class="nbref"><b>Notebook</b> lines 107–111 <span>an empty chunk: type the split, then the folds</span><i>code together</i></p>
 ```
 
 :::: {.columns style="align-items:start"}
@@ -603,7 +885,7 @@ ptsd_cv</p>
 ```
 
 1. **Last week's split**, stratified on the outcome so both sets have `r round(100 * prev_ptsd)`% with PTSD.
-2. **Cut the training set into folds.** The test set is not involved.
+2. **Cut the training set into folds**: the five past papers. The test set is not involved.
 3. **Five of them.** `v`, not `k`: *k* is taken by the neighbours today.
 :::
 :::
@@ -623,54 +905,142 @@ Five rows, one per round: `r big(res$ptsd_cv_sizes$analysis[1])` rows to fit on,
 ::::
 
 ::: {.notes}
-Code together, 12 minutes for this slide and the next two, plus the time tune_grid() runs.
+Code together, 2 minutes. The folds are the mock exams from two slides ago, made real.
 
 - The first four lines of the chunk are Lab 4. The one new line is vfold_cv(). The printout shows the five rounds from the previous slide as five rows.
 :::
 
-## Model, recipe, workflow
+## The model: leave k open
 
 ```{=html}
-<div class="tracker"><span class="done">Warm-up</span><span class="on">I · kNN + CV</span><span>II · Trees</span><span>Wrap-up</span></div>
+<div class="tracker"><span class="on">I · kNN + CV</span><span>II · Trees</span><span>Forests</span><span>Boosting</span><span>Wrap-up</span></div>
 ```
 
 ```{=html}
-<p class="nbref"><b>Notebook</b> lines 130–150 <span>the model at line 132, the recipe at 142, the workflow at 146</span><i>code together</i></p>
+<p class="nbref"><b>Notebook</b> lines 113–119 <span>the empty chunk under "Instantiate k-NN model"</span><i>code together</i></p>
 ```
 
 ::: {.anatomy}
 ```{=html}
-<p class="anat-code" style="font-size:0.5em">knn_model &lt;- <span class="tok">nearest_neighbor(</span>neighbors = <span class="tok">tune()</span>) |&gt;
-  <span class="tok">set_mode("classification")</span> |&gt; set_engine("kknn")
+<p class="anat-code" style="font-size:0.62em">knn_model &lt;-
+  <span class="tok">nearest_neighbor(</span>neighbors = <span class="tok">tune()</span>) |&gt;
+  <span class="tok">set_mode("classification")</span> |&gt;
+  <span class="tok">set_engine("kknn")</span></p>
+```
 
-knn_rec &lt;- <span class="tok">recipe(ptsd ~ ., data = ptsd_train)</span> |&gt;
+1. **Which kind of model**, like `linear_reg()` and `logistic_reg()`.
+2. **A placeholder for k**: "cross-validation will fill this in". The knob from the boundary slide.
+3. **Say the job.** kNN can classify (a vote) or predict a number (an average).
+4. **The engine**: the `kknn` package finds the neighbours. It loads itself when the model is fitted.
+:::
+
+::: {.cards .c2 style="margin-top:0.5em"}
+::: {.card .compact}
+[Nothing is fitted yet]{.ct}
+`knn_model` is a description, not a model. Print it: "neighbors = tune()".
+:::
+::: {.card .compact .line}
+[Next: one more idea before the recipe]{.ct}
+kNN measures distances. Distances in what units?
+:::
+:::
+
+::: {.notes}
+Code together, 1½ minutes. Type the three lines into the empty chunk.
+
+- `tune()` is the new idea: instead of a number, a marker that says "try several values, pick by cross-validation". Everything else is last week's spec pattern.
+:::
+
+## Why normalise? Units decide who is close
+
+```{=html}
+<div class="tracker"><span class="on">I · kNN + CV</span><span>II · Trees</span><span>Forests</span><span>Boosting</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> line 123 <span>"You will need to normalise both predictors as k-NN uses distances." Why?</span><i>concept</i></p>
+```
+
+::: {.ask}
+Flat F is the same distance from the Tube but 40 m² bigger. Flat G is the same size but 14 minutes further. Which is more similar to the new flat?
+:::
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="58%"}
+```{=html}
+<div class="calc sm">
+  <div><span class="cl">m² and minutes</span><span class="cx">F: 40 · G: 14 <small>G is "closer"</small></span></div>
+  <div class="fragment" data-fragment-index="1"><span class="cl">ft² and minutes</span><span class="cx">F: 431 · G: 14 <small>G, by a mile</small></span></div>
+  <div class="fragment" data-fragment-index="1"><span class="cl">m² and seconds</span><span class="cx">F: 40 · G: 840 <small>now F is closer</small></span></div>
+  <div class="fragment hl" data-fragment-index="2"><span class="cl">In standard deviations</span><span class="cx">F: 40 / `r round(sd_size)` = `r f1(40 / sd_size)` · G: 14 / `r f1(sd_mins)` = `r f1(14 / sd_mins)` <small>F is closer</small></span></div>
+</div>
+```
+:::
+
+::: {.column width="42%"}
+::: {.fragment fragment-index=1}
+::: {.card .compact .dark}
+[The answer depends on the units]{.ct}
+Distance adds the two gaps together, so whichever feature has the bigger numbers wins. That can't be right.
+:::
+:::
+
+::: {.fragment fragment-index=2}
+::: {.card .compact}
+[So measure every feature in SDs]{.ct}
+Subtract the mean, divide by the standard deviation: "how unusual is this gap?" That's `step_normalize()` in the recipe, and it's why kNN needs one.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+- Take a vote first. Then click: change the units and the answer changes. Nothing about the flats changed.
+- Standardising puts both features on the same footing: a 40 m² gap is 1.5 SDs of size, a 14-minute gap is 2.1 SDs of walking time. In those units F is the closer flat.
+- Trees don't need this (a question like "size below 60?" doesn't care about units); anything distance-based does.
+:::
+
+## Recipe and workflow
+
+```{=html}
+<div class="tracker"><span class="on">I · kNN + CV</span><span>II · Trees</span><span>Forests</span><span>Boosting</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 121–129 <span>the note at line 123 says why: "k-NN uses distances"</span><i>code together</i></p>
+```
+
+::: {.anatomy}
+```{=html}
+<p class="anat-code" style="font-size:0.62em">knn_rec &lt;- <span class="tok">recipe(ptsd ~ ., data = ptsd_train)</span> |&gt;
   <span class="tok">step_normalize(all_numeric_predictors())</span>
 
 wf_knn &lt;- <span class="tok">workflow()</span> |&gt; add_model(knn_model) |&gt; add_recipe(knn_rec)</p>
 ```
 
-1. **Which kind of model**, like `linear_reg()` and `logistic_reg()`.
-2. **A placeholder**: "cross-validation fills this in". Warm-up 1's knob.
-3. **Say the job.** kNN can classify or predict a number; `kknn` does the work.
-4. **A recipe**: the formula **plus** the pre-processing to run before fitting.
-5. **Same scale for both features** (mean 0, SD 1), so distance is fair.
-6. **Bundle model and recipe.** `fit()` on a workflow runs both; predictions get the same recipe.
+1. **A recipe**: the formula **plus** the pre-processing to run before fitting.
+2. **Every feature in standard deviations**, the previous slide. Mean 0, SD 1, so distance is fair.
+3. **Bundle model and recipe.** `fit()` on a workflow runs both, and new data gets exactly the same treatment.
 :::
 
 ::: {.notes}
-- Two new objects. A **recipe** is pre-processing written down as steps, applied inside the fitting, so the test set gets exactly the same treatment later. A **workflow** holds the recipe and the model together, so one `fit()` does both and nothing is forgotten.
-- Nothing has been fitted yet: all three objects are descriptions. Print `wf_knn` to see "Model: nearest_neighbor(), neighbors = tune()".
+Code together, 1½ minutes.
+
+- A **recipe** is pre-processing written down as steps and applied inside the fitting, so the test set (and every fold) is normalised with the training rows' means and SDs. Doing it by hand before the split would leak test information.
+- A **workflow** holds the recipe and the model together, so one `fit()` does both and nothing is forgotten.
 - `all_numeric_predictors()` picks every numeric feature; the outcome is left alone.
 :::
 
 ## Metrics, candidates, and the tuning run
 
 ```{=html}
-<div class="tracker"><span class="done">Warm-up</span><span class="on">I · kNN + CV</span><span>II · Trees</span><span>Wrap-up</span></div>
+<div class="tracker"><span class="on">I · kNN + CV</span><span>II · Trees</span><span>Forests</span><span>Boosting</span><span>Wrap-up</span></div>
 ```
 
 ```{=html}
-<p class="nbref"><b>Notebook</b> lines 154–175 <span>metrics and grid at 156–160, <code>tune_grid()</code> at 167</span><i>code together</i></p>
+<p class="nbref"><b>Notebook</b> lines 133–152 <span>metrics and grid in the chunk at 133; <code>tune_grid()</code> is sketched at 143–150: fill the four brackets, remove the <code>#</code></span><i>code together</i></p>
 ```
 
 ::: {.anatomy}
@@ -693,6 +1063,7 @@ knn_model_cv &lt;- <span class="tok">tune_grid(</span>wf_knn, <span class="tok">
 :::
 
 ::: {.notes}
+- The notebook sketches `tune_grid()` with four placeholders in square brackets: the workflow, the folds, the metric set, the grid. Fill them in and delete the `#` signs.
 - Run it, then wait: about 2½ minutes on a laptop, longer on Nuvolos. The notebook says "put on the kettle". While it runs, next slide.
 - The result `knn_model_cv` holds 20 fits' worth of scores; `collect_metrics()` averages them per k. That's the exercise.
 - event_level: same trap as last week. Without it, recall and precision are computed for the 0s.
@@ -701,7 +1072,7 @@ knn_model_cv &lt;- <span class="tok">tune_grid(</span>wf_knn, <span class="tok">
 ## While it runs
 
 ```{=html}
-<div class="tracker"><span class="done">Warm-up</span><span class="on">I · kNN + CV</span><span>II · Trees</span><span>Wrap-up</span></div>
+<div class="tracker"><span class="on">I · kNN + CV</span><span>II · Trees</span><span>Forests</span><span>Boosting</span><span>Wrap-up</span></div>
 ```
 
 ::: {.ask}
@@ -725,20 +1096,18 @@ knn_model_cv &lt;- <span class="tok">tune_grid(</span>wf_knn, <span class="tok">
 ## Exercises: Part I {.yourturn}
 
 ```{=html}
-<div class="timer" data-minutes="7"></div>
+<div class="timer" data-minutes="6"></div>
 ```
 
 :::: {.yt}
 
 ::: {.tasks}
-[Part I · lines 179–229]{.lbl}
+[Part I · lines 156–198]{.lbl}
 
-1. **Line 182:** `collect_metrics()` on `knn_model_cv`. One row per k and metric.
-2. **Lines 179–196:** plot the mean metric against k, one colour per metric.
-3. **Line 201:** `select_best()` by F1.
-4. **Lines 205–208:** finalise the workflow with it and **fit on the whole training set**.
-5. **Lines 215–221:** F1 on the training and on the test set.
-6. **Line 227:** which k won? Any overfitting?
+1. **Line 158, given:** first print `knn_model_cv |> collect_metrics()` on its own: one row per k and metric. Then run the chunk: the mean metric against k, one colour per metric.
+2. **Lines 178–185, given:** `select_best()` by F1, then finalise the workflow and **fit on the whole training set**. Half a minute.
+3. **Line 192, yours:** F1 on the test set, and on the training set for comparison.
+4. **Line 198:** which k won? Any overfitting?
 :::
 
 ::: {.cheat}
@@ -776,9 +1145,9 @@ knn_model_final |>
 ::::
 
 ::: {.notes}
-Your turn, 7 minutes. Click the timer (or press T) to start it. The new functions are all on the sheet; the plot and the F1 are Lab 2 and Lab 4.
+Your turn, 6 minutes. Click the timer (or press T) to start it. The notebook gives the plot chunk and the select_best() chunk ready to run; what students write is the F1 on the test set (and its training twin). The new functions are all on the sheet.
 
-- Circulate for the fit at step 4: it takes about half a minute, because kNN with 3,000 neighbours is slow to predict.
+- Circulate for the fit at step 2: it takes about half a minute, because kNN with 3,000 neighbours is slow to predict.
 - Fast finishers: `show_best(knn_model_cv, metric = "f_meas")` prints the candidates ranked; add `recall` and `precision` on the test set too.
 :::
 
@@ -803,9 +1172,12 @@ knn_model_final <- wf_knn |>
   fit(ptsd_train)
 
 knn_model_final |>
+  augment(new_data = ptsd_train) |>
+  f_meas(truth = ptsd, estimate = .pred_class, event_level = "second")
+
+knn_model_final |>
   augment(new_data = ptsd_test) |>
-  f_meas(truth = ptsd, estimate = .pred_class,
-         event_level = "second")
+  f_meas(truth = ptsd, estimate = .pred_class, event_level = "second")
 ```
 
 ::: {.walk-say}
@@ -861,14 +1233,14 @@ cat("== Workflow [trained] ==================\nPreprocessor: Recipe\nModel: near
 ```
 :::
 
-::: {.fragment fragment-index=4 lines="15-18"}
+::: {.fragment fragment-index=4 lines="15-21"}
 ::: {.say}
-Test F1 `r f3(knn_test_f1)`, training F1 `r f3(knn_train_f1)`, cross-validated `r f3(cv_at(best_k, "f_meas"))`: all the same. **No overfitting**, and the cross-validated score predicted the test score well.
+Training F1 `r f3(knn_train_f1)`, test F1 `r f3(knn_test_f1)`, cross-validated `r f3(cv_at(best_k, "f_meas"))`: all the same. **No overfitting**, and the cross-validated score predicted the test score well.
 :::
 
 ```{r}
 #| echo: false
-res$knn_test_f1
+bind_rows(train = res$knn_train_f1, test = res$knn_test_f1, .id = "set")
 ```
 :::
 :::
@@ -878,14 +1250,14 @@ res$knn_test_f1
 ::: {.notes}
 Each click highlights the next step of the code, shows the result, and explains it below the code. Step 1 is shown with `pivot_wider()` to fit the slide (the notebook prints the long table); step 4's printout is shortened.
 
-- The notebook's answer (line 229) says the best k is 1,000. With `set.seed(123)` it's 3,000 by a hair: 0.736 against 0.733, within one standard error. Say so: the two are indistinguishable, and either answer is right.
-- The training F1 is also computed in the notebook (lines 215–217); it equals the test F1 to the third decimal.
+- The notebook's answer (solutions, line 238) says 3,000, with 1,000 essentially tied: 0.736 against 0.733, within one standard error. Say so: the two are indistinguishable, and either answer is right.
+- The solutions compute the training F1 as well as the test F1 (lines 224–230); it equals the test F1 to the third decimal.
 :::
 
 ## Part I: what did we learn?
 
 ```{=html}
-<div class="tracker"><span class="done">Warm-up</span><span class="on">I · kNN + CV</span><span>II · Trees</span><span>Wrap-up</span></div>
+<div class="tracker"><span class="on">I · kNN + CV</span><span>II · Trees</span><span>Forests</span><span>Boosting</span><span>Wrap-up</span></div>
 ```
 
 :::: {.columns style="align-items:start"}
@@ -932,14 +1304,14 @@ Nothing to read off, no "per unit of anxiety". Flexible, and slow to predict. Tr
 ::::
 
 ::: {.notes}
-Debrief, 5 minutes.
+Debrief, 4 minutes.
 
-- The three bars are the three jobs from warm-up 2: fit on training rows, choose on held-out folds of them, judge on the test set. All three agree because the model is coarse (two features, large k): little room to memorise.
+- The three bars are the three jobs: fit on training rows, choose on held-out folds of them, judge on the test set. All three agree because the model is coarse (two features, large k): little room to memorise. Contrast with the flats: k = 1 scored 100% on its own rows and 60% held out.
 - The "simplest rule" line is a reality check: on this data a lookup table of 121 cells does as well as the tuned kNN. That is not a failure of kNN; it's what two integer features allow.
 - The k = 100 collapse is partly technical: the `kknn` engine weights neighbours by distance, and in a cell of 100+ identical people every distance is zero, so its weights break down and it predicts "no". A plain majority vote (`set_engine("kknn", kernel = "rectangular")`) does better at k = 100 but still worse than 1,000. The lesson is unchanged: too few neighbours, too jagged.
 :::
 
-# Trees and forests {.divider background-color="#8C0014"}
+# Trees, forests, boosting {.divider background-color="#8C0014"}
 
 ::: {.kicker}
 Part II
@@ -950,11 +1322,11 @@ Part II
 ## Meet the data
 
 ```{=html}
-<div class="tracker"><span class="done">Warm-up</span><span class="done">I · kNN + CV</span><span class="on">II · Trees</span><span>Wrap-up</span></div>
+<div class="tracker"><span class="done">I · kNN + CV</span><span class="on">II · Trees</span><span>Forests</span><span>Boosting</span><span>Wrap-up</span></div>
 ```
 
 ```{=html}
-<p class="nbref"><b>Notebook</b> line 257 <span><code>read_csv()</code> only; the split comes after the concept block</span><i>run together</i></p>
+<p class="nbref"><b>Notebook</b> lines 296–318 <span><code>read_csv()</code>, the split by year and the recipe: all given, run them now</span><i>run together</i></p>
 ```
 
 ```{=html}
@@ -1004,16 +1376,251 @@ Each county appears year after year. Train on 2008–2016, test on 2017–2018: 
 ::::
 
 ::: {.notes}
-Timing: Part II is 40 minutes: this slide 2, the tree concept 10, code together 5, Task 1 exercise 6 plus solutions 2 plus reading the tree 2, Tasks 2–4 exercise 9 plus solutions 2, debrief 2.
+Timing: Part II is 46 minutes in three cycles, tree, forest, boosting, each a game, code together and a task. This slide 1½ (run lines 296–318: data, split and recipe), the split slide 1½.
 
-- Run line 257 only. The columns come from the US National Database of Childcare Prices: county demographics, labour-force shares, household types, and the price of care. `mhi_2018` is median household income in 2018 dollars; `one_race_a` the share of residents of one race, Asian; `femp_m` the share of employed women in management jobs.
+- Run lines 296–318: `read_csv()`, the two `filter()` lines that split by year (next slide) and the recipe (explained with the first tree). The columns come from the US National Database of Childcare Prices: county demographics, labour-force shares, household types, and the price of care. `mhi_2018` is median household income in 2018 dollars; `one_race_a` the share of residents of one race, Asian; `femp_m` the share of employed women in management jobs.
 - Prices rise over the years, so the test years are a little harder than the training years. Hold that thought for the debrief.
 :::
 
-## How a tree splits
+
+## Split by time
 
 ```{=html}
-<div class="tracker"><span class="done">Warm-up</span><span class="done">I · kNN + CV</span><span class="on">II · Trees</span><span>Wrap-up</span></div>
+<div class="tracker"><span class="done">I · kNN + CV</span><span class="on">II · Trees</span><span>Forests</span><span>Boosting</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 303–309 <span>already run with <code>read_csv()</code>: what the two <code>filter()</code> lines did</span><i>read together</i></p>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="52%"}
+::: {.anatomy .one}
+```{=html}
+<p class="anat-code" style="font-size:0.55em">childcare_train &lt;- childcare |&gt; <span class="tok">filter(study_year &lt;= 2016)</span>
+childcare_test  &lt;- childcare |&gt; <span class="tok">filter(study_year &gt; 2016)</span></p>
+```
+
+1. **Train on the past**: 2008–2016, `r big(nrow(childcare_train))` county-years.
+2. **Test on the future**: 2017–2018, `r big(nrow(childcare_test))`. No `initial_split()`, no seed: the calendar decides.
+:::
+
+```{=html}
+<div class="folds" style="--n:11;font-size:0.5em;margin-top:0.2em">
+  <div class="row head"><span class="lab"></span><i>08</i><i>09</i><i>10</i><i>11</i><i>12</i><i>13</i><i>14</i><i>15</i><i>16</i><i>17</i><i>18</i><span class="sc"></span></div>
+  <div class="row"><span class="lab">Split</span><i>fit</i><i>fit</i><i>fit</i><i>fit</i><i>fit</i><i>fit</i><i>fit</i><i>fit</i><i>fit</i><i class="hold">test</i><i class="hold">test</i><span class="sc">final exam</span></div>
+</div>
+```
+
+::: {.fragment fragment-index=3}
+::: {.card .compact .dark style="margin-top:0.3em"}
+[Folds would need the same care]{.ct}
+`vfold_cv()` shuffles rows. With years: fit on the past, score the next (`sliding_period()`). Not needed today.
+:::
+:::
+:::
+
+::: {.column width="48%"}
+::: {.fragment fragment-index=1}
+::: {.card .compact}
+[Why not a random split?]{.ct}
+Each county appears every year. A random split puts a county's 2017 row in training and its 2018 row in the test set: the model has nearly seen the answer, and the score flatters it.
+:::
+:::
+
+::: {.fragment fragment-index=2}
+::: {.card .compact .line}
+[The honest question]{.ct}
+Next year's prices from this year's data: **predict the future**. The test years are a little harder, because prices rose.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Read together, 4 minutes for this slide and the next. Both chunks ran at "Meet the data"; these two slides say what they did.
+
+- Click: why not `initial_split()` as in Part I. The same county's rows in both sets would leak: county X in 2018 looks almost exactly like county X in 2017.
+- Click: the job is forecasting, and the strip shows it: nine years to fit, the last two to test. Prices rose, so the test years are harder than a random slice would be; hold that for the debrief.
+- Click: the student glossary lists `sliding_period()`. Say in one sentence that it is the time-aware cousin of `vfold_cv()` (fit on the past, score the next year, slide forward), and that today's lab does not use it because nothing is tuned.
+:::
+
+
+## Who's a Swiftie? You may ask one question
+
+```{=html}
+<div class="tracker"><span class="done">I · kNN + CV</span><span class="on">II · Trees</span><span>Forests</span><span>Boosting</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="55%"}
+```{=html}
+<table class="mini sw" style="font-size:0.52em">
+<tr><th>Person</th><th>Age</th><th>Likes pop</th><th>Plays guitar</th><th>Enjoys lyrics</th><th>Follows trends</th><th>Swiftie?</th></tr>
+`r sw_rows()`
+</table>
+```
+:::
+
+::: {.column width="45%"}
+::: {.ask style="font-size:0.72em"}
+Ask **one** yes/no question, then guess "Swiftie" or "not" for each group. Which question gets the most right?
+:::
+
+```{=html}
+<div class="calc sm" style="margin-top:0.3em">
+  <div class="fragment" data-fragment-index="1"><span class="cl">Plays guitar?</span><span class="cx">`r sw_sc["guitar"]` of 12 right</span></div>
+  <div class="fragment" data-fragment-index="1"><span class="cl">Age under `r sw_age_cut`?</span><span class="cx">`r sw_sc["age"]` of 12</span></div>
+  <div class="fragment" data-fragment-index="1"><span class="cl">Enjoys lyrics?</span><span class="cx">`r sw_sc["lyrics"]` of 12</span></div>
+  <div class="fragment" data-fragment-index="1"><span class="cl">Follows trends?</span><span class="cx">`r sw_sc["trends"]` of 12</span></div>
+  <div class="fragment hl" data-fragment-index="2"><span class="cl">Likes pop?</span><span class="cx">`r sw_sc["pop"]` of 12 <small>pop fans 5 of 6 · rest 1 of 6</small></span></div>
+</div>
+```
+
+::: {.fragment fragment-index=3}
+::: {.card .compact .dark}
+[The first split of a decision tree]{.ct}
+Try every question (every cut-off, for age). Keep the one that **sorts cleanest**.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: the tree concept is 8 minutes across this slide and the next three: the game 3, ask again 2, the Swiftie who isn't a pop fan 2, prices 1.5. Last year's DS202 deck used the same game; the table is new, built so every step comes out cleanly.
+
+- Play it. Give the room a minute with their neighbour: pick a question, count how many you'd get right. Take two or three answers with their counts.
+- Click: the four weaker questions. Age is a number, so "a question" means a cut-off: under `r sw_age_cut` is the best, and still only `r sw_sc["age"]`. Click: likes pop, 10 of 12. Predict "Swiftie" for pop fans and "not" for everyone else; only K and L are wrong.
+- Click: name it. "Cleanest" has a formula behind it (the Gini index for yes/no, squared error for prices), but counting right answers is the idea.
+:::
+
+## Then ask again, inside each group
+
+```{=html}
+<div class="tracker"><span class="done">I · kNN + CV</span><span class="on">II · Trees</span><span>Forests</span><span>Boosting</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="55%"}
+```{=html}
+<div class="qtree" style="grid-template-columns:repeat(4,1fr);font-size:0.56em">
+  <div class="q" style="grid-column:1 / 5">Likes pop?</div>
+  <div class="q fragment" data-fragment-index="1" style="grid-column:1 / 3"><span class="e">yes · A B D G I K</span>Enjoys lyrics?</div>
+  <div class="leaf no" style="grid-column:3 / 5"><span class="e">no · C E F H J L</span><b>not a Swiftie</b>5 of 6 right (L is a Swiftie)</div>
+  <div class="leaf yes fragment" data-fragment-index="1" style="grid-column:1 / 2"><span class="e">yes</span><b>Swiftie</b>A B D G I: 5 of 5</div>
+  <div class="leaf no fragment" data-fragment-index="1" style="grid-column:2 / 3"><span class="e">no</span><b>not</b>K: 1 of 1</div>
+</div>
+```
+
+::: {.fragment fragment-index=3}
+```{=html}
+<div class="calc sm" style="margin-top:0.8em">
+  <div class="hl"><span class="cl">The tree</span><span class="cx">11 of 12 right, with two questions</span></div>
+</div>
+```
+:::
+:::
+
+::: {.column width="45%"}
+::: {.fragment fragment-index=1}
+::: {.card .compact}
+[Pop fans: one more question]{.ct}
+Among the six pop fans, "enjoys lyrics?" sorts all six. K is the pop fan who doesn't care about lyrics.
+:::
+:::
+
+::: {.fragment fragment-index=2}
+::: {.card .compact .line}
+[Each group gets its own question]{.ct}
+The second question is asked **inside** a group, not of everyone. Non-pop fans: no question tidies them up, so the guess stays "not".
+:::
+:::
+
+::: {.fragment fragment-index=3}
+::: {.card .compact .dark}
+[A decision tree]{.ct}
+A flow chart of yes/no questions, a guess in every **leaf**. Readable by anyone: that's its big selling point.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+- Click: inside the pop fans, ask the game again. "Enjoys lyrics?" splits them perfectly: five Swifties who like lyrics, and K.
+- Click: the non-pop fans. Try each question on those six only: none does better than just saying "not". So that branch stops.
+- Click: name it. Eleven of twelve with two questions. Each path from the top to a leaf is a rule: "likes pop and enjoys lyrics: Swiftie".
+:::
+
+## What about L, the Swiftie who isn't a pop fan?
+
+```{=html}
+<div class="tracker"><span class="done">I · kNN + CV</span><span class="on">II · Trees</span><span>Forests</span><span>Boosting</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="50%"}
+```{=html}
+<p class="tbl-cap">The six non-pop fans</p>
+<table class="mini sw" style="font-size:0.56em">
+<tr><th>Person</th><th>Age</th><th>Plays guitar</th><th>Enjoys lyrics</th><th>Follows trends</th><th>Swiftie?</th></tr>
+`r sw_rows(c("C", "E", "F", "H", "J", "L"), cols = c("age", "guitar", "lyrics", "trends"), mark = "L")`
+</table>
+```
+
+::: {.fragment fragment-index=1}
+```{=html}
+<div class="calc sm" style="margin-top:0.5em">
+  <div class="hl"><span class="cl">Age 30 or over?</span><span class="cx">finds L, and only L <small>12 of 12</small></span></div>
+</div>
+```
+:::
+:::
+
+::: {.column width="50%"}
+::: {.ask style="font-size:0.72em"}
+Can a third question find L too?
+:::
+
+::: {.fragment fragment-index=1}
+::: {.card .compact}
+[Yes: one does]{.ct}
+L is 31, the oldest. "Age 30 or over?" makes the tree perfect on the table.
+:::
+:::
+
+::: {.fragment fragment-index=2}
+::: {.ask style="font-size:0.72em;margin-top:0.3em"}
+Would you bet that non-pop fans over 30 are Swifties?
+:::
+:::
+
+::: {.fragment fragment-index=3}
+::: {.card .compact .dark}
+[No: a question invented for one person]{.ct}
+Ask until every leaf is pure and the tree **memorises** the table: overfitting. Real trees stop early (`min_n`, `cost_complexity`).
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+- This is last year's "what about the Swiftie who wasn't a pop fan?" moment.
+- Ask the room for a question that finds L. Guitar, lyrics and trends each catch someone else too. Click: age does it, because L happens to be the oldest.
+- Click: would you bet on it? One person is not a pattern. Click: the word, overfitting, and the brakes. Same lesson as k = 1 in Part I: a model that is perfect on its own rows has learnt the rows, not the rule.
+:::
+
+## Same game, with prices
+
+```{=html}
+<div class="tracker"><span class="done">I · kNN + CV</span><span class="on">II · Trees</span><span>Forests</span><span>Boosting</span><span>Wrap-up</span></div>
 ```
 
 :::: {.columns style="align-items:start"}
@@ -1022,7 +1629,7 @@ Timing: Part II is 40 minutes: this slide 2, the tree concept 10, code together 
 ::: {.r-stack}
 ```{r}
 #| echo: false
-#| fig-width: 6
+#| fig-width: 6.2
 #| fig-height: 3.3
 split_step(1)
 ```
@@ -1030,7 +1637,7 @@ split_step(1)
 ::: {.fragment fragment-index=1}
 ```{r}
 #| echo: false
-#| fig-width: 6
+#| fig-width: 6.2
 #| fig-height: 3.3
 split_step(2)
 ```
@@ -1039,7 +1646,7 @@ split_step(2)
 ::: {.fragment fragment-index=2}
 ```{r}
 #| echo: false
-#| fig-width: 6
+#| fig-width: 6.2
 #| fig-height: 3.3
 split_step(3)
 ```
@@ -1048,7 +1655,7 @@ split_step(3)
 ::: {.fragment fragment-index=3}
 ```{r}
 #| echo: false
-#| fig-width: 6
+#| fig-width: 6.2
 #| fig-height: 3.3
 split_step(4)
 ```
@@ -1059,22 +1666,22 @@ split_step(4)
 ::: {.column width="42%"}
 ::: {.fragment fragment-index=1}
 ::: {.card .compact}
-[One yes/no question]{.ct}
-Two groups, each predicted by its **mean**. Of every cut on every feature, keep the one that **cuts the squared error most**.
+[The question is a cut-off]{.ct}
+Try every income as a cut-off, like age in the game. The cleanest: **income below `r dollar(cut1, scale = 1e-3, suffix = "k", accuracy = 0.1)`?**
 :::
 :::
 
-::: {.fragment fragment-index=2}
+::: {.fragment fragment-index=1}
 ::: {.card .compact .line}
-[Ask again inside each group]{.ct}
-Depth 2: four groups, four means. Each cut is the best **for its own group**: greedy, no look-ahead.
+[The guess is the mean]{.ct}
+Each side predicts its **average** price: $`r round(leaf1[1])` and $`r round(leaf1[2])`. "Cleanest" = the smallest squared error, Lab 3's RMSE.
 :::
 :::
 
 ::: {.fragment fragment-index=3}
 ::: {.card .compact .dark}
-[A staircase, not a line]{.ct}
-Depth 3: eight steps. A prediction is the mean of the **leaf** you land in. With 50 features, each question can use a different one.
+[Ask again inside each side]{.ct}
+A **staircase**. `decision_tree()` plays this on all `r n_feat` columns.
 :::
 :::
 :::
@@ -1082,417 +1689,115 @@ Depth 3: eight steps. A prediction is the mean of the **leaf** you land in. With
 ::::
 
 ::: {.notes}
-Timing: the tree concept block is 10 minutes across this slide and the next three: splits 3, overfitting 2, forests 3, boosting 2.
-
-- Click: one cut. The tree looked at every possible cut point and chose the one whose two means fit best. Click: it repeats inside each half. Click: and again.
-- A tree is a flow chart of questions; the drawing at the exercise is exactly that. Reading it needs no statistics, which is why trees are popular with people who have to explain a decision.
-- Greedy: the first question is the best single question, not the best start of a plan. That's why trees can be unstable: a slightly different data set can change the first cut and everything below it.
+- One feature so it can be drawn: each dot a county-year from the training set, median income against the weekly price.
+- Click: the first question and the two means. Everyone left of the line is predicted $`r round(leaf1[1])`, everyone right $`r round(leaf1[2])`. Click: ask again inside each side (blue). Click: and again (green): eight steps.
+- Back to the game: the yes/no questions are now cut-offs, and the guess is a mean instead of a majority.
 :::
 
-## Growing the tree, and overfitting
+## Your first tree, together
 
 ```{=html}
-<div class="tracker"><span class="done">Warm-up</span><span class="done">I · kNN + CV</span><span class="on">II · Trees</span><span>Wrap-up</span></div>
+<div class="tracker"><span class="done">I · kNN + CV</span><span class="on">II · Trees</span><span>Forests</span><span>Boosting</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 314–327 <span>the recipe (already run), then the Task 1 chunk: type the spec and the fit</span><i>code together</i></p>
 ```
 
 :::: {.columns style="align-items:start"}
 
-::: {.column width="50%"}
-::: {.r-stack}
-```{r}
-#| echo: false
-#| fig-width: 5.4
-#| fig-height: 3
-deep_step(1)
-```
-
-::: {.fragment fragment-index=1}
-```{r}
-#| echo: false
-#| fig-width: 5.4
-#| fig-height: 3
-deep_step(2)
-```
-:::
-:::
-:::
-
-::: {.column width="50%"}
-::: {.fragment fragment-index=2}
-```{r}
-#| echo: false
-#| fig-width: 5.2
-#| fig-height: 2.9
-res$depth_curve |>
-  mutate(set = if_else(set == "train", "training set", "test set")) |>
-  ggplot(aes(depth, .estimate, colour = set)) +
-  geom_line(linewidth = 1.2) +
-  geom_point(size = 2.5) +
-  scale_colour_manual(values = c(`training set` = grey, `test set` = red), name = NULL) +
-  scale_x_continuous(breaks = seq(2, 12, 2)) +
-  theme_slide() +
-  labs(x = "Depth of the tree (all 50 features, no pruning)", y = "RMSE", title = "Deeper is better, until it isn't")
-```
-:::
-:::
-
-::::
-
-::: {.cards .c3 style="margin-top:0.2em"}
-::: {.fragment fragment-index=1}
-::: {.card .compact}
-[Keep asking and it memorises]{.ct}
-Grown to 3 counties per leaf, the staircase chases every wobble in the training data.
-:::
-:::
-::: {.fragment fragment-index=2}
-::: {.card .compact .line}
-[Training error falls, test error doesn't]{.ct}
-Past depth `r res$depth_curve |> filter(set == "test") |> slice_min(.estimate) |> pull(depth)` the test RMSE creeps up again. Lab 3's overfitting, in a tree.
-:::
-:::
-::: {.fragment fragment-index=2}
-::: {.card .compact .dark}
-[What stops it]{.ct}
-`decision_tree()` stops when a split stops paying (`cost_complexity`) and keeps leaves big (`min_n`): hyperparameters, at their defaults today.
-:::
-:::
-:::
-
-::: {.notes}
-- Click: the same income example, grown without restraint. Red is the deep tree: it has a step for almost every county. Click: the picture in numbers, with all 50 features: training RMSE falls with every level of depth; the test RMSE bottoms out and climbs.
-- The knobs that would be tuned (depth, cost complexity, min_n) are warm-up 1 again. Today's tree uses rpart's defaults, which prune fairly hard: the tree in the exercise has 8 leaves.
-:::
-
-## Many trees: bagging and the random forest
-
-```{=html}
-<div class="tracker"><span class="done">Warm-up</span><span class="done">I · kNN + CV</span><span class="on">II · Trees</span><span>Wrap-up</span></div>
-```
-
-:::: {.columns style="align-items:start"}
-
-::: {.column width="54%"}
-::: {.r-stack}
-```{r}
-#| echo: false
-#| fig-width: 6
-#| fig-height: 3
-bag_step(1)
-```
-
-::: {.fragment fragment-index=1}
-```{r}
-#| echo: false
-#| fig-width: 6
-#| fig-height: 3
-bag_step(2)
-```
-:::
-
-::: {.fragment fragment-index=2}
-```{r}
-#| echo: false
-#| fig-width: 6
-#| fig-height: 3
-bag_step(4)
-```
-:::
-
-::: {.fragment fragment-index=3}
-```{r}
-#| echo: false
-#| fig-width: 6
-#| fig-height: 3
-bag_step(5)
-```
-:::
-:::
-:::
-
-::: {.column width="46%"}
-One tree is **unstable**: resample, and the staircase moves.
-
-::: {.fragment fragment-index=2}
-::: {.card .compact}
-[Bagging: average many trees]{.ct}
-Resample the rows, grow a tree, repeat, **average**. Different wobbles cancel.
-:::
-:::
-
-::: {.fragment fragment-index=3}
-::: {.card .compact .line}
-[Random forest: + random features]{.ct}
-Each split picks from only `mtry` ≈ 7 **random features**, so the trees stop copying each other.
-:::
-:::
-
-::: {.fragment fragment-index=3}
-::: {.card .compact .dark}
-[The price]{.ct}
-1,000 trees can't be read: predictions and a ranking, no picture.
-:::
-:::
-:::
-
-::::
-
-::: {.notes}
-- Click: a second tree on a second resample; click: a third. Three staircases, three different sets of steps. Click: the average of fifty is a smooth curve that no single tree could draw.
-- Why random features too? With income in every tree's first split, the trees would all look alike and the averaging would gain little. Forcing variety is what makes the forest better than plain bagging.
-- `rand_forest(mtry = 7, trees = 1000)` in the exercise is exactly this. The notebook writes `round(sqrt(52), 0)`; the data has 50 features, and both round to 7.
-:::
-
-## Boosting: each tree fixes the last one's mistakes
-
-```{=html}
-<div class="tracker"><span class="done">Warm-up</span><span class="done">I · kNN + CV</span><span class="on">II · Trees</span><span>Wrap-up</span></div>
-```
-
-:::: {.columns style="align-items:start"}
-
-::: {.column width="50%"}
-::: {.r-stack}
-```{r}
-#| echo: false
-#| fig-width: 5.4
-#| fig-height: 3.2
-boost_step(1)
-```
-
-::: {.fragment fragment-index=1}
-```{r}
-#| echo: false
-#| fig-width: 5.4
-#| fig-height: 3.2
-boost_step(2)
-```
-:::
-
-::: {.fragment fragment-index=2}
-```{r}
-#| echo: false
-#| fig-width: 5.4
-#| fig-height: 3.2
-boost_step(3)
-```
-:::
-
-::: {.fragment fragment-index=3}
-```{r}
-#| echo: false
-#| fig-width: 5.4
-#| fig-height: 3.2
-boost_step(4)
-```
-:::
-:::
-:::
-
-::: {.column width="50%"}
-::: {.fragment fragment-index=4}
-```{r}
-#| echo: false
-#| fig-width: 5.2
-#| fig-height: 3.1
-res$xgb_curve |>
-  ggplot(aes(trees, rmse_test)) +
-  geom_line(colour = red, linewidth = 1.2) +
-  geom_point(colour = red, size = 2.5) +
-  scale_x_log10(breaks = c(1, 10, 100, 1000)) +
-  theme_slide() +
-  labs(x = "Trees added so far (log scale)", y = "Test RMSE", title = "Today's XGBoost, as the trees go in")
-```
-:::
-:::
-
-::::
-
-::: {.cards .c3 style="margin-top:0.2em"}
-::: {.fragment fragment-index=1}
-::: {.card .compact}
-[Small trees, one after another]{.ct}
-Start with the mean. Fit a small tree to the **leftover errors**, add a fraction of it, repeat.
-:::
-:::
-::: {.fragment fragment-index=3}
-::: {.card .compact .line}
-[learn_rate: the fraction]{.ct}
-0.1: each tree adds a tenth of what it found. Small steps, many trees.
-:::
-:::
-::: {.fragment fragment-index=4}
-::: {.card .compact .dark}
-[It can overfit too]{.ct}
-Too many trees chase noise. **Trees** and **learn_rate** are knobs for the folds; today fixed at 1,000 and 0.1.
-:::
-:::
-:::
-
-::: {.notes}
-- Click through: after one tree the curve has barely moved (a tenth of a step); after 5, 20, 100 it builds up to the shape of the data. The forest's trees are independent and averaged; boosting's trees are sequential and summed.
-- Click: the real XGBoost on all 50 features. The test RMSE drops fast over the first hundred trees and then flattens. With more trees or a bigger learning rate it would start climbing: the folds from the next slide are how you would find the stopping point.
-- XGBoost is the version of boosting that wins most tabular-data competitions; `boost_tree()` with `set_engine("xgboost")` is all the exercise needs.
-:::
-
-## Split by time
-
-```{=html}
-<div class="tracker"><span class="done">Warm-up</span><span class="done">I · kNN + CV</span><span class="on">II · Trees</span><span>Wrap-up</span></div>
-```
-
-```{=html}
-<p class="nbref"><b>Notebook</b> lines 265–291 <span>the split at 265, the folds at 280; skip the callout at 293–354</span><i>code together</i></p>
-```
-
-:::: {.columns style="align-items:start"}
-
-::: {.column width="54%"}
-::: {.anatomy .one}
-```{=html}
-<p class="anat-code" style="font-size:0.46em">childcare_train &lt;- childcare |&gt;
-  <span class="tok">filter(study_year &lt;= 2016)</span> |&gt; arrange(study_year) |&gt;
-  <span class="tok">mutate(study_date = as.Date(paste0(study_year, "-01-01")))</span>
-childcare_test &lt;- childcare |&gt; filter(study_year &gt; 2016) |&gt; mutate(…)
-
-childcare_cv &lt;- <span class="tok">sliding_period(</span>childcare_train,
-  index = study_date, period = "year",
-  <span class="tok">lookback = Inf, assess_stop = 1</span>, step = 1)</p>
-```
-
-1. **Split by year, not at random**: 2008–2016 to train, 2017–2018 to test, so no 2017 row teaches the model about 2017.
-2. **A real date column**: the folds function wants one.
-3. **Folds that respect time**: fit on the past, score the next year.
-4. **Expanding window**: all earlier years in, one year out. 8 rounds.
-:::
-:::
-
-::: {.column width="46%"}
-```{=html}
-<div class="folds" style="--n:11;font-size:0.5em">
-  <div class="row head"><span class="lab"></span><i>08</i><i>09</i><i>10</i><i>11</i><i>12</i><i>13</i><i>14</i><i>15</i><i>16</i><i>17</i><i>18</i><span class="sc"></span></div>
-  <div class="row"><span class="lab">Split</span><i>fit</i><i>fit</i><i>fit</i><i>fit</i><i>fit</i><i>fit</i><i>fit</i><i>fit</i><i>fit</i><i class="hold">test</i><i class="hold">test</i><span class="sc">final exam</span></div>
-  <div class="row fragment"><span class="lab">Round 1</span><i>fit</i><i class="hold">test</i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><span class="sc">score 1</span></div>
-  <div class="row fragment"><span class="lab">Round 2</span><i>fit</i><i>fit</i><i class="hold">test</i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><span class="sc">score 2</span></div>
-  <div class="row fragment"><span class="lab">…</span><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><span class="sc"></span></div>
-  <div class="row fragment"><span class="lab">Round 8</span><i>fit</i><i>fit</i><i>fit</i><i>fit</i><i>fit</i><i>fit</i><i>fit</i><i>fit</i><i class="hold">test</i><i class="off"></i><i class="off"></i><span class="sc">score 8</span></div>
-</div>
-```
-
-::: {.fragment}
-::: {.card .compact .dark style="margin-top:0.5em"}
-[Today the folds stay in the drawer]{.ct}
-Tasks 1–3 fit each model once with fixed settings; nothing is tuned. The folds are for when you do: `tune_grid(…, resamples = childcare_cv)`.
-:::
-:::
-:::
-
-::::
-
-::: {.notes}
-Code together, 5 minutes for this slide and the next. Type lines 265–290; skip the callout (Scenario B), which replaces the folds with a version that also holds out whole counties.
-
-- Click through the rounds: Part I's folds, but ordered. Round 1 fits on 2008 and scores 2009; round 8 fits on 2008–2015 and scores 2016. "Past predicts future" in every round, as in the final split.
-- Honest note for the room: nothing today uses `childcare_cv`. It's set up so that the XGBoost knobs could be tuned; fast finishers do that.
-:::
-
-## A recipe with roles
-
-```{=html}
-<div class="tracker"><span class="done">Warm-up</span><span class="done">I · kNN + CV</span><span class="on">II · Trees</span><span>Wrap-up</span></div>
-```
-
-```{=html}
-<p class="nbref"><b>Notebook</b> lines 358–363 <span>one recipe, shared by all three models</span><i>code together</i></p>
-```
-
+::: {.column width="58%"}
 ::: {.anatomy}
 ```{=html}
-<p class="anat-code" style="font-size:0.6em">childcare_rec &lt;-
-  <span class="tok">recipe(mcsa ~ ., data = childcare_train)</span> |&gt;
-  <span class="tok">update_role(starts_with(c("county", "state")), new_role = "id")</span> |&gt;
-  update_role(c("study_date", "study_year"), new_role = "id")</p>
+<p class="anat-code" style="font-size:0.5em">childcare_rec &lt;- recipe(mcsa ~ ., data = childcare_train) |&gt;
+  <span class="tok">update_role(starts_with(c("county", "state")), new_role = "id")</span>
+
+dt_model &lt;- <span class="tok">decision_tree()</span> |&gt;
+  <span class="tok">set_mode("regression")</span> |&gt;
+  set_engine("rpart")
+
+dt_fit &lt;- workflow() |&gt; add_recipe(childcare_rec) |&gt;
+  add_model(dt_model) |&gt; <span class="tok">fit(data = childcare_train)</span></p>
 ```
 
-1. **Cost against everything else.** `.` means every other column: `r n_feat` features, plus six columns that shouldn't be.
-2. **Keep but don't use.** County and state names, the FIPS code, the year and the date become `id` columns: they stay in the table as labels and **out of the model**. Without this the model would use the county code as a number.
+1. **Keep but don't use**: county and state names and codes become `id` labels, out of the model. The year stays in.
+2. **A tree**, with `rpart`'s built-in brakes.
+3. **A price**, so every leaf predicts a mean.
+4. **No `tune()`, so fit straight away**: Part I's pattern without the folds.
+:::
 :::
 
-::: {.cards .c2 style="margin-top:0.5em"}
-::: {.fragment}
+::: {.column width="42%"}
 ::: {.card .compact}
 [No normalising this time]{.ct}
-Trees ask "is income below $47.7k?", and a cut-off doesn't care about scale. The kNN recipe needed `step_normalize()`; this one doesn't.
+A tree asks "income below `r dollar(mhi_cut, scale = 1e-3, suffix = "k", accuracy = 0.1)`?". A cut-off doesn't care about units, so no `step_normalize()`. kNN measured distances; trees don't.
 :::
-:::
-::: {.fragment}
+
 ::: {.card .compact .line}
 [One recipe, three models]{.ct}
-Tasks 1–3 add this recipe to three different workflows. Change the recipe once and all three models change with it.
+The forest and the boosted trees reuse `childcare_rec`. Only the model line changes.
 :::
 :::
-:::
+
+::::
 
 ::: {.notes}
-- Type lines 359–362. The recipe is the same object as in Part I, with roles instead of a normalising step.
-- Why no normalising: a tree's question compares one feature with a cut-off, so the units don't matter. Distance-based methods (kNN) need it; tree-based ones don't.
+Code together, 2½ minutes. The recipe ran at "Meet the data" (lines 314–318); read it, then type the spec and the fit into the Task 1 chunk (lines 325–327) together.
+
+- Without the id roles, `.` would hand the model the county code as a number, and the county name as 2,904 categories.
+- `fit()` grows the tree on all 18,797 training rows in about a second.
 :::
 
-## Exercises: Part II · Task 1, a decision tree {.yourturn}
+## Exercises: Task 1, draw and score the tree {.yourturn}
 
 ```{=html}
-<div class="timer" data-minutes="6"></div>
+<div class="timer" data-minutes="5"></div>
 ```
 
 :::: {.yt}
 
 ::: {.tasks}
-[Part II · Task 1 · lines 365–397]{.lbl}
+[Part II · Task 1 · lines 324–338]{.lbl}
 
-1. **Lines 370–373:** specify a `decision_tree()` for regression with the `rpart` engine
-2. **Lines 375–379:** workflow with the recipe and the model; `fit()` on `childcare_train`
-3. **Line 381:** draw it with `rpart.plot()`
-4. **Lines 383–391:** `metric_set(rsq, rmse)`; score the training and the test set
-5. **Line 394:** what does the tree show? Which variables matter?
+1. **Line 330, given:** draw `dt_fit` with `rpart.plot()`. Find the first question.
+2. **Line 333, given:** `metric_set(rsq, rmse)`.
+3. **Line 335, yours:** score the training set and the test set with it.
+4. **Line 338:** what does the tree show? Which variables matter?
 :::
 
 ::: {.cheat}
-[Part I's pattern, without tune()]{.lbl}
+[Syntax you need]{.lbl}
 
 ```r
-dt_model <-
-  decision_tree() |>               # was: nearest_neighbor()
-  set_mode("regression") |>        # the outcome is a number
-  set_engine("rpart")              # the package that grows it
-
-dt_fit <- workflow() |>
-  add_recipe(childcare_rec) |> add_model(dt_model) |>
-  fit(data = childcare_train)      # no tuning: fit straight away
-
-rpart.plot(extract_fit_engine(dt_fit),   # the rpart object inside
+rpart.plot(extract_fit_engine(dt_fit),  # the rpart tree inside
            roundint = FALSE)
 
 regress_metrics <- metric_set(rsq, rmse)  # Lab 3's scores
 
 dt_fit |>
+  augment(new_data = childcare_train) |>  # adds .pred
+  regress_metrics(mcsa, .pred)            # truth, estimate
+
+dt_fit |>
   augment(new_data = childcare_test) |>
-  regress_metrics(mcsa, .pred)     # truth, estimate
+  regress_metrics(mcsa, .pred)
 ```
 
 ::: {.stuck}
 **Stuck?**
 
-- *could not find function "rpart.plot"*: run the library chunk at line 12
-- *object 'childcare_rec' not found*: lines 359–362 first
+- *could not find function "rpart.plot"*: run the library chunk at line 27
+- *object 'dt_fit' not found*: run the spec and the fit first
 :::
 :::
 
 ::::
 
 ::: {.notes}
-Your turn, 6 minutes. The only new function is rpart.plot(); the spec–workflow–fit pattern is Part I's with the tuning taken out.
+Your turn, 5 minutes. Click the timer (or press T).
 
-- Fast finishers: `extract_fit_engine(dt_fit)$variable.importance` ranks the features; try `decision_tree(tree_depth = 2)` and draw that.
+- The scoring is Lab 3 and Lab 4: `augment()` then a metric function. The new bit is reading the tree.
+- Fast finishers: `decision_tree(tree_depth = 2)`, fit and draw it. Fewer questions: better or worse on the test set?
 :::
 
 ## Solutions: Task 1 {.solution}
@@ -1501,17 +1806,6 @@ Your turn, 6 minutes. The only new function is rpart.plot(); the spec–workflow
 
 ::: {.walk-code}
 ```r
-dt_model <-
-  decision_tree() |>
-  set_mode("regression") |>
-  set_engine("rpart")
-
-dt_fit <-
-  workflow() |>
-  add_recipe(childcare_rec) |>
-  add_model(dt_model) |>
-  fit(data = childcare_train)
-
 rpart.plot(extract_fit_engine(dt_fit), roundint = FALSE)
 
 regress_metrics <- metric_set(rsq, rmse)
@@ -1526,43 +1820,28 @@ dt_fit |>
 ```
 
 ::: {.walk-say}
-Specify, fit, draw, score: training set, then test set.
+Draw it, then score: training set, then test set.
 :::
 :::
 
 ::: {.walk-out}
 
-::: {.fragment fragment-index=0 lines="1-10"}
+::: {.fragment fragment-index=0 lines="1"}
 ::: {.say}
-The spec says what; `fit()` on the workflow runs the recipe (roles) and grows the tree on the `r big(nrow(childcare_train))` training rows. Printing it shows the questions as text.
+The Swiftie game on 52 columns. First question `one_race_a < `r f1(first_split)``, then income. `r length(vars_used)` columns used, `r n_leaves` leaves from $`r round(min(res$dt_rpart$frame$yval[res$dt_rpart$frame$var == "<leaf>"]))` to $`r round(max(res$dt_rpart$frame$yval))`.
 :::
 
 ```{r}
 #| echo: false
-local({
-  op <- options(width = 60)
-  on.exit(options(op))
-  print(res$dt_rpart, digits = 3)
-})
+#| fig-width: 6.4
+#| fig-height: 3.6
+rpart.plot(res$dt_rpart, roundint = FALSE, cex = 0.62, box.palette = "Reds", shadow.col = NA)
 ```
 :::
 
-::: {.fragment fragment-index=1 lines="12"}
+::: {.fragment fragment-index=1 lines="5-7"}
 ::: {.say}
-The same tree as a flow chart: a question in each box, the predicted cost and the share of counties in each leaf. Next slide reads it.
-:::
-
-```{r}
-#| echo: false
-#| fig-width: 5.6
-#| fig-height: 3.8
-rpart.plot(res$dt_rpart, roundint = FALSE, cex = 0.72)
-```
-:::
-
-::: {.fragment fragment-index=2 lines="14-18"}
-::: {.say}
-Training set: RMSE `r f1(dt_train)` dollars a week, R² `r f2(mt("dt_metrics", "train", "rsq"))`. Eight leaves can only explain so much.
+Training set: RMSE `r f1(dt_train)` dollars a week, R² `r f2(mt("dt_metrics", "train", "rsq"))`. `r n_leaves` numbers can only explain so much.
 :::
 
 ```{r}
@@ -1571,9 +1850,9 @@ res$dt_metrics |> filter(set == "train") |> select(-set)
 ```
 :::
 
-::: {.fragment fragment-index=3 lines="20-22"}
+::: {.fragment fragment-index=2 lines="9-11"}
 ::: {.say}
-Test set: RMSE `r f1(dt_test)`, R² `r f2(dt_rsq)`. A bit worse than training, as expected; predicting the mean would give `r f1(base_rmse)`.
+Test set: RMSE `r f1(dt_test)`, R² `r f2(dt_rsq)`. A little worse than training; predicting the mean would give `r f1(base_rmse)`. **The baseline the next two models must beat.**
 :::
 
 ```{r}
@@ -1586,47 +1865,109 @@ res$dt_metrics |> filter(set == "test") |> select(-set)
 ::::
 
 ::: {.notes}
-Each click highlights the next step of the code, shows the result, and explains it below the code.
+Solutions and discussion, 3 minutes. Line 338: what does the tree show?
+
+- Read the first box: 100% of counties, mean $99. "Is the Asian share below 2.2%?" It is not a cause of childcare prices: it marks the big coastal metro areas where everything is expensive. A tree takes whatever splits cleanest, proxies included.
+- Then income, the year (before or after 2012: prices rose), households, women's jobs. The notebook's answer names five of the six; `study_year` is the one it misses.
+- Everyone in a leaf gets the same price. That's why one tree is coarse, and why the next two models use many.
 :::
 
-## Reading the tree
+## A forest: ask three friends who each know less
 
 ```{=html}
-<div class="tracker"><span class="done">Warm-up</span><span class="done">I · kNN + CV</span><span class="on">II · Trees</span><span>Wrap-up</span></div>
+<div class="tracker"><span class="done">I · kNN + CV</span><span class="done">II · Trees</span><span class="on">Forests</span><span>Boosting</span><span>Wrap-up</span></div>
 ```
 
 ```{=html}
-<p class="nbref"><b>Notebook</b> line 394 <span>class discussion: what does the tree show? which variables matter?</span><i>discuss</i></p>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px;font-size:0.95em">
+`r friend_tree(1)`
+`r friend_tree(2)`
+`r friend_tree(3)`
+</div>
+```
+
+::: {.cards .c3 style="margin-top:0.6em"}
+::: {.card .compact}
+[Each friend sees less]{.ct}
+**8 of the 12 people** (a random resample) and **2 of the 5 questions** (random columns). Different evidence, a different first question.
+:::
+::: {.fragment}
+::: {.card .compact .line}
+[Mia: 22, not a pop fan, plays guitar, enjoys lyrics, follows trends]{.ct}
+Votes: `r paste(sw_votes, collapse = ", ")`. **`r sw_forest`**, 2 to 1. Our one tree said "not": not a pop fan.
+:::
+:::
+::: {.fragment}
+::: {.card .compact .dark}
+[That is a random forest]{.ct}
+1,000 such friends. Each tree on a **resample** of the rows, each split from a few random columns (`mtry`). They **vote**; for a price, they **average**.
+:::
+:::
+:::
+
+::: {.notes}
+Timing: the forest concept is 3½ minutes, this slide and the next.
+
+- The three trees are real `rpart` fits on the Swiftie table: each friend got 8 random people and 2 random columns, and played the one-question game.
+- Why hide people and columns? If every friend saw everything, all three would ask "likes pop?" and the vote would be three copies of one opinion. A crowd is only wise when it disagrees.
+- Mia: the single tree only looks at pop and says no. The forest weighs trends and lyrics too and says yes. Neither is "right" here; the point is the forest uses more of the evidence and no single question decides.
+- The price: nobody can read 1,000 flow charts. You get predictions, not a picture.
+:::
+
+## A forest, with prices
+
+```{=html}
+<div class="tracker"><span class="done">I · kNN + CV</span><span class="done">II · Trees</span><span class="on">Forests</span><span>Boosting</span><span>Wrap-up</span></div>
 ```
 
 :::: {.columns style="align-items:start"}
 
-::: {.column width="54%"}
+::: {.column width="58%"}
+::: {.r-stack}
 ```{r}
 #| echo: false
-#| fig-width: 7
-#| fig-height: 3
-rpart.plot(res$dt_rpart, roundint = FALSE, cex = 0.8, box.palette = "Reds", shadow.col = NA)
+#| fig-width: 6.2
+#| fig-height: 3.3
+bag_step(1)
+```
+
+::: {.fragment fragment-index=1}
+```{r}
+#| echo: false
+#| fig-width: 6.2
+#| fig-height: 3.3
+bag_step(3)
 ```
 :::
 
-::: {.column width="46%"}
+::: {.fragment fragment-index=2}
+```{r}
+#| echo: false
+#| fig-width: 6.2
+#| fig-height: 3.3
+bag_step(5)
+```
+:::
+:::
+:::
+
+::: {.column width="42%"}
 ::: {.card .compact}
-[The first question]{.ct}
-`one_race_a < `r f1(first_split)``, the share of Asian residents: a **proxy** for expensive metro counties, not a cause.
+[One friend, one resample]{.ct}
+Draw the counties at random, with replacement; grow a tree. One staircase.
 :::
 
-::: {.fragment}
+::: {.fragment fragment-index=1}
 ::: {.card .compact .line}
-[Then income, households, women's jobs]{.ct}
-`mhi_2018`, `households`, `femp_sales`, `femp_m`: five of 50 features used.
+[Three friends, three staircases]{.ct}
+Each resample has different counties, so the steps land in different places.
 :::
 :::
 
-::: {.fragment}
+::: {.fragment fragment-index=2}
 ::: {.card .compact .dark}
-[What the model is]{.ct}
-Eight numbers, one per leaf, $`r round(min(res$dt_rpart$frame$yval))` to $`r round(max(res$dt_rpart$frame$yval))`. Everyone in a leaf gets the same price: hence RMSE $`r round(dt_test)`.
+[Average them: smooth]{.ct}
+Each tree's odd steps cancel out in the average of 50. The forest overfits far less than any one deep tree.
 :::
 :::
 :::
@@ -1634,120 +1975,120 @@ Eight numbers, one per leaf, $`r round(min(res$dt_rpart$frame$yval))` to $`r rou
 ::::
 
 ::: {.notes}
-Discuss, 2 minutes. Take the notebook's two questions in turn.
-
-- Read the first box aloud: 100% of counties, mean $99. "Is the Asian share below 2.2%?" Yes goes left (87% of counties), no goes right. Ask what that variable stands for: it is not a cause of childcare prices; it marks the big coastal metro areas where everything is expensive. Trees take whatever splits best.
-- The notebook's answer names the same five variables and calls `one_race_a` the most important because it splits first. Add: "first" and "most important" are not quite the same; the forest's permutation importance puts income first.
+- One feature again. Click: three trees on three resamples. Click: the average of fifty, the thick red line.
+- "With replacement" means some counties are drawn twice and about a third not at all. That's the "8 of 12" from the game.
 :::
 
-## Exercises: Part II · Tasks 2–4, forest, boosting, compare {.yourturn}
+## The forest, together
 
 ```{=html}
-<div class="timer" data-minutes="9"></div>
+<div class="tracker"><span class="done">I · kNN + CV</span><span class="done">II · Trees</span><span class="on">Forests</span><span>Boosting</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 348–351 <span>the Task 2 sketch: fill in the brackets, remove the <code>#</code></span><i>code together</i></p>
+```
+
+::: {.anatomy}
+```{=html}
+<p class="anat-code" style="font-size:0.56em">rf_model &lt;-
+  <span class="tok">rand_forest(</span><span class="tok">mtry = round(sqrt(52), 0)</span>, <span class="tok">trees = 1e3</span>) |&gt;
+  set_mode("regression") |&gt;
+  <span class="tok">set_engine("ranger", num.threads = parallel::detectCores() - 1)</span></p>
+```
+
+1. **Many trees, averaged.** Same spec–workflow–fit pattern as the tree.
+2. **`mtry`: columns per split.** Each split may look at 7 random columns of the 52, the friends' "2 of 5". √52 ≈ 7 is a rule of thumb.
+3. **`trees`: how many friends.** 1,000; more only costs time.
+4. **The engine.** `ranger` grows the trees; `num.threads` uses all cores but one, about 20 seconds instead of a minute.
+:::
+
+::: {.notes}
+Code together, 1½ minutes. The workbook's sketch has `set_engine("ranger")`; adding `num.threads` is the solutions' version and is faster. Both are right.
+
+- Ask: which line here makes it "random"? Two things: the resample (built in, no argument) and `mtry`. With `mtry = 52` every split sees every column, and you'd have plain bagging.
+:::
+
+## Exercises: Task 2, fit and score the forest {.yourturn}
+
+```{=html}
+<div class="timer" data-minutes="4"></div>
 ```
 
 :::: {.yt}
 
 ::: {.tasks}
-[Part II · Tasks 2–4 · lines 399–504]{.lbl}
+[Part II · Task 2 · lines 347–358]{.lbl}
 
-1. **Lines 404–421, Task 2:** a `rand_forest()` with `mtry = round(sqrt(52), 0)` and `trees = 1e3`, engine `ranger`; fit; score both sets
-2. **Line 424:** better predictions? Overfitting?
-3. **Lines 431–457, Task 3:** a `boost_tree()` with the same `mtry`, `trees = 1000`, `learn_rate = 0.1`, engine `xgboost`; fit; score
-4. **Lines 468–504, Task 4:** one table of test RMSE for the three models, and a bar chart
+1. **Line 353:** fit `rf_model` in a workflow with `childcare_rec`; call it `rf_fit`. Takes about 20 seconds.
+2. **Line 355:** score the training set and the test set.
+3. **Line 358:** better predictions than the tree? Does it help with overfitting?
 :::
 
 ::: {.cheat}
-[Three specs, one pattern]{.lbl}
+[Task 1's pattern, new model]{.lbl}
 
 ```r
-rf_model <-
-  rand_forest(mtry = round(sqrt(52), 0), trees = 1e3) |>
-  set_mode("regression") |>
-  set_engine("ranger", num.threads = parallel::detectCores() - 1)
+rf_fit <- workflow() |>
+  add_recipe(childcare_rec) |>
+  add_model(rf_model) |>        # was dt_model
+  fit(data = childcare_train)
 
-xgb_model <-
-  boost_tree(mtry = round(sqrt(52), 0), trees = 1000,
-             learn_rate = 0.1) |>
-  set_mode("regression") |>
-  set_engine("xgboost", nthread = parallel::detectCores() - 1)
-# then workflow() |> add_recipe() |> add_model() |> fit(), as Task 1
-
-list("Decision Tree" = dt_fit, "Random Forest" = rf_fit,
-     "XGBoost" = xgb_fit) |>                      # Task 4
-  map_dfr(~ augment(.x, new_data = childcare_test),
-          .id = "model") |>          # list names → a column
-  group_by(model) |>
-  regress_metrics(mcsa, .pred) |>    # one score per model
-  filter(.metric == "rmse")
+rf_fit |>
+  augment(new_data = childcare_test) |>
+  regress_metrics(mcsa, .pred)
+# and the same with childcare_train
 ```
 
 ::: {.stuck}
-**Stuck?** The forest takes 20–30 s, XGBoost a few: normal. The bar chart is `geom_col()` + `coord_flip()`
+**Stuck?** Training RMSE far below the test one? That's normal for a forest: see the solution.
 :::
 :::
 
 ::::
 
 ::: {.notes}
-Your turn, 9 minutes. Tasks 2 and 3 are Task 1 with a different model function and engine; Task 4 is Lab 4's `map_dfr()` over a list of fitted models instead of a list of thresholds.
-
-- The notebook's XGBoost spec also passes `eval_metric = "rmse"` to the engine; it only affects what xgboost prints while training. The sheet leaves it out.
-- Fast finishers: `extract_fit_engine(rf_fit)` with `importance = "permutation"` in set_engine() for a feature ranking; or tune `learn_rate` with `tune()` and `tune_grid(…, resamples = childcare_cv)`.
+Your turn, 4 minutes. A copy of Task 1 with one word changed; the point is the discussion question.
 :::
 
-## Solutions: Tasks 2 and 3 {.solution}
+## Solutions: Task 2 {.solution}
 
-:::: {.walk .dense}
+:::: {.walk}
 
 ::: {.walk-code}
 ```r
-rf_model <-
-  rand_forest(mtry = round(sqrt(52), 0), trees = 1e3) |>
-  set_mode("regression") |>
-  set_engine("ranger", num.threads = parallel::detectCores() - 1)
+rf_fit <- workflow() |>
+  add_recipe(childcare_rec) |>
+  add_model(rf_model) |>
+  fit(data = childcare_train)
 
-rf_fit <- workflow() |> add_recipe(childcare_rec) |>
-  add_model(rf_model) |> fit(data = childcare_train)
-
-rf_fit |> augment(new_data = childcare_train) |> regress_metrics(mcsa, .pred)
-rf_fit |> augment(new_data = childcare_test)  |> regress_metrics(mcsa, .pred)
-
-xgb_model <-
-  boost_tree(mtry = round(sqrt(52), 0), trees = 1000,
-             learn_rate = 0.1) |>
-  set_mode("regression") |>
-  set_engine("xgboost", nthread = parallel::detectCores() - 1,
-             eval_metric = "rmse")
-
-xgb_fit <- workflow() |> add_recipe(childcare_rec) |>
-  add_model(xgb_model) |> fit(data = childcare_train)
-
-xgb_fit |> augment(new_data = childcare_train) |> regress_metrics(mcsa, .pred)
-xgb_fit |> augment(new_data = childcare_test)  |> regress_metrics(mcsa, .pred)
+rf_fit |> augment(new_data = childcare_train) |>
+  regress_metrics(mcsa, .pred)
+rf_fit |> augment(new_data = childcare_test) |>
+  regress_metrics(mcsa, .pred)
 ```
 
 ::: {.walk-say}
-The forest, then the boosted trees. Same workflow, same scores.
+Fit, then score both sets.
 :::
 :::
 
 ::: {.walk-out}
 
-::: {.fragment fragment-index=0 lines="1-7"}
+::: {.fragment fragment-index=0 lines="1-4"}
 ::: {.say}
-1,000 trees, each on a resample of the rows, each split choosing among 7 random features. `num.threads` uses all cores but one; it takes about 20 seconds.
+1,000 trees, each on a resample, each split choosing among 7 random columns. About 20 seconds.
 :::
 
 ```{r}
 #| echo: false
-cat("== Workflow [trained] ==================\nPreprocessor: Recipe\nModel: rand_forest()\n\nRanger result\n\n  Type:                 Regression\n  Number of trees:      1000\n  Mtry:                 7\n  Target node size:     5\n  Variable importance mode: none\n  ...")
+cat("== Workflow [trained] ==================\nPreprocessor: Recipe\nModel: rand_forest()\n\nRanger result\n  Type:            Regression\n  Number of trees: 1000\n  Mtry:            7\n  ...")
 ```
 :::
 
-::: {.fragment fragment-index=1 lines="9-10"}
+::: {.fragment fragment-index=1 lines="6-9"}
 ::: {.say}
-Training RMSE `r f1(rf_train)` against test `r f1(rf_test)`: the forest fits its own rows almost perfectly and the test set much better than the tree (`r f1(dt_test)`). R² on the test set `r f2(rf_rsq)`.
+Test RMSE `r f1(rf_test)` against the tree's `r f1(dt_test)`: **much better**. Training `r f1(rf_train)`: tiny, and that's normal. Every row was in most trees' resamples, so the forest has seen it. Judge it on the test set.
 :::
 
 ```{r}
@@ -1755,8 +2096,251 @@ Training RMSE `r f1(rf_train)` against test `r f1(rf_test)`: the forest fits its
 res$rf_metrics |> mutate(.estimate = round(.estimate, 3))
 ```
 :::
+:::
 
-::: {.fragment fragment-index=2 lines="12-20"}
+::::
+
+::: {.notes}
+Solutions, 1 minute. Line 358: better predictions, yes, by a quarter. Overfitting: the training error says little for an ensemble; what matters is that the test error fell. Part of the remaining gap is time: prices rose after 2016.
+:::
+
+## Boosting: a relay, each friend fixes the last one's mistakes
+
+```{=html}
+<div class="tracker"><span class="done">I · kNN + CV</span><span class="done">II · Trees</span><span class="done">Forests</span><span class="on">Boosting</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="52%"}
+```{=html}
+<table class="mini sw relay" style="font-size:0.5em">
+<tr><th>Person</th><th>Swiftie?</th><th>Friend 1<br>likes pop?</th><th class="fragment" data-fragment-index="1">Friend 2<br>enjoys lyrics?</th><th class="fragment" data-fragment-index="2">Friend 3<br>follows trends?</th><th class="fragment" data-fragment-index="3">Together<br>2 of 3</th></tr>
+`r relay_rows()`
+</table>
+```
+:::
+
+::: {.column width="48%"}
+::: {.card .compact}
+[Friend 1 plays the game]{.ct}
+"Likes pop?": `r sw_sc["pop"]` of 12, wrong about **K and L**.
+:::
+
+::: {.fragment fragment-index=1}
+::: {.card .compact .line}
+[Friend 2: "K and L count 4×"]{.ct}
+The best question now gets K and L right: **lyrics?** Wrong about C, E, H.
+:::
+:::
+
+::: {.fragment fragment-index=2}
+::: {.card .compact .line}
+[Friend 3: "C, E, H, K, L count 4×"]{.ct}
+**Trends?** gets those five right. Wrong about B, F, J.
+:::
+:::
+
+::: {.fragment fragment-index=3}
+::: {.card .compact .dark}
+[Together: 12 of 12]{.ct}
+Nobody is wrong twice. **Boosting**: small trees **in turn**, each aimed at the last ones' mistakes, then combined.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: the boosting concept is 4½ minutes, this slide and the next.
+
+- Same table. Friend 1 is the first question of the game. Click: friend 2 isn't asked to start from scratch; they're told who friend 1 got wrong, and those people count extra. With K and L counting four times, "lyrics?" (and "trends?", which ties) beats "pop?". Click: friend 3 is told everyone still at risk. "Trends?" wins clearly.
+- Click: combine. Each friend alone gets 9 or 10; together all 12, because their mistakes never overlap. That's the design: each one was aimed at the previous mistakes.
+- Forest against boosting in one sentence: the forest's friends work **at the same time and don't talk**; boosting's friends **take turns and read the previous one's mistakes**.
+:::
+
+## Boosting, with prices
+
+```{=html}
+<div class="tracker"><span class="done">I · kNN + CV</span><span class="done">II · Trees</span><span class="done">Forests</span><span class="on">Boosting</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="58%"}
+::: {.r-stack}
+```{r}
+#| echo: false
+#| fig-width: 6.2
+#| fig-height: 3.3
+boost_step(1)
+```
+
+::: {.fragment fragment-index=1}
+```{r}
+#| echo: false
+#| fig-width: 6.2
+#| fig-height: 3.3
+boost_step(2)
+```
+:::
+
+::: {.fragment fragment-index=2}
+```{r}
+#| echo: false
+#| fig-width: 6.2
+#| fig-height: 3.3
+boost_step(3)
+```
+:::
+
+::: {.fragment fragment-index=3}
+```{r}
+#| echo: false
+#| fig-width: 6.2
+#| fig-height: 3.3
+boost_step(4)
+```
+:::
+:::
+:::
+
+::: {.column width="42%"}
+::: {.card .compact}
+[With a number, "the mistakes" are the leftovers]{.ct}
+Each small tree predicts how far off the trees so far still are, county by county.
+:::
+
+::: {.fragment fragment-index=1}
+::: {.card .compact .line}
+[Add only a tenth]{.ct}
+Each tree's answer is added with a small say: `learn_rate = 0.1`. One step at a time, so no single tree can wreck it.
+:::
+:::
+
+::: {.fragment fragment-index=3}
+::: {.card .compact .dark}
+[After 100 trees]{.ct}
+The relay has found the shape. Keep going for ever and it starts to chase single counties, like the question for L.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+- Start: one small tree, a tenth of its answer: barely moves from the average. Click: five trees. Click: twenty. Click: a hundred: the curve has found the rise with income.
+- In the game, friend 2 counted K and L extra; with prices, friend 2 is fitted to the leftover errors directly. Same idea: aim at what's still wrong.
+- `trees` and `learn_rate` work together: a smaller learning rate needs more trees.
+:::
+
+## Boosting, together
+
+```{=html}
+<div class="tracker"><span class="done">I · kNN + CV</span><span class="done">II · Trees</span><span class="done">Forests</span><span class="on">Boosting</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 365–372 <span>the Task 3 sketch: fill in the brackets, remove the <code>#</code></span><i>code together</i></p>
+```
+
+::: {.anatomy}
+```{=html}
+<p class="anat-code" style="font-size:0.56em">xgb_model &lt;-
+  <span class="tok">boost_tree(</span>
+    mtry = round(sqrt(52), 0),
+    <span class="tok">trees = 1000</span>,
+    <span class="tok">learn_rate = 0.1</span>
+  ) |&gt;
+  set_mode("regression") |&gt;
+  <span class="tok">set_engine("xgboost")</span></p>
+```
+
+1. **Small trees in a relay**, summed. Same pattern again; `mtry` as in the forest.
+2. **`trees`: the length of the relay.** 1,000 legs.
+3. **`learn_rate`: each tree's say.** A tenth of its answer is added.
+4. **The engine**: XGBoost, the boosting library that wins most competitions on tables of data.
+:::
+
+::: {.notes}
+Code together, 1½ minutes. Then straight into Tasks 3 and 4.
+
+- Compare with the forest spec on the previous code slide: `rand_forest` → `boost_tree`, plus `learn_rate`. The forest has no learning rate because its trees don't build on each other.
+:::
+
+## Exercises: Tasks 3 and 4, boost and compare {.yourturn}
+
+```{=html}
+<div class="timer" data-minutes="6"></div>
+```
+
+:::: {.yt}
+
+::: {.tasks}
+[Part II · Tasks 3–4 · lines 364–390]{.lbl}
+
+1. **Line 374:** fit `xgb_model` as `xgb_fit`; score both sets (376). A few seconds.
+2. **Line 380:** better than the forest? Overfitting?
+3. **Lines 386–390, Task 4:** test-set RMSE for all three models in one table, then a bar chart.
+:::
+
+::: {.cheat}
+[Task 4: three fits, one table]{.lbl}
+
+```r
+model_results <-
+  list("Decision Tree" = dt_fit,
+       "Random Forest" = rf_fit,
+       "XGBoost"       = xgb_fit) |>
+  map_dfr(~ augment(.x, new_data = childcare_test),
+          .id = "model") |>          # list names → a column
+  group_by(model) |>
+  regress_metrics(mcsa, .pred) |>    # one score per model
+  filter(.metric == "rmse")
+
+ggplot(model_results,
+       aes(reorder(model, .estimate), .estimate)) +
+  geom_col() + coord_flip()
+```
+
+::: {.stuck}
+**Stuck?** `map_dfr()` is Lab 4's threshold sweep: a list in, one stacked table out.
+:::
+:::
+
+::::
+
+::: {.notes}
+Your turn, 6 minutes. Task 3 is Task 2 with one word changed; Task 4 is the new part.
+
+- Fast finishers: try `learn_rate = 0.3` and `0.01`. What happens to the test RMSE?
+:::
+
+## Solutions: Task 3 {.solution}
+
+:::: {.walk}
+
+::: {.walk-code}
+```r
+xgb_fit <- workflow() |>
+  add_recipe(childcare_rec) |>
+  add_model(xgb_model) |>
+  fit(data = childcare_train)
+
+xgb_fit |> augment(new_data = childcare_train) |>
+  regress_metrics(mcsa, .pred)
+xgb_fit |> augment(new_data = childcare_test) |>
+  regress_metrics(mcsa, .pred)
+```
+
+::: {.walk-say}
+Fit, then score both sets.
+:::
+:::
+
+::: {.walk-out}
+
+::: {.fragment fragment-index=0 lines="1-4"}
 ::: {.say}
 1,000 small trees in sequence, each adding a tenth of its correction. A few seconds.
 :::
@@ -1767,9 +2351,9 @@ cat("== Workflow [trained] ==================\nPreprocessor: Recipe\nModel: boos
 ```
 :::
 
-::: {.fragment fragment-index=3 lines="22-23"}
+::: {.fragment fragment-index=1 lines="6-9"}
 ::: {.say}
-Test RMSE `r f1(xgb_test)`, the best of the three; training `r f1(xgb_train)`, the same big gap as the forest. R² `r f2(xgb_rsq)`.
+Test RMSE `r f1(xgb_test)`, the best of the three (forest `r f1(rf_test)`). Training `r f1(xgb_train)`: the same big gap as the forest, for the same reason.
 :::
 
 ```{r}
@@ -1782,14 +2366,12 @@ res$xgb_metrics |> mutate(.estimate = round(.estimate, 3))
 ::::
 
 ::: {.notes}
-Each click highlights the next step of the code, shows the result, and explains it below the code. The two model printouts are shortened; the metrics are shown as one table per model (set, metric, estimate) rather than two.
-
-- The notebook's answers: forest RMSE 24.9, XGBoost 23.5. Both algorithms are random (resamples, random features), so the second decimal moves between runs and machines; the ranking doesn't.
+Solutions, 1 minute. Line 380: yes, a little better than the forest. Both ensembles' training errors are near zero; compare test errors.
 :::
 
 ## Solutions: Task 4 {.solution}
 
-:::: {.walk}
+:::: {.walk .dense}
 
 ::: {.walk-code}
 ```r
@@ -1863,76 +2445,58 @@ res$model_results |>
 Each click highlights the next step of the code, shows the result, and explains it below the code. Same `map_dfr()` idea as Lab 4's threshold sweep: a list in, one stacked table out.
 :::
 
-## Part II: what did we learn?
+
+## Tree, forest, boosting: what's the difference?
 
 ```{=html}
-<div class="tracker"><span class="done">Warm-up</span><span class="done">I · kNN + CV</span><span class="on">II · Trees</span><span>Wrap-up</span></div>
-```
-
-:::: {.columns style="align-items:start"}
-
-::: {.column width="50%"}
-```{=html}
-<p class="tbl-cap">Test-set RMSE <small>dollars a week; lower is better</small></p>
-<div class="bars">
-  <div><span>predict the mean</span><i style="width:`r round(100 * base_rmse / 40)`%;background:#BDBDBD"></i><b>`r f1(base_rmse)`</b></div>
-  <div><span>one tree</span><i style="width:`r round(100 * dt_test / 40)`%"></i><b>`r f1(dt_test)`</b></div>
-  <div><span>random forest</span><i class="hot" style="width:`r round(100 * rf_test / 40)`%"></i><b>`r f1(rf_test)`</b></div>
-  <div><span>XGBoost</span><i class="hot" style="width:`r round(100 * xgb_test / 40)`%"></i><b>`r f1(xgb_test)`</b></div>
-</div>
+<div class="tracker"><span class="done">I · kNN + CV</span><span class="done">II · Trees</span><span class="done">Forests</span><span class="on">Boosting</span><span>Wrap-up</span></div>
 ```
 
 ```{=html}
-<div class="calc sm" style="margin-top:0.8em">
-  <div><span class="cl">Train → test</span><span class="cx">tree `r f1(dt_train)` → `r f1(dt_test)` <small>small gap</small></span></div>
-  <div><span class="cl"></span><span class="cx">forest `r f1(rf_train)` → `r f1(rf_test)` <small>large gap</small></span></div>
-  <div class="hl"><span class="cl"></span><span class="cx">XGBoost `r f1(xgb_train)` → `r f1(xgb_test)` <small>large gap, best test score</small></span></div>
-</div>
+<table class="mini cmp" style="font-size:0.56em;width:100%">
+<tr><th></th><th>One tree</th><th>Random forest</th><th>Boosting</th></tr>
+<tr><td><b>In the game</b></td><td>"Pop?", then "lyrics?"</td><td>Three friends who each saw part of the table, voting</td><td>A relay: each friend aimed at the last one's mistakes</td></tr>
+<tr><td><b>How the trees are grown</b></td><td>One, until the brakes stop it</td><td>1,000 at once, independently: each on a resample, random columns</td><td>1,000 small ones in turn, each on the leftovers</td></tr>
+<tr><td><b>How they're combined</b></td><td>No combining</td><td>Average (or vote)</td><td>Sum, each with a small say</td></tr>
+<tr><td><b>The knobs</b></td><td><code>tree_depth</code>, <code>min_n</code>, <code>cost_complexity</code></td><td><code>trees</code>, <code>mtry</code></td><td><code>trees</code>, <code>learn_rate</code>, <code>mtry</code></td></tr>
+<tr><td><b>Can you read it?</b></td><td>Yes: a flow chart</td><td>No</td><td>No</td></tr>
+<tr class="fragment pick"><td><b>Test RMSE</b> (train)</td><td>`r f1(dt_test)` (`r f1(dt_train)`)</td><td>`r f1(rf_test)` (`r f1(rf_train)`)</td><td>`r f1(xgb_test)` (`r f1(xgb_train)`)</td></tr>
+</table>
 ```
-:::
 
-::: {.column width="50%"}
-::: {.card .compact}
-[Many trees beat one]{.ct}
-The ensembles cut the tree's error by a quarter and explain `r round(100 * xgb_rsq)`% of the variance in test-year prices against the tree's `r round(100 * dt_rsq)`%.
-:::
-
+::: {.cards .c2 style="margin-top:0.5em"}
 ::: {.fragment}
-::: {.card .compact .line}
+::: {.card .compact}
 [Mind the gap]{.ct}
-A training RMSE of $`r round(rf_train)` means the forest has nearly memorised 2008–2016. The honest number is the test one. Part of the gap is also **time**: prices rose in 2017–2018, and the models have never seen those years.
+An ensemble's training error is always tiny: it has seen every row many times. The test set is the honest number. Part of the gap is **time**: prices rose in 2017–2018.
 :::
 :::
-
 ::: {.fragment}
 ::: {.card .compact .dark}
 [Nothing was tuned]{.ct}
-1,000 trees, `mtry` 7, learning rate 0.1: defaults and rules of thumb. Part I's recipe, `tune()` plus the time folds, is how you'd do better.
+1,000 trees, `mtry` 7, learning rate 0.1: rules of thumb. Part I's `tune()` and cross-validation are how you'd do better.
 :::
 :::
 :::
-
-::::
 
 ::: {.notes}
-Debrief, 2 minutes. The notebook's two discussion questions (lines 424 and 460) in one picture.
+Debrief, 2 minutes. This is the slide to leave students with: read the rows across.
 
-- "Does the forest help with overfitting?" The notebook's answer says the train–test discrepancy is larger than the tree's. True, and worth being precise about: a forest's training error is always tiny, because each row was in most trees' resamples; it says little about overfitting. The test RMSE is what to compare, and there the forest wins clearly.
-- The test years are harder: the median price rose from $100 in 2016 to $106 in 2018, so a model trained on the past under-predicts. A random split would have hidden that and flattered every model.
-- If asked which to use: XGBoost by the numbers, the single tree if you must explain each prediction to a parent or a council.
+- Forest against boosting: both use many trees. The forest's trees are independent and averaged, so it's hard to overfit by adding more. Boosting's trees build on each other, so it can overfit if you run the relay too long; that's why `trees` and `learn_rate` are knobs to tune.
+- Which to use? XGBoost by the numbers; the single tree if you must explain each prediction to a parent or a council.
 :::
 
 ## Summary
 
 ```{=html}
-<div class="tracker"><span class="done">Warm-up</span><span class="done">I · kNN + CV</span><span class="done">II · Trees</span><span class="on">Wrap-up</span></div>
+<div class="tracker"><span class="done">I · kNN + CV</span><span class="done">II · Trees</span><span class="done">Forests</span><span class="done">Boosting</span><span class="on">Wrap-up</span></div>
 ```
 
 ```{=html}
 <div class="checks" style="grid-template-columns:1fr">
   <div><b>1</b><span>A <strong>hyperparameter</strong> is a setting you choose, not one <code>fit()</code> estimates: the number of neighbours, the depth of a tree, the number of trees, the learning rate. Choose it by <strong>cross-validation</strong>: cut the training set into folds, score every candidate on held-out folds, average, pick. The <strong>test set stays sealed</strong> until the end. In code: <code>vfold_cv()</code>, <code>tune()</code>, <code>tune_grid()</code>, <code>select_best()</code>, <code>finalize_workflow()</code></span></div>
-  <div><b>2</b><span><strong>k nearest neighbours</strong> lets the k closest training rows vote: small k is jagged, large k is smooth. A <strong>decision tree</strong> asks one yes/no question at a time and predicts the mean of the leaf: readable, unstable, and it overfits if grown too far</span></div>
-  <div><b>3</b><span><strong>Ensembles</strong> fix the tree's instability. A <strong>random forest</strong> averages many trees grown on resampled rows with random features; <strong>boosting</strong> adds small trees that each correct the last. Both beat one tree; neither can be read like one</span></div>
+  <div><b>2</b><span><strong>k nearest neighbours</strong> is the estate agent's comparables: the k most similar training rows vote. Small k is jagged (k = 1 memorises), large k is smooth. A <strong>decision tree</strong> is the Swiftie game: the question that sorts cleanest, then again inside each group, and stop before you invent a question for one person (L)</span></div>
+  <div><b>3</b><span><strong>Ensembles</strong> fix the tree's instability. A <strong>random forest</strong> is a crowd that doesn't talk: many trees, each on resampled rows with a random handful of features, averaged. <strong>Boosting</strong> is a relay: small trees in turn, each aimed at what the last ones got wrong, summed. Both beat one tree; neither can be read like one</span></div>
 </div>
 ```
 
