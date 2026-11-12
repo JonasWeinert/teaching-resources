@@ -1,0 +1,655 @@
+---
+title: "Fewer dimensions: PCA and MCA"
+subtitle: "MY202 · Lab 7 · Self-paced guide"
+author: "Jonas Weinert"
+date: today
+date-format: "D MMMM YYYY"
+format: lse-html
+
+execute:
+  echo: false
+  message: false
+  warning: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+# The outputs on this page are real: they come from running the lab code on the lab data.
+knitr::opts_knit$set(root.dir = "../notebooksanddata")
+```
+
+```{r}
+#| label: shared
+#| include: false
+# The guide uses exactly the same data and examples (the school report, the TV table) as the Lab 7 slides:
+# it runs the slides' setup, data and visuals chunks, so the two can never disagree.
+deck <- readLines("../slides/W7-lab-slides.qmd")
+chunk_code <- function(label) {
+  start <- which(deck == paste0("#| label: ", label))
+  ends <- which(deck == "```")
+  deck[(start + 1):(min(ends[ends > start]) - 1)]
+}
+code <- unlist(lapply(c("setup", "data", "visuals"), chunk_code))
+code <- code[!grepl("^#\\|", code) & !grepl("opts_knit", code)]
+eval(parse(text = code), envir = globalenv())
+options(width = 72, tibble.print_min = 6, tibble.print_max = 24, pillar.max_extra_cols = 0)
+f2 <- function(x) formatC(x, format = "f", digits = 2)
+```
+
+## Before you start
+
+This page walks you through Lab 7 one small step at a time. It assumes you have done Labs 1 to 5: you know notebooks, chunks, the pipe `|>`, `ggplot`, and Lab 5's `recipe()` with `step_normalize()`. Everything new is explained the first time it appears, and there is a [glossary](#glossary) at the end.
+
+**What's new this week.** This is the first **unsupervised** lab. Until now there was always an outcome to predict: life expectancy, sales, diabetes, PTSD, childcare prices. Today there is none. Instead we ask what structure the variables have among themselves, and we use it to **replace many variables with a few**:
+
+- **PCA** (principal component analysis) does this for numbers.
+- **MCA** (multiple correspondence analysis) does it for categories.
+
+Each part goes in the same order: first **the idea**, with an everyday example you can work out in your head; then **the code**; then **your turn** in the notebook.
+
+:::: {.legend}
+::: {.l-do}
+**Your turn**
+Something to do in the notebook. The box says which notebook lines to go to.
+:::
+::: {.l-see}
+**What you should see**
+The real result R gives back. Compare it with yours.
+:::
+::: {.l-idea}
+**Big idea**
+A concept worth remembering beyond today.
+:::
+::: {.l-quiz}
+**Check yourself**
+A quick question. Click an answer to see if you were right.
+:::
+::::
+
+At the end of each step there is a **Mark as done** button. Your ticks are saved in this browser, so you can close the page and pick up where you left off.
+
+**There is no code to write this week.** Every chunk in the student notebook (`my202-07-lab-student.qmd`) is ready to run. The work is in the notebook's **reflection questions**: what does this plot say? So for every question, **write your own answer into the notebook first**, then open the "Compare with our answer" box. All line numbers on this page refer to the student notebook.
+
+::: {.callout-note title="Plan for about 2 hours"}
+Part I (PCA) takes a little over an hour, Part II (MCA) about 45 minutes. Nothing runs for more than a few seconds.
+:::
+
+### Open the notebook and run the setup chunk {.step}
+
+::: {.doit q="Setup · notebook lines 25–36"}
+1. Open the Lab 7 **student notebook** on Nuvolos.
+2. Run the chunk at **lines 25–36**. It loads eight packages.
+:::
+
+| Package | What it gives you |
+|---|---|
+| `tidymodels`, `tidyverse` | As before. New today: `step_pca()`. |
+| `psychTools` | The data for Part I, `holzinger.swineford`. |
+| `reshape2` | `melt()`, which reshapes a correlation matrix for plotting. |
+| `FactoMineR` | `MCA()`, the function for Part II. |
+| `factoextra` | Ready-made plots of an MCA: `fviz_mca_biplot()`, `fviz_contrib()`. |
+| `corrplot`, `patchwork` | Loaded, but not needed today. |
+
+::: {.callout-tip collapse="true" title="Working on your own computer?"}
+Run `install.packages(c("FactoMineR", "factoextra", "psychTools", "reshape2"))` once. Part II reads `data/wvs-wave-7-ethical-norms.csv`, so the file from Moodle must sit in a folder called `data` next to the notebook.
+:::
+
+### The idea: why fewer dimensions? {.step}
+
+::: {.doit q="Read · notebook lines 38–53"}
+Read the callout "The curse of dimensionality", then come back.
+:::
+
+A **dimension** is a variable: a column you could draw as an axis. A bank wants to find customers similar to one particular customer (the diamond). With one variable, income, that is easy: several customers are within £6k. Add a second variable, debt, and draw the same £6k circle:
+
+```{r}
+#| fig-width: 10
+#| fig-height: 3.8
+patchwork::wrap_plots(curse_step(1), curse_step(2), nrow = 1) &
+  theme(plot.title = element_text(size = 10.5))
+```
+
+Same 30 customers, one more variable, and the neighbourhood has emptied. Every variable you add pushes everyone further apart. With many variables something stranger happens: everyone ends up about **equally** far from everyone else.
+
+```{r}
+#| fig-width: 6.5
+#| fig-height: 3.6
+curse_step(3)
+```
+
+With 2 variables, the farthest point is `r round(curse_at(2))` times as far away as the nearest. With 1,000 it is `r formatC(curse_at(1000), format = "f", digits = 1)` times: "nearest" has stopped meaning anything. That is bad news for any method that relies on similarity, like Lab 5's k nearest neighbours. On top of that, models with many columns overfit more easily and run more slowly.
+
+::: {.idea}
+**Dimensionality reduction** squeezes many variables into a few new ones that keep most of the structure. It works because real variables overlap: 24 ability tests do not measure 24 separate things.
+:::
+
+## Part I: PCA, for numbers {#part1}
+
+**A little over an hour.** Compress 24 ability tests into a handful of components, and work out what each component means.
+
+### The idea: the school report {.step}
+
+Forty pupils each have a maths mark and a physics mark. You may write only **one** number per pupil on the report. Which number?
+
+```{r}
+#| fig-width: 10
+#| fig-height: 4.6
+patchwork::wrap_plots(report_step(1), report_step(2), nrow = 1) &
+  theme(plot.title = element_text(size = 10.5))
+```
+
+Pupils who are good at maths tend to be good at physics, so the cloud is long and thin. The red line runs along the direction in which the pupils differ **most**. PCA calls it the first **principal component**, PC1. The dashed line, at a right angle, is PC2: what is left over.
+
+```{r}
+#| fig-width: 10
+#| fig-height: 4.6
+patchwork::wrap_plots(report_step(3), report_step(4), nrow = 1) &
+  theme(plot.title = element_text(size = 10.5))
+```
+
+Left: drop each pupil straight onto the red line. Their position along it, their "shadow", is their **PC1 score**: one number, roughly "maths plus physics", an overall mark. Right: the same pupils with the red line laid flat. Nobody has moved relative to anybody else; we have only turned the page.
+
+```{=html}
+<div class="calc-g">
+  <div class="hl"><span>PC1</span><b>`r pct(rp_var[1])` of the spread</b><small>the overall mark</small></div>
+  <div><span>PC2</span><b>`r pct(rp_var[2])` of the spread</b><small>slightly better at maths, or at physics?</small></div>
+</div>
+```
+
+If you keep PC1 and throw PC2 away, two columns have become one and you have lost `r pct(rp_var[2])` of the differences between pupils.
+
+::: {.idea}
+PCA **rotates** the data so that the first new axis points along the longest direction of the cloud, the second along the longest remaining direction, and so on. The share of the total spread along each axis is its **variance explained**.
+:::
+
+### The idea: reading the loadings {.step}
+
+How is a component built from the original variables? Each variable gets a weight, called a **loading**. Take 200 pupils and four subjects:
+
+```{r}
+#| fig-width: 7
+#| fig-height: 3.4
+report4_loadings(1:2)
+```
+
+Blue bars are positive weights, red bars negative. Read a component with three questions:
+
+1. **Which bars are long?** Short bars barely count.
+2. **Same sign, or opposite?**
+3. **What do the long ones have in common?**
+
+- **PC1** (`r pct(rp4_var[1])`): four bars, all positive, all about the same length. A high score means good marks across the board. Call it the **overall level**.
+- **PC2** (`r pct(rp4_var[2])`): maths and physics one way, English and history the other. Opposite signs mean a **contrast**: a high score means stronger at sciences *than* at humanities. A pupil with top marks everywhere scores about zero.
+
+::: {.callout-tip collapse="true" title="Does blue mean good and red mean bad?"}
+No. The sign of a whole component is arbitrary: flip every bar of PC2 and you get "humanities against sciences", which is the same component. Only which variables sit at opposite ends matters.
+:::
+
+PCA gives you the weights. The **name** is yours, and it can be wrong.
+
+::: {.doit q="Class discussion · notebook line 66"}
+Two IQ tests are strongly correlated. What would you expect PCA to do with them? Decide, then answer below.
+:::
+
+:::: {.quiz}
+Two IQ tests are strongly correlated. What does PCA do with them?
+
+::: {.opt}
+It deletes one of them, since it adds nothing
+
+::: {.fb}
+That would be feature *selection*. PCA never drops a column: it builds new columns out of all the old ones.
+:::
+:::
+
+::: {.opt .right}
+It gives both a similar weight on the same component
+
+::: {.fb}
+Yes: maths and physics again. Tests that move together share a direction, so one component can describe both.
+:::
+:::
+
+::: {.opt}
+It puts each on its own component, to keep them apart
+
+::: {.fb}
+The opposite: variables that move together end up on the *same* component. Components are for things that don't move together.
+:::
+:::
+
+::: {.opt}
+Nothing: PCA only works on uncorrelated variables
+
+::: {.fb}
+Backwards. Correlation is what PCA feeds on. With uncorrelated variables there is nothing to compress.
+:::
+:::
+::::
+
+### Meet the data {.step}
+
+::: {.doit q="Part I · notebook lines 68–80"}
+Run the chunk. It picks the columns and splits the data.
+:::
+
+The data are a classic: in 1939, Holzinger and Swineford gave **`r nrow(data)` pupils** in two Chicago schools a battery of ability tests. The chunk keeps `case` (an id), `school` and **`r n_tests` tests**, named `t01` to `t24`:
+
+| Tests | What they ask | Examples |
+|---|---|---|
+| `t01`–`t04` | Spatial | visual perception, cubes, form board, lozenges |
+| `t05`–`t09` | Verbal | general information, sentence completion, word meaning |
+| `t10`–`t13` | Speed | addition, code, counting dots |
+| `t14`–`t19` | Memory | recognising words, numbers and figures |
+| `t20`–`t24` | Reasoning and maths | deduction, number puzzles, series, arithmetic |
+
+That grouping is the test designers'. Keep it in mind: we'll see whether PCA finds it without being told.
+
+The chunk then splits the pupils as in Labs 3 to 5: **`r nrow(train_data)` to train, `r nrow(test_data)` to test**. There is no outcome today, so why split? Because PCA is often a preparation step for a later model, and then the test set must not help decide the components. In this lab the test set is not used again.
+
+### Explore: do the tests overlap? {.step}
+
+::: {.doit q="Part I · notebook lines 82–97"}
+Run the chunk, then answer the reflection at line 97: what can you say about this heatmap?
+:::
+
+::: {.expect}
+```{r}
+#| fig-width: 7.5
+#| fig-height: 5.6
+heatmap_plot()
+```
+:::
+
+Each tile is one pair of tests; red means the two move together. It is the school-report scatter for 24 subjects at once.
+
+::: {.callout-tip collapse="true" title="Compare with our answer"}
+- **Almost no blue.** Nearly every pair of tests is positively correlated (`r f2(mean_cor)` on average): pupils who do well on one test tend to do well on most others. That suggests an overall level, which should show up as PC1.
+- **Darker blocks.** The verbal tests `t05`–`t09` form the strongest block (`r f2(verbal_cor)` among themselves). The speed tests `t10`–`t13` form a weaker one. The spatial tests `t01`–`t04` correlate least with everything else. Blocks suggest that the next components will be contrasts between groups of tests.
+:::
+
+### Apply PCA {.step}
+
+::: {.doit q="Part I · notebook lines 99–118"}
+Run the chunk.
+:::
+
+The PCA sits inside a recipe, like Lab 5's normalising step.
+
+::: {.anatomy}
+`recipe(school ~ ., data = train_data) |> update_role(case, new_role = "ID") |> step_zv(...) |>` [`step_normalize(all_numeric_predictors())`]{.tok} `|>` [`step_pca(all_numeric_predictors(),`]{.tok} [`num_comp = 5`]{.tok}`, keep_original_cols = TRUE) |>` [`prep()`]{.tok}
+
+1. **Same units first.** PCA looks for spread, so without this the test with the biggest numbers would become PC1 just because of its scale.
+2. **The rotation.** Finds the 24 directions, longest first.
+3. **Keep the first five** as new columns `PC1` to `PC5`.
+4. **Compute it now**, on the training set.
+:::
+
+Three smaller things: `school ~ .` does not predict anything here, it only tells the recipe which columns are "predictors"; `update_role()` keeps the id column `case` out; `step_zv()` would drop a column that never varies (there is none). `bake()` then applies the recipe and adds the scores:
+
+::: {.expect}
+```{r}
+pca_data |> select(case, PC1, PC2, PC3, PC4, PC5)
+```
+:::
+
+Each pupil now has five scores. Pupil `r pca_data$case[1]` has PC1 = `r formatC(pca_data$PC1[1], format = "f", digits = 1)`: their shadow on the longest direction, well below the average of 0.
+
+### Your turn: how many components? {.step}
+
+::: {.doit q="Part I · notebook lines 120–159"}
+Run both chunks, then answer the three reflection questions at lines 155–159.
+:::
+
+The first line, `pca_recipe$steps[[3]]$res`, reaches into the recipe's third step (the PCA) and takes out the fitted result. `tidy(matrix = "eigenvalues")` turns it into a table with one row per component:
+
+::: {.expect}
+```{r}
+eigenvalues |> mutate(across(c(std.dev, percent, cumulative), ~ round(.x, 3))) |> head(8)
+```
+:::
+
+`percent` is that component's share of the total spread (0.307 is 30.7%). `cumulative` is the running total: what you keep if you stop there. The two plots draw those two columns:
+
+::: {.expect}
+```{r}
+#| fig-width: 10
+#| fig-height: 3.6
+scree_plot() | cumul_plot()
+```
+:::
+
+::: {.callout-tip collapse="true" title="Compare with our answer"}
+- **Why might five be reasonable?** PC1 stands out with `r pct(ev(1))`. PC2 to PC5 add `r pct(ev(2))`, `r pct(ev(3))`, `r pct(ev(4))` and `r pct(ev(5))`; after that every component adds less than 4%. There is no sharp bend in the bars, so five is a judgement call, not a rule.
+- **How much do 2, 3 and 5 explain?** `r pct(ev(2, "cumulative"))`, `r pct(ev(3, "cumulative"))` and `r pct(ev(5, "cumulative"))`.
+- **Why is plotting only two a risk?** Two fit on a screen, but they show only `r pct(ev(2, "cumulative"))` of the variance. Structure in the other `r pct(1 - ev(2, "cumulative"))` is invisible in that plot.
+:::
+
+Compare with the school report, where PC1 held over 90%: two marks were nearly one thing. Twenty-four tests are not one thing.
+
+### Your turn: the first two components {.step}
+
+::: {.doit q="Part I · notebook lines 161–174"}
+Run the scatter plot, then answer the three reflection questions at lines 172–174. For the second one, try `cor(pca_data$PC1, pca_data$PC2)` in the console.
+:::
+
+::: {.expect}
+```{r}
+#| fig-width: 6.5
+#| fig-height: 4.4
+pc_scatter()
+```
+:::
+
+::: {.callout-tip collapse="true" title="Compare with our answer"}
+- **Clusters, outliers, a trend?** One cloud, with no clear clusters. Pupils differ by degree, not by type.
+- **The correlation between PC1 and PC2** is exactly 0. That is by construction: PCA turned the page until no tilt was left. The missing trend says nothing about the pupils.
+- **What might it hide?** `r pct(1 - ev(2, "cumulative"))` of the variance. Anything that only shows in PC3 to PC5 cannot be seen here.
+:::
+
+::: {.callout-tip collapse="true" title="Go further: colour the points by school"}
+Add `colour = school` inside `aes()`:
+
+```{r}
+#| fig-width: 6.5
+#| fig-height: 4.6
+pc_scatter(by_school = TRUE)
+```
+
+Grant-White pupils sit towards the upper right (average `r formatC(school_means$PC1[1], format = "f", digits = 1)` on PC1, against `r formatC(school_means$PC1[2], format = "f", digits = 1)` for Pasteur). PCA never saw the `school` column, so the components have picked up something real about the pupils.
+:::
+
+### Your turn: what is each component? {.step}
+
+::: {.doit q="Part I · notebook lines 176–214"}
+Run the chunk, then answer the two reflection questions at lines 213–214. Use the three questions from the school report, and the table of tests above. Try to give each component a name.
+:::
+
+::: {.expect}
+```{r}
+#| fig-width: 9
+#| fig-height: 6
+loadings_plot()
+```
+:::
+
+One panel per component, one bar per test, the longest bars at the top.
+
+::: {.callout-tip collapse="true" title="Compare with our answer"}
+- **PC1: overall ability** (`r pct(ev(1))`). All 24 loadings are positive and similar in size, from `r f2(pc1_range[1])` to `r f2(pc1_range[2])`. A high score means doing well across the board. This is the heatmap's "almost no blue"; psychologists call it *g*, general ability.
+- **PC2: words against memory and speed** (`r pct(ev(2))`). At one end the verbal tests: sentence completion (`t07`), general information (`t05`), word meaning (`t09`). At the other: object–number (`t17`), addition (`t10`), number recognition (`t15`), number–figure (`t18`). A high score means relatively stronger with words.
+- **PC3: shapes against speed** (`r pct(ev(3))`). At one end number recognition (`t15`), lozenges (`t04`), cubes (`t02`); at the other addition (`t10`), counting dots (`t12`), code (`t11`). This one is harder to name, and it explains little.
+:::
+
+So 24 tests come down to roughly three ideas: a level and two contrasts. Both predictions from the heatmap held.
+
+:::: {.quiz}
+A pupil has a PC1 score of +4 and a PC2 score of 0. What do you know about them?
+
+::: {.opt .right}
+They do well overall, and are about equally strong at verbal tests and at memory and speed tests
+
+::: {.fb}
+Yes. PC1 is the level, PC2 the contrast. A contrast of 0 means neither side stands out.
+:::
+:::
+
+::: {.opt}
+They do well overall, but are poor at verbal tests
+
+::: {.fb}
+A PC2 of 0 is the average, not a low score: neither end of the contrast stands out.
+:::
+:::
+
+::: {.opt}
+They are average at everything
+
+::: {.fb}
+PC1 is the overall level, and +4 is far above the average of 0.
+:::
+:::
+::::
+
+## Part II: MCA, for categories {#part2}
+
+**About 45 minutes.** Map the answers to 19 moral questions from the World Values Survey.
+
+### The idea: why not PCA? {.step}
+
+::: {.doit q="Class discussion · notebook lines 230–233"}
+Think about both questions before reading on: why can't you run PCA on categorical variables, and what might "distance" mean instead?
+:::
+
+PCA needs arithmetic: means, variances, a longest direction. A test score of 60 is 10 above 50. But what is "TV minus newspaper"? What is the mean of "yes" and "no"? Categories have no spacing, so there is no cloud to rotate.
+
+What you can still do with categories is **count**: how often are two answers given by the same people? MCA uses only that.
+
+::: {.idea}
+In MCA, two answers are **close** when mostly the same people give them. Close means "go together", not "similar in value". (The notebook's name for this is chi-square distance.)
+:::
+
+### The idea: what do you watch? {.step}
+
+Twelve people answer four yes/no questions about what they watch:
+
+```{=html}
+<table class="mini">
+<tr><th></th><th>Football</th><th>F1</th><th>Bake Off</th><th>Strictly</th></tr>
+`r tv_rows`
+</table>
+```
+
+Which answers tend to come from the same people? A, B and K watch both sports and neither show. E, F and L are the reverse. A few mix. MCA turns that table into a map with one point **per answer**: four questions with two answers each, so eight points.
+
+```{r}
+#| fig-width: 7
+#| fig-height: 4.2
+tv_map()
+```
+
+Three rules for reading such a map:
+
+1. **Close together: the same people.** `football_y` sits by `f1_y`; `bakeoff_y` by `strictly_y`.
+2. **Each `_y` faces its own `_n`.** With two answers per question, they land on opposite sides of the middle. Read one side of an axis and you know the other.
+3. **Name an axis by what its ends have in common**, as with loadings. Dim 1 here: sport on one side, shows on the other.
+
+The percentages on the axes are the same idea as variance explained: how much of the structure that dimension holds.
+
+### Load the data {.step}
+
+::: {.doit q="Part II · notebook lines 235–252"}
+Run the chunk.
+:::
+
+The World Values Survey asked **`r big(n_wvs)` people** around the world about 19 acts: is this ever justifiable? Each answer runs from 1 (never) to 10 (always).
+
+::: {.anatomy}
+`read_csv(...) |> mutate(` [`across(everything(),`]{.tok} `~ as.factor(if_else(` [`.x > median(.x)`]{.tok}`, "y", "n")))) ;` [`colnames(norms) <- values`]{.tok}
+
+1. **Every column** gets the same treatment.
+2. **Above that question's median: "y". Otherwise "n".** A ten-point scale becomes two categories.
+3. **Readable names** replace `Q177` to `Q195`.
+:::
+
+```{r}
+#| fig-width: 7
+#| fig-height: 4.6
+tibble(question = names(share_y), share = share_y) |>
+  ggplot(aes(share, reorder(question, share))) +
+  geom_col(fill = red, alpha = 0.8) +
+  scale_x_continuous(labels = scales::percent, limits = c(0, 0.6)) +
+  theme_minimal(base_size = 12) + theme(panel.grid.major.y = element_blank(), panel.grid.minor = element_blank()) +
+  labs(x = 'Share answering "y"', y = NULL)
+```
+
+::: {.callout-important title='Careful: "y" does not mean "supports"'}
+For `r n_median1` of the 19 questions, the median answer is 1, "never justifiable". For those questions, **"y" means any answer other than "never"**. So `terrorism_y` is "did not rule it out completely", not "supports terrorism". For a question like divorce, where the median is `r medians[["Q185"]]`, "y" means a fairly permissive answer.
+:::
+
+### Apply MCA {.step}
+
+::: {.doit q="Part II · notebook lines 254–263"}
+Run the chunk (one line), then answer the reflection: why mark a variable as supplementary?
+:::
+
+::: {.anatomy}
+`mca <-` [`MCA(`]{.tok}[`norms`]{.tok}`,` [`quali.sup = 1`]{.tok}`,` [`graph = FALSE`]{.tok}`)`
+
+1. **From the `FactoMineR` package**, not tidymodels: no recipe this time.
+2. **The table of factors**: 19 columns of y and n.
+3. **Column 1 is supplementary**: `cheating_benefits` is left out while the axes are built.
+4. **Don't draw the default plot.** We draw our own next.
+:::
+
+::: {.callout-tip collapse="true" title="Compare with our answer"}
+A **supplementary variable** is placed on the map *after* the axes have been built from the other 18 questions. It cannot shape the map. That makes it a test of the map: if the map means something, a question it has never seen should land where we expect. It is the closest thing today to a test set.
+
+Prediction: `cheating_benefits_y` should land near the other dishonesty answers, such as fare dodging and cheating on taxes.
+:::
+
+### Your turn: read the biplot {.step}
+
+::: {.doit q="Part II · notebook lines 265–278"}
+Run the chunk, then answer the two reflection questions at lines 277–278. In RStudio, click **Zoom** above the plot to see it large. Use the three rules from the TV map.
+:::
+
+::: {.expect}
+```{r}
+#| fig-width: 9
+#| fig-height: 7
+fviz_mca_biplot(mca, repel = TRUE, label = "var", invisible = "ind") +
+  labs(title = "MCA Biplot: Ethical Attitudes") +
+  theme_minimal()
+```
+:::
+
+One triangle per answer: 18 questions with two answers each in red, and the supplementary question in green.
+
+::: {.callout-tip collapse="true" title="Compare with our answer"}
+- **Dim 1 (`r pct(mca_pct[1])`): how much is ever justifiable.** Every `_y` is on the right and every `_n` on the left. Someone on the right says "not never" to many things. Like PC1, it is a **level**.
+- **Dim 2 (`r pct(mca_pct[2])`): which kind.** Look at the right-hand side. At the top: violence against a spouse, terrorism, stealing, bribes. At the bottom: divorce, sex before marriage, homosexuality, abortion. Like PC2, it is a **contrast**: harm to others against private life.
+- **The supplementary question** `cheating_benefits_y` lands on the right and above the middle, next to fare dodging, as predicted, although it played no part in building the axes.
+:::
+
+::: {.callout-tip collapse="true" title="Why are terrorism_y and violence_against_spouse_y so far out?"}
+They are rare answers: about a quarter of respondents give them. On an MCA map, rare answers sit far from the middle, and common ones close to it.
+:::
+
+### Your turn: who builds Dim 1? {.step}
+
+::: {.doit q="Part II · notebook lines 280–291"}
+Run the chunk, then answer the reflection at line 291.
+:::
+
+`fviz_contrib()` shows how much each answer **contributes** to a dimension: `choice = "var"` means the answers (not the people), `axes = 1` means Dim 1, `top = 10` the ten largest. The red dashed line is what each answer would contribute if all contributed equally (`r formatC(avg_contrib, format = "f", digits = 1)`%).
+
+::: {.expect}
+```{r}
+#| fig-width: 7
+#| fig-height: 4.4
+contrib_plot()
+```
+:::
+
+::: {.callout-tip collapse="true" title="Compare with our answer"}
+The top eight are all "y" answers: stealing, political violence, social violence, terrorism, bribes, suicide, cheating on taxes, violence against a spouse. What they share is harm and dishonesty, and rarity: few people give these answers, so they separate respondents the most. This matches the biplot, where these answers sit farthest to the right.
+:::
+
+Contributions are MCA's version of loadings: both answer "what is this axis made of?".
+
+:::: {.quiz}
+On an MCA map, `abortion_y` and `divorce_y` sit close together. What does that tell you?
+
+::: {.opt}
+People rate abortion and divorce as about equally justifiable
+
+::: {.fb}
+The map knows nothing about how high the ratings were, only who gave which answer.
+:::
+:::
+
+::: {.opt .right}
+Mostly the same people gave both answers
+
+::: {.fb}
+Yes. Close means "chosen by the same people".
+:::
+:::
+
+::: {.opt}
+Both answers are rare
+
+::: {.fb}
+Rare answers sit far from the *middle*. Closeness to *each other* is about being given by the same people.
+:::
+:::
+::::
+
+## Wrap-up {#wrapup}
+
+### PCA or MCA? {.step}
+
+| | PCA | MCA |
+|---|---|---|
+| **Data** | Numbers with meaningful spacing: test scores, incomes | Categories: yes/no, news source, age group |
+| **Built from** | Correlations between variables | Counts of answers given together |
+| **Close means** | Similar values | Chosen by the same people |
+| **What you read** | Loadings: one bar per variable | The map and the contributions: one point per answer |
+| **Today** | `step_pca()` in a recipe: 24 tests → 5 components | `MCA()`: 19 questions → 2 dimensions |
+
+Both labs ended with the same shape of answer: a first axis that is a **level** (overall ability; how much is justifiable) and a second that is a **contrast** (words against memory and speed; harm against private life). That is common when many variables measure related things.
+
+### What you learned {.step}
+
+:::: {.legend}
+::: {.l-idea}
+**Why reduce dimensions**
+With many variables, data are sparse, distances stop telling rows apart and models overfit. Real variables overlap, so a few new axes keep most of the structure.
+:::
+::: {.l-idea}
+**PCA**
+The school report: turn the cloud so the first axis runs along its longest direction. Each component has a share of variance (how much it keeps) and loadings (what it is made of).
+:::
+::: {.l-idea}
+**Reading a component**
+Which bars are long? Same sign (a level) or opposite (a contrast)? What do the long ones share? The name is yours.
+:::
+::: {.l-idea}
+**MCA**
+The TV map: one point per answer, close when the same people give them, each y opposite its n. Read the ends of each axis and the contributions.
+:::
+::::
+
+**One question to take away:** two components show `r pct(ev(2, "cumulative"))` of the test data. Before you trust a pattern in the PC1–PC2 scatter, what would you check?
+
+**Further reading**
+
+- [*An Introduction to Statistical Learning*](https://www.statlearning.com), free online: sections 12.1–12.2 (unsupervised learning, principal components).
+- [*Tidy Modeling with R*](https://www.tmwr.org), free online: chapter 16 (dimensionality reduction).
+- [STHDA's MCA guide](http://www.sthda.com/english/articles/31-principal-component-methods-in-r-practical-guide/114-mca-multiple-correspondence-analysis-in-r-essentials/): every `factoextra` plot for MCA, with code.
+
+### Glossary {#glossary}
+
+Underlined words on this page are explained in this list. Click or tap one anywhere on the page to see what it means and where it was first explained.
+
+::: {.glossary}
+
+| Word | Meaning |
+|---|---|
+| **biplot** | The MCA map: one point per answer, placed so that answers given by the same people are close |
+| **contrast** []{match="contrasts?"} | A component with long loadings of opposite signs: a high score means more of one group of variables *than* of the other |
+| **contribution** []{match="contributions?;contributes?"} | In MCA, how much one answer accounts for a dimension. MCA's version of a loading |
+| **dimension** []{match="dimensions?"} | A variable you could draw as an axis. In MCA, also the name for a new axis (Dim 1, Dim 2) |
+| **dimensionality reduction** | Replacing many variables with a few new ones that keep most of the structure |
+| **loading** []{match="loadings?"} | The weight of an original variable in a principal component |
+| **MCA** | Multiple correspondence analysis: dimensionality reduction for categorical variables |
+| **normalise** []{match="normalise;normalising;normalised"} | Rescale a variable to mean 0 and standard deviation 1, so units don't decide the result |
+| **PCA** | Principal component analysis: dimensionality reduction for numeric variables |
+| **principal component** []{match="principal components?"} | A new axis found by PCA: a weighted combination of the original variables. PC1 runs along the longest direction of the data |
+| **score** []{match="scores?"} | A row's position on a component: its "shadow" on that axis |
+| **supplementary variable** | A variable placed on the MCA map after the axes are built, so it cannot shape them |
+| **unsupervised** | Learning without an outcome to predict: looking for structure in the variables themselves |
+| **variance explained** | The share of the total spread in the data that lies along one component |
+:::

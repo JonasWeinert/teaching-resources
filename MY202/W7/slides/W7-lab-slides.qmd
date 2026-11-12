@@ -1,0 +1,1489 @@
+---
+title: "Fewer dimensions: PCA and MCA"
+subtitle: "MY202 · Lab 7"
+author: "Jonas Weinert"
+institute:
+  - "Department of Methodology"
+  - "London School of Economics and Political Science"
+date: today
+date-format: "D MMMM YYYY"
+footer: "MY202 · Lab 7 · PCA and MCA"
+
+logos:
+  - "../../_extensions/lse/lse-logo.svg"
+
+format:
+  lse-revealjs:
+    embed-resources: true
+    fragments: true
+
+execute:
+  echo: true
+  message: false
+  warning: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+# Every plot of lab data on these slides is the notebook's own chunk (my202-07-lab-student.qmd; the line numbers
+# on the slides refer to it). The data sit next to the notebooks in W7/notebooksanddata (git-ignored).
+library("corrplot")
+library("factoextra")
+library("FactoMineR")
+library("patchwork")
+library("psychTools")
+library("reshape2")
+library("tidymodels")
+library("tidyverse")
+library("ggrepel")
+knitr::opts_knit$set(root.dir = "../notebooksanddata")
+options(width = 50, tibble.print_min = 4, tibble.print_max = 4, pillar.max_extra_cols = 0)
+
+theme_slide <- function() {
+  theme_minimal(base_size = 15) +
+    theme(panel.grid.minor = element_blank(), legend.position = "bottom",
+          plot.title = element_text(size = 13.5, face = "bold"), plot.title.position = "plot")
+}
+red <- "#E2001A"; dark <- "#8C0014"; pink <- "#F28A94"; grey <- "#6B6B6B"; navy <- "#1F4E79"; green <- "#1D7A46"
+pct <- function(x, d = 0) paste0(formatC(100 * x, format = "f", digits = d), "%")
+big <- function(x) format(x, big.mark = ",")
+```
+
+```{r}
+#| label: data
+#| include: false
+# ---- Part I, as in the notebook (student lines 70–80, 101–118, 123–124)
+data <- holzinger.swineford |>
+  as_tibble() |>
+  select(-c(t25_frmbord2, t26_flags, mo, ageyr, grade, female, agemo)) |>
+  mutate(across(c(school), as.factor))
+
+set.seed(12345)
+data_split <- initial_split(data, strata = "school", prop = 0.8)
+train_data <- training(data_split)
+test_data <- testing(data_split)
+
+pca_recipe <- recipe(school ~ ., data = train_data) |>
+  update_role(case, new_role = "ID") |>
+  step_zv(all_numeric_predictors()) |>
+  step_normalize(all_numeric_predictors()) |>
+  step_pca(all_numeric_predictors(), num_comp = 5, keep_original_cols = TRUE) |>
+  prep()
+
+pca_data <- pca_recipe |>
+  bake(train_data) |>
+  select(case, PC1, PC2, PC3, PC4, PC5, school, everything())
+
+pca_fit <- pca_recipe$steps[[3]]$res
+eigenvalues <- pca_fit |> tidy(matrix = "eigenvalues")
+n_tests <- sum(str_starts(names(train_data), "t"))
+ev <- function(k, what = "percent") eigenvalues[[what]][k]
+cors <- train_data |> select(starts_with("t")) |> cor()
+mean_cor <- mean(cors[upper.tri(cors)])
+verbal <- c("t05_geninfo", "t06_paracomp", "t07_sentcomp", "t08_wordclas", "t09_wordmean")
+verbal_cor <- mean(cors[verbal, verbal][upper.tri(diag(5))])
+load_w <- pca_fit |> tidy(matrix = "loadings") |> filter(PC <= 3) |>
+  pivot_wider(names_from = PC, values_from = value, names_prefix = "PC")
+pc1_range <- range(load_w$PC1)
+school_means <- pca_data |> group_by(school) |> summarise(across(PC1:PC2, mean))
+# the readings on the solution slides depend on these signs; fail the render if a new split flips them
+stopifnot(all(load_w$PC1 > 0),
+          all(load_w$PC2[load_w$column %in% verbal] > 0.15),
+          load_w$PC2[load_w$column == "t17_objnumb"] < -0.25,
+          load_w$PC3[load_w$column == "t10_addition"] < -0.25,
+          load_w$PC3[load_w$column == "t02_cubes"] > 0.2)
+
+# ---- Part II, as in the notebook (student lines 239–258)
+values <- c(
+  "cheating_benefits", "avoid_transport_fare", "stealing_property",
+  "cheating_taxes", "accept_bribes", "homosexuality", "sex_work",
+  "abortion", "divorce", "sex_before_marriage", "suicide",
+  "euthanasia", "violence_against_spouse", "violence_against_child",
+  "social_violence", "terrorism", "casual_sex", "political_violence",
+  "death_penalty"
+)
+norms_raw <- read_csv("data/wvs-wave-7-ethical-norms.csv")
+n_wvs <- nrow(norms_raw)
+medians <- map_dbl(norms_raw, median)
+n_median1 <- sum(medians == 1)
+share_neg <- mean(as.matrix(norms_raw) < 0)
+norms <- norms_raw |>
+  mutate(across(everything(), ~ as.factor(if_else(.x > median(.x), "y", "n"))))
+colnames(norms) <- values
+share_y <- map_dbl(norms, ~ mean(.x == "y"))
+mca <- MCA(norms, quali.sup = 1, graph = FALSE)
+mca_pct <- mca$eig[, 2] / 100
+vc <- mca$var$coord
+sup <- mca$quali.sup$coord
+contrib1 <- sort(mca$var$contrib[, 1], decreasing = TRUE)
+avg_contrib <- 100 / nrow(vc)
+harm <- c("stealing_property", "accept_bribes", "cheating_taxes", "violence_against_spouse", "social_violence", "terrorism", "political_violence")
+private <- c("homosexuality", "abortion", "divorce", "sex_before_marriage", "casual_sex", "euthanasia")
+stopifnot(all(vc[str_ends(rownames(vc), "_y"), 1] > 0),
+          all(vc[paste0(harm, "_y"), 2] > 0), all(vc[paste0(private, "_y"), 2] < 0),
+          sup["cheating_benefits_y", 1] > 0, all(str_ends(names(contrib1)[1:8], "_y")))
+```
+
+```{r}
+#| label: visuals
+#| include: false
+# ---- Why reduce: distances stop telling points apart as variables are added
+set.seed(1)
+curse <- map_dfr(c(1, 2, 5, 10, 24, 100, 1000), function(d) {
+  X <- matrix(runif(200 * d), ncol = d)
+  D <- as.matrix(dist(X)); diag(D) <- NA
+  tibble(d = d, ratio = median(apply(D, 1, max, na.rm = TRUE) / apply(D, 1, min, na.rm = TRUE)))
+})
+curse_at <- function(d) curse$ratio[curse$d == d]
+set.seed(4)
+cust <- tibble(income = runif(30, 15, 95), debt = runif(30, 0, 60))
+me <- cust[7, ]
+cust <- cust |> mutate(d1 = abs(income - me$income), d2 = sqrt((income - me$income)^2 + (debt - me$debt)^2))
+curse_step <- function(k) {
+  if (k == 1) {
+    ggplot(cust, aes(income, 0)) +
+      geom_hline(yintercept = 0, colour = grey) +
+      geom_point(size = 4, alpha = 0.6, colour = grey) +
+      geom_point(data = filter(cust, d1 < 6), size = 4, colour = red) +
+      geom_point(data = me, size = 6, shape = 23, fill = "white", colour = navy, stroke = 1.8) +
+      scale_y_continuous(limits = c(-1, 1), breaks = NULL) +
+      theme_slide() + theme(panel.grid = element_blank()) +
+      labs(x = "Income (£k)", y = NULL,
+           title = paste0("Who is similar to the diamond? ", sum(cust$d1 < 6) - 1, " customers within £6k"))
+  } else if (k == 2) {
+    circ <- tibble(t = seq(0, 2 * pi, length.out = 200), income = me$income + 6 * cos(t), debt = me$debt + 6 * sin(t))
+    ggplot(cust, aes(income, debt)) +
+      geom_path(data = circ, colour = navy, linetype = "dashed") +
+      geom_point(size = 4, alpha = 0.6, colour = grey) +
+      geom_point(data = filter(cust, d2 < 6), size = 4, colour = red) +
+      geom_point(data = me, size = 6, shape = 23, fill = "white", colour = navy, stroke = 1.8) +
+      coord_fixed() + theme_slide() +
+      labs(x = "Income (£k)", y = "Debt (£k)",
+           title = paste0("Two variables: ", sum(cust$d2 < 6) - 1, " within the same distance"))
+  } else {
+    ggplot(curse, aes(d, ratio)) +
+      geom_line(colour = red, linewidth = 1.2) + geom_point(colour = red, size = 3.5) +
+      geom_point(data = filter(curse, d == 24), colour = navy, size = 6, shape = 21, stroke = 1.6) +
+      annotate("text", x = 24, y = curse_at(24) * 3.2, label = "24 variables:\ntoday's data", colour = navy, size = 4.6, lineheight = 0.9) +
+      scale_x_log10(breaks = curse$d, labels = big(curse$d)) + scale_y_log10() +
+      theme_slide() +
+      labs(x = "Number of variables", y = "Farthest ÷ nearest neighbour",
+           title = "Many variables: everyone is about equally far")
+  }
+}
+
+# ---- PCA intuition: the school report. Forty made-up pupils, a maths and a physics mark.
+set.seed(3)
+ability <- rnorm(40)
+report <- tibble(maths = 60 + 11 * ability + rnorm(40, 0, 4.5), physics = 58 + 11 * ability + rnorm(40, 0, 4.5))
+rp <- prcomp(report)
+if (sum(rp$rotation[, 1]) < 0) rp$rotation[, 1] <- -rp$rotation[, 1]
+rp_var <- rp$sdev^2 / sum(rp$sdev^2)
+ctr <- rp$center; v1 <- rp$rotation[, 1]; v2 <- rp$rotation[, 2]
+sc <- sweep(as.matrix(report), 2, ctr) %*% rp$rotation
+report <- report |> mutate(pc1 = sc[, 1], pc2 = sc[, 2], sx = ctr[1] + pc1 * v1[1], sy = ctr[2] + pc1 * v1[2])
+axis_seg <- function(v, len) tibble(x = ctr[1] - len * v[1], y = ctr[2] - len * v[2], xend = ctr[1] + len * v[1], yend = ctr[2] + len * v[2])
+report_cor <- cor(report$maths, report$physics)
+report_step <- function(k) {
+  if (k == 4) {
+    return(ggplot(report, aes(pc1, pc2)) +
+      geom_hline(yintercept = 0, colour = red, linewidth = 1.1) +
+      geom_vline(xintercept = 0, colour = navy, linewidth = 0.8, linetype = "dashed") +
+      geom_point(size = 3, alpha = 0.8, colour = grey) +
+      coord_fixed(xlim = c(-40, 40), ylim = c(-30, 30)) + theme_slide() +
+      labs(x = paste0("PC1: overall mark  (", pct(rp_var[1]), " of the spread)"),
+           y = paste0("PC2  (", pct(rp_var[2]), ")"), title = "4 · Turn the page: the same pupils, new axes"))
+  }
+  p <- ggplot(report, aes(maths, physics)) +
+    coord_fixed(xlim = c(28, 92), ylim = c(26, 90)) + theme_slide() +
+    labs(x = "Maths mark", y = "Physics mark",
+         title = c("1 · Forty pupils, two marks", "2 · The direction with the most spread: PC1",
+                   "3 · Each pupil's shadow on that line: one number")[k])
+  if (k >= 2) p <- p + geom_segment(data = axis_seg(v1, 44), aes(x, y, xend = xend, yend = yend), colour = red, linewidth = 1.1) +
+    geom_segment(data = axis_seg(v2, 12), aes(x, y, xend = xend, yend = yend), colour = navy, linewidth = 0.8, linetype = "dashed")
+  if (k == 3) p <- p + geom_segment(aes(xend = sx, yend = sy), colour = grey, linewidth = 0.4) +
+    geom_point(aes(sx, sy), colour = red, size = 2.2)
+  p + geom_point(size = 3, alpha = 0.8, colour = grey)
+}
+
+# ---- Four subjects: an overall level plus a sciences-against-humanities lean
+set.seed(8)
+g <- rnorm(200); lean <- rnorm(200, 0, 0.75)
+report4 <- tibble(Maths = g + lean + rnorm(200, 0, 0.5), Physics = g + lean + rnorm(200, 0, 0.5),
+                  English = g - lean + rnorm(200, 0, 0.5), History = g - lean + rnorm(200, 0, 0.5))
+rp4 <- prcomp(report4, scale. = TRUE)
+if (sum(rp4$rotation[, 1]) < 0) rp4$rotation[, 1] <- -rp4$rotation[, 1]
+if (rp4$rotation["Maths", 2] < 0) rp4$rotation[, 2] <- -rp4$rotation[, 2]
+rp4_var <- rp4$sdev^2 / sum(rp4$sdev^2)
+stopifnot(all(rp4$rotation[, 1] > 0.4), rp4$rotation["English", 2] < -0.4, rp4$rotation["Physics", 2] > 0.4)
+load_style <- list(
+  geom_col(alpha = 0.75), coord_flip(),
+  scale_fill_manual(values = c("Positive" = "#3B4992FF", "Negative" = "#EE0000FF")),
+  labs(x = NULL, y = "Loading Value"), theme_minimal(base_size = 15),
+  theme(strip.text = element_text(face = "bold"), panel.grid.major.y = element_blank(),
+        panel.grid.minor.x = element_blank(), legend.position = "none"))
+report4_loadings <- function(pcs = 1:2) {
+  as_tibble(rp4$rotation[, 1:2], rownames = "column") |>
+    pivot_longer(-column, names_to = "PC", values_to = "value") |>
+    mutate(column = factor(column, levels = rev(c("Maths", "Physics", "English", "History"))),
+           sign = ifelse(value >= 0, "Positive", "Negative"),
+           value = if_else(PC %in% paste0("PC", pcs), value, NA_real_)) |>
+    ggplot(aes(column, value, fill = sign)) + facet_wrap(~ PC) + load_style +
+    scale_y_continuous(limits = c(-0.62, 0.62))
+}
+
+# ---- The notebook's plots (same code as the student workbook, larger text for the room)
+heatmap_plot <- function() {
+  train_data |>
+    select(starts_with("t")) |>
+    cor() |>
+    melt(value.name = "correlation") |>
+    ggplot(aes(x = Var1, y = Var2, fill = correlation)) +
+    geom_tile(color = "white") +
+    scale_fill_gradient2(low = "blue", high = "red", mid = "white") +
+    theme_minimal(base_size = 11) +
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1), axis.title = element_blank()) +
+    labs(title = "IQ Test Correlation Matrix")
+}
+scree_plot <- function() {
+  eigenvalues |>
+    ggplot(aes(PC, percent)) +
+    geom_col(fill = "steelblue") +
+    geom_text(aes(label = round(percent, 2)), vjust = -0.3, size = 2.6) +
+    labs(title = "Variance Explained by Each PC", y = "Percent Variance") +
+    theme_minimal(base_size = 13) +
+    theme(panel.grid.minor = element_blank(), panel.grid.major.x = element_blank())
+}
+cumul_plot <- function() {
+  eigenvalues |>
+    ggplot(aes(PC, cumulative)) +
+    geom_col(fill = "darkgreen") +
+    geom_text(aes(label = round(cumulative, 2)), vjust = -0.3, size = 2.6) +
+    labs(title = "Cumulative Variance Explained", y = "Cumulative Percent") +
+    theme_minimal(base_size = 13) +
+    theme(panel.grid.minor = element_blank(), panel.grid.major.x = element_blank())
+}
+pc_scatter <- function(by_school = FALSE) {
+  p <- if (by_school) ggplot(pca_data, aes(PC1, PC2, colour = school)) + scale_colour_manual(values = c(navy, red), name = NULL)
+       else ggplot(pca_data, aes(PC1, PC2))
+  p + geom_point(alpha = 0.7, size = 2) +
+    labs(title = if (by_school) "The same plot, coloured by school" else "First Two Principal Components") +
+    theme_minimal(base_size = 14) + theme(legend.position = "bottom")
+}
+loadings_plot <- function() {
+  pca_loadings <- pca_fit |>
+    tidy(matrix = "loadings") |>
+    filter(PC %in% c(1, 2, 3)) |>
+    mutate(PC = factor(PC, levels = c("1", "2", "3")), abs_value = abs(value),
+           sign = ifelse(value >= 0, "Positive", "Negative"))
+  ggplot(pca_loadings, aes(x = reorder(column, abs_value), y = value, fill = sign)) +
+    geom_col(alpha = 0.75) +
+    facet_wrap(~paste0("PC", PC), scales = "free_y") +
+    coord_flip() +
+    scale_fill_manual(values = c("Positive" = "#3B4992FF", "Negative" = "#EE0000FF")) +
+    labs(x = NULL, y = "Loading Value", fill = "Direction") +
+    theme_minimal(base_size = 12) +
+    theme(axis.text.y = element_text(size = 8.5), strip.text = element_text(face = "bold"),
+          panel.grid.major.y = element_blank(), panel.grid.minor.x = element_blank(), legend.position = "none")
+}
+
+# ---- MCA intuition: what do you watch? Twelve made-up people, four yes/no questions.
+yn <- function(x) factor(x, levels = c("n", "y"))
+tv <- tribble(~person, ~football, ~f1, ~bakeoff, ~strictly,
+  "A", "y", "y", "n", "n",   "B", "y", "y", "n", "n",   "C", "y", "y", "n", "y",   "D", "y", "n", "n", "n",
+  "E", "n", "n", "y", "y",   "F", "n", "n", "y", "y",   "G", "n", "y", "y", "y",   "H", "n", "n", "y", "n",
+  "I", "y", "y", "y", "y",   "J", "n", "n", "n", "n",   "K", "y", "y", "n", "n",   "L", "n", "n", "y", "y") |>
+  mutate(across(-person, yn))
+tv_mca <- MCA(as.data.frame(tv[, -1]), graph = FALSE)
+tv_pct <- tv_mca$eig[, 2] / 100
+tv_coord <- as_tibble(tv_mca$var$coord[, 1:2], rownames = "cat") |>
+  rename(d1 = `Dim 1`, d2 = `Dim 2`) |>
+  mutate(kind = if_else(str_detect(cat, "football|f1"), "sport", "shows"))
+# sport answers and show answers must end up on opposite sides of Dim 1, each "y" opposite its "n"
+tv_side <- function(x) sign(tv_coord$d1[tv_coord$cat == x])
+stopifnot(tv_side("football_y") == tv_side("f1_y"), tv_side("bakeoff_y") == tv_side("strictly_y"),
+          tv_side("football_y") != tv_side("bakeoff_y"), tv_side("football_y") != tv_side("football_n"))
+tv_map <- function() {
+  ggplot(tv_coord, aes(d1, d2, colour = kind, label = cat)) +
+    geom_hline(yintercept = 0, linetype = "dashed", colour = grey) + geom_vline(xintercept = 0, linetype = "dashed", colour = grey) +
+    geom_point(shape = 17, size = 4) +
+    geom_text_repel(size = 5.2, show.legend = FALSE, seed = 1, box.padding = 0.5) +
+    scale_colour_manual(values = c(sport = navy, shows = red), guide = "none") +
+    scale_x_continuous(expand = expansion(mult = 0.25)) + scale_y_continuous(expand = expansion(mult = 0.25)) +
+    theme_slide() +
+    labs(x = paste0("Dim 1 (", pct(tv_pct[1]), ")"), y = paste0("Dim 2 (", pct(tv_pct[2]), ")"),
+         title = "The map: one point per answer")
+}
+tv_rows <- paste0(pmap_chr(tv, function(person, football, f1, bakeoff, strictly) {
+  td <- function(x) if (x == "y") '<td class="hl">y</td>' else "<td>n</td>"
+  paste0("<tr><td><b>", person, "</b></td>", td(football), td(f1), td(bakeoff), td(strictly), "</tr>")
+}), collapse = "\n")
+
+# ---- The notebook's MCA plots (student lines 270–272 and 281–286)
+biplot_plot <- function() {
+  fviz_mca_biplot(mca, repel = TRUE, label = "var", invisible = "ind", labelsize = 4) +
+    labs(title = "MCA Biplot: Ethical Attitudes") +
+    theme_minimal(base_size = 12)
+}
+contrib_plot <- function() {
+  fviz_contrib(mca, choice = "var", axes = 1, top = 10, xtickslab.rt = 0) +
+    coord_flip() +
+    scale_x_discrete(limits = rev) +
+    labs(title = "Contribution to Dimension 1") +
+    theme_minimal(base_size = 13) +
+    labs(x = NULL)
+}
+```
+
+## Lab overview
+
+::: {.small-table}
+| Part | Topic | Notebook | Mode | Time |
+|---|---|---|---|---|
+| | Setup, and why fewer dimensions | lines 25–53 | together | 7 min |
+| I | **PCA**: the school report, then 24 ability tests | lines 55–214 | concept → run together → your turn, twice | 40 min |
+| II | **MCA**: what do you watch, then 19 moral questions | lines 216–291 | concept → run together → your turn | 26 min |
+| | Wrap-up: PCA or MCA? | | | 7 min |
+:::
+
+::: {.source-note}
+First **unsupervised** lab: no outcome to predict, so no accuracy to chase. All the code is given. Your job today is to **run it and read the pictures**: every "your turn" is a set of reflection questions from the notebook.
+:::
+
+::: {.notes}
+Timing (90 minutes): 80 planned, 10 spare. Setup and overview 3, why reduce 4; Part I 40 (school report 4, four subjects 3, class discussion 1½, data 2, heatmap 4, recipe 4, your turn A 8 + answers 5, your turn B 5 + answers 4); Part II 26 (why not PCA 2, the TV map 5, binarise 3, the MCA call 2½, your turn C 7 + answers 6); wrap-up 7 (PCA or MCA 3, summary 3, feedback 1). Checkpoints: data loaded by 0:17, your turn A starts by 0:27, Part II starts by 0:48, your turn C starts by 1:01. If behind, skip in this order: the class-discussion MCQ (1½), the school colouring on the PC1–PC2 answer (1), the contribution answer slide (2, say it in one sentence on the biplot), then shorten your turn A from 8 to 6.
+
+- Open the Week 7 student workbook on Nuvolos and run the setup chunk (lines 25–36) now. `factoextra` and `FactoMineR` are new: if either fails to load, say so now, not in Part II.
+- Until now every lab had an outcome: life expectancy, sales, diabetes, PTSD, childcare prices. Today there is none. We ask what structure the variables have among themselves.
+- Nothing to type today: every chunk is ready to run. The work is interpretation, so the exercises are the notebook's reflection questions, in pairs.
+:::
+
+## Why fewer dimensions?
+
+```{=html}
+<div class="tracker"><span class="on">Why</span><span>I · PCA</span><span>II · MCA</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 38–53 <span>the callout "The curse of dimensionality"</span><i>concept</i></p>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="54%"}
+::: {.r-stack}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 3.7
+curse_step(1)
+```
+
+::: {.fragment fragment-index=1}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 3.7
+curse_step(2)
+```
+:::
+
+::: {.fragment fragment-index=2}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 3.7
+curse_step(3)
+```
+:::
+:::
+:::
+
+::: {.column width="46%"}
+::: {.fragment fragment-index=1}
+::: {.card .compact}
+[Data become sparse]{.ct}
+Same 30 customers, one more variable, and the neighbourhood empties.
+:::
+:::
+
+::: {.fragment fragment-index=2}
+::: {.card .compact .line}
+[Distance stops meaning much]{.ct}
+With 2 variables the farthest customer is `r round(curse_at(2))`× as far as the nearest; with 1,000, `r formatC(curse_at(1000), format = "f", digits = 1)`×. Bad news for kNN.
+:::
+:::
+
+::: {.fragment fragment-index=2}
+::: {.card .compact .dark}
+[And models overfit and slow down]{.ct}
+So: **squeeze many variables into a few that keep most of the structure**.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 4 minutes. Last year's income-and-debt example.
+
+- A bank looks for customers similar to the diamond. One variable, income: the diamond has several customers within £6k. Click: add debt, draw the same £6k circle. Fewer are inside. Each variable we add pushes everyone apart.
+- Click: the general pattern, simulated with 200 random points. The ratio of the farthest to the nearest neighbour collapses towards 1: "nearest" stops being special. Today's first data set has 24 variables.
+- The notebook's callout names three problems: sparse data, overfitting, computation. Last week's models all suffer from at least one.
+- The way out works because real variables overlap. Twenty-four ability tests do not measure 24 separate things. That is the next slide.
+:::
+
+# PCA: continuous data {.divider background-color="#8C0014"}
+
+::: {.kicker}
+Part I
+:::
+
+`r nrow(data)` pupils · `r n_tests` ability tests · how many things do they really measure?
+
+## The school report: two marks, one number
+
+```{=html}
+<div class="tracker"><span class="done">Why</span><span class="on">I · PCA</span><span>II · MCA</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="54%"}
+::: {.r-stack}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+report_step(1)
+```
+
+::: {.fragment fragment-index=1}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+report_step(2)
+```
+:::
+
+::: {.fragment fragment-index=2}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+report_step(3)
+```
+:::
+
+::: {.fragment fragment-index=3}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+report_step(4)
+```
+:::
+:::
+:::
+
+::: {.column width="46%"}
+::: {.ask style="font-size:0.75em"}
+You may write **one** number per pupil on the report. Which?
+:::
+
+::: {.fragment fragment-index=1}
+::: {.card .compact}
+[PC1: where the cloud is longest]{.ct}
+The line along which pupils differ most. PC2 is at a right angle to it.
+:::
+:::
+
+::: {.fragment fragment-index=2}
+::: {.card .compact .line}
+[A score is a shadow]{.ct}
+Drop each pupil onto the line. Roughly "maths + physics": an **overall mark**.
+:::
+:::
+
+::: {.fragment fragment-index=3}
+::: {.card .compact .dark}
+[Nothing was lost yet, only turned]{.ct}
+PC1 holds `r pct(rp_var[1])` of the spread. Drop PC2 and you lose `r pct(rp_var[2])`: two columns became one.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 4 minutes. The picture to remember from today.
+
+- Take answers to the question: the average, the sum, "the better one". The average is nearly right; PCA finds it from the data.
+- Click: the red line is the direction in which the cloud is longest. The dashed line is what is left over, at a right angle.
+- Click: each pupil's position along the red line is their PC1 score. One number instead of two.
+- Click: the same points with the red line laid flat. PCA is a rotation: the pupils have not moved relative to each other. The flat direction is where they hardly differ (does a pupil do slightly better in maths or in physics), so dropping it costs little.
+- "Variance explained" is the share of the total spread that lies along each new axis.
+:::
+
+## Four subjects: reading the loadings
+
+```{=html}
+<div class="tracker"><span class="done">Why</span><span class="on">I · PCA</span><span>II · MCA</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="54%"}
+::: {.r-stack}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 3.6
+report4_loadings(1)
+```
+
+::: {.fragment fragment-index=2}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 3.6
+report4_loadings(1:2)
+```
+:::
+:::
+
+```{=html}
+<p class="tbl-cap" style="margin-top:0">A loading is the weight of a subject in a component <small>blue = positive, red = negative; this is the plot you will read in the lab</small></p>
+```
+:::
+
+::: {.column width="46%"}
+::: {.ask style="font-size:0.75em"}
+PC1 weights all four subjects about equally. Give it a name.
+:::
+
+::: {.fragment fragment-index=1}
+::: {.card .compact}
+[PC1 · a level · `r pct(rp4_var[1])`]{.ct}
+Same sign, similar size: a high score means good marks across the board.
+:::
+:::
+
+::: {.fragment fragment-index=2}
+::: {.card .compact .line}
+[PC2 · a contrast · `r pct(rp4_var[2])`]{.ct}
+Opposite signs: stronger in sciences *than* in humanities.
+:::
+:::
+
+::: {.fragment fragment-index=3}
+::: {.card .compact .dark}
+[How to read any component]{.ct}
+Which bars are long? Same sign or opposite? What do the long ones share? Then **you** name it.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 3 minutes. Two hundred made-up pupils, four subjects, built from an overall level and a lean towards sciences or humanities.
+
+- Take a name for PC1 before clicking. Click: "overall level".
+- Click: PC2 appears. Two bars one way, two the other. Ask what a pupil with a high PC2 score looks like: not "good", but better at sciences than humanities. A pupil with top marks everywhere scores near zero on PC2.
+- Click: the three-step recipe. This is exactly what the notebook's last Part I question asks for 24 tests.
+- The signs are arbitrary: PCA could flip PC2 and call it "humanities against sciences". Only which variables sit at opposite ends matters.
+- The component does not come with a name. The naming is ours and can be wrong.
+:::
+
+## Class discussion: two tests that agree
+
+```{=html}
+<div class="tracker"><span class="done">Why</span><span class="on">I · PCA</span><span>II · MCA</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> line 66 <span>the class discussion before the data</span><i>30 seconds with your neighbour</i></p>
+```
+
+::: {.ask}
+Two IQ tests are strongly correlated. What would you expect PCA to do with them?
+:::
+
+```{=html}
+<div class="mcq">
+  <div class="opt"><b>A</b>Delete one of the two tests, since it adds nothing</div>
+  <div class="opt right"><b>B</b>Give both a similar weight on the same component</div>
+  <div class="opt"><b>C</b>Put each on its own component, so they stay apart</div>
+  <div class="opt"><b>D</b>Nothing: PCA only works on uncorrelated variables</div>
+  <div class="fragment why"><b>B.</b> Maths and physics again: tests that move together share a direction, so one component describes both. PCA keeps every variable and <b>combines</b> them; it never drops a column. Without correlation there would be nothing to compress.</div>
+</div>
+```
+
+::: {.notes}
+Timing: 1½ minutes. First item to skip if behind.
+
+- Thirty seconds in pairs, a show of hands, click.
+- A is the tempting one: that is feature selection. PCA is feature extraction: new columns built from all the old ones.
+- D is backwards: correlation is what PCA feeds on. Uncorrelated variables give components that each explain the same small share.
+:::
+
+## Meet the data: 24 ability tests
+
+```{=html}
+<div class="tracker"><span class="done">Why</span><span class="on">I · PCA</span><span>II · MCA</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 68–80 <span>"Load and prepare data": select the tests, then split</span><i>run together</i></p>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="50%"}
+```{=html}
+<div class="bignums" style="grid-template-columns:1fr 1fr;gap:12px;margin-top:0">
+  <div><b>`r nrow(data)`</b><span>pupils aged 11–16 in two Chicago schools, tested in 1939</span></div>
+  <div><b>`r n_tests`</b><span>tests, <code>t01</code> to <code>t24</code>: the columns we compress</span></div>
+</div>
+```
+
+::: {.card .compact style="margin-top:12px"}
+[What is kept]{.ct}
+`case` (an id), `school` (Pasteur or Grant-White) and the 24 tests. Age, grade and sex are dropped, and two repeat tests (`t25`, `t26`).
+:::
+:::
+
+::: {.column width="50%"}
+```{=html}
+<table class="mini" style="font-size:0.5em">
+<tr><th>Tests</th><th>What they ask</th><th>Examples</th></tr>
+<tr><td><code>t01</code>–<code>t04</code></td><td>Spatial</td><td>cubes, form board, lozenges</td></tr>
+<tr><td><code>t05</code>–<code>t09</code></td><td>Verbal</td><td>word meaning, sentence completion</td></tr>
+<tr><td><code>t10</code>–<code>t13</code></td><td>Speed</td><td>addition, counting dots, code</td></tr>
+<tr><td><code>t14</code>–<code>t19</code></td><td>Memory</td><td>word, number and figure recognition</td></tr>
+<tr><td><code>t20</code>–<code>t24</code></td><td>Reasoning and maths</td><td>deduction, series, arithmetic</td></tr>
+</table>
+```
+
+::: {.card .compact .line style="margin-top:12px"}
+[The split]{.ct}
+`r nrow(train_data)` pupils to train, `r nrow(test_data)` to test, as in Labs 3–5. PCA is **fitted on the training set only**. The test set is not used again today.
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 2 minutes. Run lines 70–80 together.
+
+- Holzinger and Swineford's 1939 study, the classic data set for this method. `?holzinger.swineford` has the full description.
+- The table is the test designers' own grouping. Keep it in mind: we will see whether PCA finds it without being told.
+- Why split when there is no outcome? Habit, and good practice: if these components later fed a model (PCA as a preprocessing step), the test set must not have shaped them. The notebook never uses `test_data` again, so do not spend time on it.
+:::
+
+## Explore: do the tests overlap?
+
+```{=html}
+<div class="tracker"><span class="done">Why</span><span class="on">I · PCA</span><span>II · MCA</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 82–97 <span>"Explore relationships": the correlation heatmap and its reflection</span><i>run together, then one minute in pairs</i></p>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="56%"}
+```{r}
+#| echo: false
+#| fig-width: 5.8
+#| fig-height: 4.3
+heatmap_plot()
+```
+:::
+
+::: {.column width="44%"}
+::: {.ask style="font-size:0.75em"}
+What can you say about this heatmap? What should PC1 look like?
+:::
+
+::: {.fragment fragment-index=1}
+::: {.card .compact}
+[Almost no blue]{.ct}
+Nearly every pair is positively correlated (`r formatC(mean_cor, format = "f", digits = 2)` on average): good at one test, good at most. Expect PC1 to be **an overall level**, like the school report.
+:::
+:::
+
+::: {.fragment fragment-index=2}
+::: {.card .compact .line}
+[Darker blocks]{.ct}
+The verbal tests `t05`–`t09` stand out (`r formatC(verbal_cor, format = "f", digits = 2)` among themselves). The speed tests `t10`–`t13` form a weaker block. Expect the next components to be **contrasts between blocks**.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 4 minutes: run the chunk (1), pairs (1), answers (2).
+
+- The heatmap is the school-report scatter for 24 subjects at once: each tile is one pair of tests, red for "move together".
+- Click: no blue means no two tests pull in opposite directions. That is the signature of a general factor.
+- Click: the dark square in the middle is the verbal block. The spatial tests `t01`–`t04` correlate least with everything else.
+- Both predictions get checked in the loadings plot at the end of Part I.
+:::
+
+## Apply PCA: read the recipe
+
+```{=html}
+<div class="tracker"><span class="done">Why</span><span class="on">I · PCA</span><span>II · MCA</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 99–118 <span>"Apply PCA": the recipe, then <code>bake()</code></span><i>run together</i></p>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="60%"}
+::: {.anatomy .one}
+```{=html}
+<p class="anat-code" style="font-size:0.52em">pca_recipe &lt;- recipe(school ~ ., data = train_data) |&gt;
+  update_role(case, new_role = "ID") |&gt;
+  step_zv(all_numeric_predictors()) |&gt;
+  <span class="tok">step_normalize(all_numeric_predictors())</span> |&gt;
+  <span class="tok">step_pca(</span>all_numeric_predictors(),
+    <span class="tok">num_comp = 5</span>, keep_original_cols = TRUE) |&gt;
+  <span class="tok">prep()</span></p>
+```
+
+1. **Same units first.** Otherwise the test with the biggest numbers would be PC1.
+2. **The rotation.** Finds the 24 directions, longest first.
+3. **Keep five** as new columns `PC1`–`PC5`. We check this choice next.
+4. **Do it now**, on the training set. `bake()` then adds the scores.
+:::
+:::
+
+::: {.column width="40%"}
+```{r}
+#| echo: false
+pca_data |> select(case, PC1, PC2, PC3)
+```
+
+::: {.card .compact .line style="margin-top:0.4em"}
+[Read it]{.ct}
+Pupil `r pca_data$case[1]` has PC1 = `r formatC(pca_data$PC1[1], format = "f", digits = 1)`: their shadow on the longest direction, well below the average of 0.
+:::
+
+::: {.card .compact .dark}
+[`school ~ .` is not a model]{.ct}
+Nothing is predicted. It only says which columns count as "predictors".
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 4 minutes. Run lines 101–118 together, then read the recipe piece by piece.
+
+- A recipe as in Lab 5, with one new step. `update_role()` keeps `case`, an id, out of the PCA. `step_zv()` drops columns with no variation; there are none here.
+- `step_normalize()` matters: PCA looks for spread, and a test scored 0–200 would beat one scored 0–20 only because of its units.
+- `prep()` is where the PCA is computed; `bake()` applies it. `keep_original_cols = TRUE` leaves the 24 tests in the table next to the five new columns.
+- The next chunk's first line, `pca_recipe$steps[[3]]$res`, reaches into the third step (the PCA) and pulls out the fitted object, so that `tidy()` can give eigenvalues and loadings.
+:::
+
+## Your turn A: how many components? {.yourturn}
+
+```{=html}
+<div class="timer" data-minutes="8"></div>
+```
+
+:::: {.yt}
+
+::: {.tasks}
+[Part I · lines 120–174 · in pairs]{.lbl}
+
+1. **Lines 122–151:** run both chunks. One bar per component: the share of variance, then the running total.
+2. **Lines 155–159:** why might `num_comp = 5` be reasonable? How much do **2, 3 and 5** components explain together? Why is plotting only 2 a risk?
+3. **Lines 163–168:** run the scatter of PC1 against PC2.
+4. **Lines 172–174:** clusters, outliers, a trend? What is the correlation between PC1 and PC2, and why? What might the plot hide?
+:::
+
+::: {.cheat}
+[How to read the output]{.lbl}
+
+```r
+eigenvalues            # one row per component
+#  PC  percent  cumulative
+#   1    0.31        0.31   <- PC1 alone
+#   2    0.10        0.40   <- PC1 + PC2 together
+
+cor(pca_data$PC1, pca_data$PC2)   # try it
+```
+
+::: {.hints}
+- `percent`: this component's share of the total spread
+- `cumulative`: what you keep if you stop here
+- Look for where the bars **flatten**: later components add little each
+:::
+
+::: {.stuck}
+**Stuck?**
+
+- `pca_fit` not found: run lines 101–118 first
+- School report: after turning the page, was any tilt left in the cloud?
+:::
+:::
+
+::::
+
+::: {.notes}
+Your turn, 8 minutes (6 if behind). Click the timer (or press T). All code is given; the work is the two reflection boxes. Ask pairs to write one sentence per question into the notebook.
+
+- Circulate: the common confusion is reading `percent` as a percentage (0.31 is 31%).
+- The scatter has no colour in the student notebook. Fast finishers: add `colour = school` inside `aes()` and see what changes.
+:::
+
+## Answers A: variance explained {.solution}
+
+```{r}
+#| echo: false
+#| fig-width: 11
+#| fig-height: 2.9
+scree_plot() | cumul_plot()
+```
+
+::: {.cards .c3 style="margin-top:0.3em"}
+::: {.card .compact}
+[Why five?]{.ct}
+PC1 stands out with `r pct(ev(1))`. PC2–PC5 add `r pct(ev(2))`, `r pct(ev(3))`, `r pct(ev(4))`, `r pct(ev(5))`; after that each adds under 4%. No sharp elbow: **a judgement call**.
+:::
+::: {.fragment}
+::: {.card .compact .line}
+[2, 3 and 5 components]{.ct}
+`r pct(ev(2, "cumulative"))`, `r pct(ev(3, "cumulative"))` and `r pct(ev(5, "cumulative"))` of the variance. 24 columns became 5 and kept three fifths of the spread.
+:::
+:::
+::: {.fragment}
+::: {.card .compact .dark}
+[Why 2 is risky]{.ct}
+Two fit on a screen, and show `r pct(ev(2, "cumulative"))`. The other `r pct(1 - ev(2, "cumulative"))` is invisible. Check this number before reading any 2-D plot.
+:::
+:::
+:::
+
+::: {.notes}
+Timing: 3 minutes for this slide, 2 for the next.
+
+- Compare with the school report: there PC1 held over 90%, because two marks were nearly one thing. Twenty-four tests are not one thing: the first component holds under a third.
+- There is no rule for the number of components. Common habits: the elbow, a cumulative target (say 60–80%), or cross-validation when the components feed a model.
+:::
+
+## Answers A: the first two components {.solution}
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="52%"}
+::: {.r-stack}
+```{r}
+#| echo: false
+#| fig-width: 5.2
+#| fig-height: 4.3
+pc_scatter()
+```
+
+::: {.fragment fragment-index=3}
+```{r}
+#| echo: false
+#| fig-width: 5.2
+#| fig-height: 4.3
+pc_scatter(by_school = TRUE)
+```
+:::
+:::
+:::
+
+::: {.column width="48%"}
+::: {.card .compact}
+[One cloud]{.ct}
+No clusters and no clear outliers: pupils differ by degree, not by type.
+:::
+
+::: {.fragment fragment-index=1}
+::: {.card .compact .line}
+[The correlation is exactly 0]{.ct}
+By construction: the page was turned until no tilt was left. The missing trend says nothing about the pupils.
+:::
+:::
+
+::: {.fragment fragment-index=2}
+::: {.card .compact .dark}
+[What it hides]{.ct}
+`r pct(1 - ev(2, "cumulative"))` of the variance. Structure in PC3–PC5 cannot be seen here.
+:::
+:::
+
+::: {.fragment fragment-index=3}
+::: {.card .compact}
+[And one thing it shows]{.ct}
+Colour by `school`: Grant-White sits to the upper right. PCA never saw the school.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 2 minutes. Skip the last click if behind.
+
+- Click, click: the two answers from the solutions.
+- Click: the solutions' plot has the subtitle "Colored by school" but no colour in the code; this is what it would show. Grant-White pupils average `r formatC(school_means$PC1[1], format = "f", digits = 1)` on PC1 and Pasteur `r formatC(school_means$PC1[2], format = "f", digits = 1)`. Unsupervised structure that lines up with something we know about the pupils is a reason to trust the components. What PC2 means is the next exercise.
+:::
+
+## Your turn B: what is each component? {.yourturn}
+
+```{=html}
+<div class="timer" data-minutes="5"></div>
+```
+
+:::: {.yt}
+
+::: {.tasks}
+[Part I · lines 176–214 · in pairs]{.lbl}
+
+1. **Lines 178–209:** run the chunk. Three panels, one per component; one bar per test; longest bars at the top.
+2. **Line 213:** on **PC1**, what sign do the loadings have, and how similar are their sizes?
+3. **Line 214:** which tests sit at opposite ends of **PC2** and **PC3**? What do the tests at each end have in common?
+4. Give each component a name of two or three words.
+:::
+
+::: {.cheat}
+[The school-report recipe]{.lbl}
+
+::: {.hints}
+- **1 · Which bars are long?** Short bars barely count
+- **2 · Same sign or opposite?** One colour: a level. Two colours: a contrast, blue against red
+- **3 · What do the long ones share?** Use the table
+:::
+
+```{=html}
+<table class="mini" style="font-size:0.5em;margin-top:0.4em">
+<tr><td><code>t01</code>–<code>t04</code></td><td>Spatial: shapes, cubes, lozenges</td></tr>
+<tr><td><code>t05</code>–<code>t09</code></td><td>Verbal: words, sentences, general information</td></tr>
+<tr><td><code>t10</code>–<code>t13</code></td><td>Speed: addition, code, counting dots</td></tr>
+<tr><td><code>t14</code>–<code>t19</code></td><td>Memory: recognising words, numbers, figures</td></tr>
+<tr><td><code>t20</code>–<code>t24</code></td><td>Reasoning and maths</td></tr>
+</table>
+```
+
+::: {.stuck}
+**Stuck?**
+
+- Blue or red on its own means nothing: flip every sign of a component and it is the same component
+:::
+:::
+
+::::
+
+::: {.notes}
+Your turn, 5 minutes. Click the timer (or press T).
+
+- This is the four-subjects slide with 24 subjects. Point pairs at the three steps.
+- PC1 takes ten seconds. PC2 is the one to spend time on. PC3 is hard; a rough answer is fine.
+:::
+
+## Answers B: naming the components {.solution}
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="58%"}
+```{r}
+#| echo: false
+#| fig-width: 6.4
+#| fig-height: 4.4
+loadings_plot()
+```
+:::
+
+::: {.column width="42%"}
+::: {.card .compact}
+[PC1 · overall ability · `r pct(ev(1))`]{.ct}
+All 24 positive, from `r formatC(pc1_range[1], format = "f", digits = 2)` to `r formatC(pc1_range[2], format = "f", digits = 2)`. The heatmap's "no blue". Psychologists call it *g*.
+:::
+
+::: {.fragment}
+::: {.card .compact .line}
+[PC2 · words against memory, speed · `r pct(ev(2))`]{.ct}
+Blue: sentence completion, general information, word meaning. Red: object–number, addition, number recognition.
+:::
+:::
+
+::: {.fragment}
+::: {.card .compact .line}
+[PC3 · shapes against speed · `r pct(ev(3))`]{.ct}
+Blue: number recognition, lozenges, cubes. Red: addition, counting dots, code. The names are ours; the data only give weights.
+:::
+:::
+
+:::
+
+::::
+
+::: {.notes}
+Timing: 4 minutes.
+
+- PC1 is the school report's overall mark, and the first prediction from the heatmap.
+- Click: PC2 is the second prediction: the verbal block against the rest. A high PC2 means relatively stronger with words than with memory and speed tasks, at any overall level. Grant-White scored higher on PC2 two slides ago: relatively more verbal.
+- Click: PC3 is harder to name and explains `r pct(ev(3))`. Accept any answer that names the two ends.
+- Note for tutors: the solutions file names different tests for PC2 and PC3 (`t02`, `t19`, `t20` on the non-verbal end of PC2; `t22`, `t23` against speed on PC3). With the notebook's seed those tests have short bars. The slide follows the plot.
+- Bridge: all of this needed numbers with units and distances. Next: what if the answers are categories?
+:::
+
+# MCA: categorical data {.divider background-color="#8C0014"}
+
+::: {.kicker}
+Part II
+:::
+
+`r big(n_wvs)` people · `r ncol(norms)` moral questions · yes or no
+
+## Why not PCA?
+
+```{=html}
+<div class="tracker"><span class="done">Why</span><span class="done">I · PCA</span><span class="on">II · MCA</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 230–233 <span>the class discussion at the start of Part II</span><i>one minute with your neighbour</i></p>
+```
+
+::: {.ask}
+Why can't you run PCA on categorical variables? What might "distance" mean instead?
+:::
+
+::: {.cards .c3 style="margin-top:0.6em"}
+::: {.fragment}
+::: {.card .compact}
+[PCA needs arithmetic]{.ct}
+Means, variances, a longest direction. A test score of 60 is 10 above 50. What is **TV − newspaper**? Or the mean of "yes" and "no"?
+:::
+:::
+::: {.fragment}
+::: {.card .compact .line}
+[Count instead of measure]{.ct}
+With categories we can still count **who gave which answers together**. That table of co-occurrences is all MCA uses.
+:::
+:::
+::: {.fragment}
+::: {.card .compact .dark}
+[Distance = chosen by different people]{.ct}
+Two answers are **close** when mostly the same people give them. Close means "go together", not "similar in value". The notebook calls it chi-square distance.
+:::
+:::
+:::
+
+::: {.notes}
+Timing: 2 minutes.
+
+- One minute in pairs, then the three cards.
+- The lecture's media survey is the example in the first card: news source, age group, voted. No order, no spacing.
+- The idea of the map is the same as PCA's: put things on a few axes that keep most of the structure. Only the notion of distance changes.
+:::
+
+## What do you watch? A map of answers
+
+```{=html}
+<div class="tracker"><span class="done">Why</span><span class="done">I · PCA</span><span class="on">II · MCA</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="40%"}
+```{=html}
+<table class="mini" style="font-size:0.44em">
+<tr><th></th><th>Football</th><th>F1</th><th>Bake Off</th><th>Strictly</th></tr>
+`r tv_rows`
+</table>
+<p class="tbl-cap" style="margin-top:0.3em">Twelve people, four yes/no questions <small>8 possible answers</small></p>
+```
+:::
+
+::: {.column width="60%"}
+::: {.ask style="font-size:0.75em"}
+Which answers tend to come from the same people?
+:::
+
+::: {.fragment fragment-index=1}
+```{r}
+#| echo: false
+#| fig-width: 6.2
+#| fig-height: 2.9
+tv_map()
+```
+:::
+
+::: {.fragment fragment-index=2}
+::: {.cards .c2}
+::: {.card .compact .line}
+[Close = same people]{.ct}
+`football_y` sits by `f1_y`: the sports fans.
+:::
+::: {.card .compact .dark}
+[Opposite = rarely together]{.ct}
+Each `_y` faces its own `_n`. Dim 1: sport against shows.
+:::
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 5 minutes. The Part II picture to remember; it is the notebook's biplot in miniature.
+
+- Give the room 30 seconds with the table. They will see it: A, B, K watch both sports; E, F, L watch both shows; a few mix.
+- Click: MCA on exactly this table. One point per answer (not per person, not per question): 4 questions × 2 answers = 8 points.
+- Click: how to read it. Three rules for the lab: (1) close points are answers given by the same people; (2) with two categories, each question's y and n sit on opposite sides, so read one side and you know the other; (3) name an axis by what its two ends have in common, as with loadings.
+- The percentages on the axes are the same idea as variance explained.
+:::
+
+## Load the data: every answer becomes y or n
+
+```{=html}
+<div class="tracker"><span class="done">Why</span><span class="done">I · PCA</span><span class="on">II · MCA</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 235–252 <span>"Load and prepare ethical norms data"</span><i>run together</i></p>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="56%"}
+::: {.anatomy .one}
+```{=html}
+<p class="anat-code" style="font-size:0.56em">norms &lt;- read_csv("data/wvs-wave-7-ethical-norms.csv") |&gt;
+  mutate(<span class="tok">across(everything(),</span>
+    ~ as.factor(if_else(<span class="tok">.x &gt; median(.x)</span>, "y", "n"))))
+
+<span class="tok">colnames(norms) &lt;- values</span></p>
+```
+
+1. **Every column**: 19 World Values Survey questions, "is this ever justifiable?", from 1 (never) to 10 (always).
+2. **Above that question's median: "y".** Otherwise "n". A 10-point scale becomes two categories.
+3. **Readable names** instead of `Q177`–`Q195`.
+:::
+:::
+
+::: {.column width="44%"}
+```{=html}
+<p class="tbl-cap">Share answering "y" <small>after the median split</small></p>
+<div class="bars">
+  <div><span>premarital sex</span><i style="width:`r round(100 * share_y[["sex_before_marriage"]])`%"></i><b>`r pct(share_y[["sex_before_marriage"]])`</b></div>
+  <div><span>divorce</span><i style="width:`r round(100 * share_y[["divorce"]])`%"></i><b>`r pct(share_y[["divorce"]])`</b></div>
+  <div><span>stealing property</span><i style="width:`r round(100 * share_y[["stealing_property"]])`%"></i><b>`r pct(share_y[["stealing_property"]])`</b></div>
+  <div><span>terrorism</span><i class="hot" style="width:`r round(100 * share_y[["terrorism"]])`%"></i><b>`r pct(share_y[["terrorism"]])`</b></div>
+</div>
+```
+
+::: {.card .compact .dark style="margin-top:0.6em"}
+["y" is not "supports"]{.ct}
+For `r n_median1` of the 19 questions the median is 1, "never". There, **y means "anything but never"**: `terrorism_y` is "did not rule it out".
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 3 minutes. Run lines 237–252 together.
+
+- The notebook says responses run 0–10; the WVS scale is 1 to 10.
+- The median split is done per question, so "y" means different things for different questions: for divorce (median `r medians[["Q185"]]`) it means a fairly permissive answer, for stealing it means anything above "never".
+- This matters for reading the map: the y-categories of the violence questions are rare answers, and rare categories land far from the middle.
+- Note for tutors: `r pct(share_neg, 1)` of the cells are negative codes (−1 don't know, −2 no answer, −5 missing). The notebook's code turns them into "n". It does not change the picture, but it is on the fix list in the lesson plan.
+:::
+
+## Apply MCA: one line
+
+```{=html}
+<div class="tracker"><span class="done">Why</span><span class="done">I · PCA</span><span class="on">II · MCA</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 254–263 <span>"Apply MCA" and the reflection on the supplementary variable</span><i>run together</i></p>
+```
+
+::: {.anatomy}
+```{=html}
+<p class="anat-code" style="font-size:0.7em">mca &lt;- <span class="tok">MCA(</span><span class="tok">norms</span>, <span class="tok">quali.sup = 1</span>, <span class="tok">graph = FALSE</span>)</p>
+```
+
+1. **From `FactoMineR`**, not tidymodels: no recipe, no `prep()`.
+2. **A table of factors**: 19 columns of y and n.
+3. **Column 1 is supplementary**: `cheating_benefits` is left out when the axes are built.
+4. **No automatic plot.** We draw our own next.
+:::
+
+::: {.ask style="margin-top:0.5em"}
+Why mark a variable as supplementary?
+:::
+
+::: {.cards .c2}
+::: {.fragment}
+::: {.card .compact .line}
+[It is placed on the map afterwards]{.ct}
+The other 18 questions build the axes. `cheating_benefits` is then dropped onto the finished map without shaping it.
+:::
+:::
+::: {.fragment}
+::: {.card .compact .dark}
+[A test of the map]{.ct}
+If the map means something, a question it has never seen should land where we expect. A hold-out for a method with no test score.
+:::
+:::
+:::
+
+::: {.notes}
+Timing: 2½ minutes. Run line 258 together; it takes a couple of seconds on `r big(n_wvs)` rows.
+
+- Compare with Part I: there the PCA sat inside a recipe; here one function call from another package.
+- The supplementary variable is the closest thing today to a test set: information kept away from the fit and used to check it.
+- Ask for a prediction before the exercise: where should `cheating_benefits_y` land? Near the other dishonesty answers.
+:::
+
+## Your turn C: read the map {.yourturn}
+
+```{=html}
+<div class="timer" data-minutes="7"></div>
+```
+
+:::: {.yt}
+
+::: {.tasks}
+[Part II · lines 265–291 · in pairs]{.lbl}
+
+1. **Lines 267–273:** run the biplot. One triangle per answer; green is the supplementary question.
+2. **Line 277:** which answers sit at the far ends of **Dim 1** and of **Dim 2**? What do they have in common?
+3. **Line 278:** where does `cheating_benefits` land?
+4. **Lines 280–287:** run the contribution plot.
+5. **Line 291:** which answers contribute most to Dim 1? What do they share?
+:::
+
+::: {.cheat}
+[The TV-map rules]{.lbl}
+
+::: {.hints}
+- **Close together:** answers given by the same people
+- **Opposite sides:** each question's `_y` faces its `_n`: read one side of an axis and you know the other
+- **Name an axis** by what its two ends have in common
+- **Far from the middle:** a rare answer
+:::
+
+```r
+fviz_contrib(mca, choice = "var", axes = 1, top = 10)
+#   choice = "var"   the answers, not the people
+#   axes = 1         for Dim 1 (try axes = 2)
+# red dashed line:   an equal share for every answer
+```
+
+::: {.stuck}
+**Stuck?**
+
+- Start with the right-hand side of Dim 1: are the labels `_y` or `_n`?
+- Then compare top right with bottom right
+:::
+:::
+
+::::
+
+::: {.notes}
+Your turn, 7 minutes. Click the timer (or press T).
+
+- The biplot is crowded on a laptop screen: tell students to use the Zoom button in the Plots pane.
+- Hint if pairs are stuck after three minutes: "what is the difference between the answers at the top right and those at the bottom right?"
+- Fast finishers: `fviz_contrib()` with `axes = 2`; `fviz_screeplot(mca)`.
+:::
+
+## Answers C: the biplot {.solution}
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="63%"}
+```{r}
+#| echo: false
+#| fig-width: 5.7
+#| fig-height: 4.5
+biplot_plot()
+```
+:::
+
+::: {.column width="37%"}
+::: {.card .compact}
+[Dim 1 · `r pct(mca_pct[1])` · how much is justifiable]{.ct}
+Every `_y` on the right, every `_n` on the left. Like PC1: a **level**.
+:::
+
+::: {.fragment}
+::: {.card .compact .line}
+[Dim 2 · `r pct(mca_pct[2])` · which kind]{.ct}
+Top right: violence, theft, bribes. Bottom right: divorce, premarital sex, abortion. Like PC2: a **contrast**, harm to others against private life.
+:::
+:::
+
+::: {.fragment}
+::: {.card .compact .dark}
+[The supplementary question fits]{.ct}
+`cheating_benefits_y` lands right and above the middle, by fare dodging. It never shaped the axes.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 4 minutes.
+
+- Dim 1: right against left is y against n for every single question. Someone on the right says "not never" to many things. It is the overall level again.
+- Click: Dim 2 splits the y-answers by kind. Top left are the matching "n" answers on private morality; bottom left the "n" answers on violence and dishonesty: the people who rule out harm but not private choices sit towards the bottom.
+- Why are `terrorism_y` and `violence_against_spouse_y` so far out? They are rare answers (a quarter of respondents), and rare categories sit far from the middle.
+- Click: the supplementary variable lands where predicted.
+- Two dimensions show `r pct(sum(mca_pct[1:2]))` of the structure, more than the 41% of the PCA scatter.
+:::
+
+## Answers C: who builds Dim 1? {.solution}
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="56%"}
+```{r}
+#| echo: false
+#| fig-width: 6.2
+#| fig-height: 4.2
+contrib_plot()
+```
+:::
+
+::: {.column width="44%"}
+::: {.card .compact}
+[The top eight are all "y" answers]{.ct}
+Stealing, political violence, social violence, terrorism, bribes, suicide, tax cheating, violence against a spouse. All above the red line (`r formatC(avg_contrib, format = "f", digits = 1)`%, an equal share).
+:::
+
+::: {.fragment}
+::: {.card .compact .line}
+[What they share]{.ct}
+Harm and dishonesty, and **rarity**: few people give these answers, so they separate respondents most.
+:::
+:::
+
+::: {.fragment}
+::: {.card .compact .dark}
+[Contributions are MCA's loadings]{.ct}
+PCA: which variables have long bars on a component. MCA: which answers contribute most to a dimension. Same question, same reading.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 2 minutes. If behind, skip this slide and say the dark card on the biplot.
+
+- The contribution plot answers "which answers pull this axis": the Part II version of the loadings plot.
+- It matches the biplot: the answers farthest to the right are the top contributors.
+:::
+
+## PCA or MCA?
+
+```{=html}
+<div class="tracker"><span class="done">Why</span><span class="done">I · PCA</span><span class="done">II · MCA</span><span class="on">Wrap-up</span></div>
+```
+
+::: {.small-table}
+| | PCA | MCA |
+|---|---|---|
+| **Data** | Numbers with meaningful spacing: test scores, incomes | Categories: yes/no, news source, age group |
+| **Built from** | Correlations between variables | Counts of answers given together |
+| **Close means** | Similar values | Chosen by the same people |
+| **What you read** | Loadings: one bar per variable | The map and contributions: one point per answer |
+| **Today** | `step_pca()` in a recipe: 24 tests → 5 components | `MCA()` from `FactoMineR`: 19 questions → 2 dimensions |
+:::
+
+::: {.fragment}
+::: {.cards .c2 style="margin-top:0.5em"}
+::: {.card .compact .line}
+[The same story twice]{.ct}
+First axis: a level (overall ability; how much is justifiable). Second: a contrast (verbal against speed; harm against private life).
+:::
+::: {.card .compact .dark}
+[Both are linear summaries]{.ct}
+Good for seeing structure and for fewer columns in a later model. The naming is always yours.
+:::
+:::
+:::
+
+::: {.notes}
+Timing: 3 minutes. The notebook's last learning objective: compare the two and say when each is appropriate.
+
+- Ask before showing the table: "your survey has age in years, income, and ten yes/no questions. What now?" Either bin the numbers and use MCA, or use a method for mixed data (FAMD, in the same package). The data type decides.
+- Click: both labs ended with the same shape of answer. That is common: the first dimension of a battery of similar questions is usually "how much overall".
+:::
+
+## Summary
+
+```{=html}
+<div class="tracker"><span class="done">Why</span><span class="done">I · PCA</span><span class="done">II · MCA</span><span class="on">Wrap-up</span></div>
+```
+
+```{=html}
+<div class="checks" style="grid-template-columns:1fr">
+  <div><b>1</b><span><strong>Why reduce:</strong> with many variables, data are sparse, distances stop telling rows apart, and models overfit. Real variables overlap, so a few new axes can keep most of the structure</span></div>
+  <div><b>2</b><span><strong>PCA</strong> is the school report: turn the cloud so the first axis runs along its longest direction. Each component has a <strong>share of variance</strong> (how much it keeps) and <strong>loadings</strong> (what it is made of). Same sign: a level. Opposite signs: a contrast. In code: <code>step_normalize()</code>, <code>step_pca()</code>, <code>tidy(matrix = "eigenvalues")</code>, <code>tidy(matrix = "loadings")</code></span></div>
+  <div><b>3</b><span><strong>MCA</strong> is the TV map: one point per answer, close when the same people give them, each y opposite its n. Read the ends of each axis and the <strong>contributions</strong>. In code: <code>MCA()</code>, <code>fviz_mca_biplot()</code>, <code>fviz_contrib()</code></span></div>
+</div>
+```
+
+**Question:** two components show `r pct(ev(2, "cumulative"))` of the test data. Before you trust a pattern in the PC1–PC2 scatter, what would you check?
+
+::: {.notes}
+Wrap-up, 3 minutes.
+
+- Recap in three sentences.
+- Exit question: the variance explained, and the same plot for PC3 against PC4; a pattern in two dimensions can vanish or appear once the rest is included.
+- Next week: clustering, the other half of unsupervised learning. Today we compressed the columns; next week we group the rows.
+:::
+
+## Further reading {.closing}
+
+- The completed notebook goes up after class.
+- [*An Introduction to Statistical Learning*](https://www.statlearning.com): 12.1–12.2 (unsupervised learning, principal components). Free PDF.
+- [*Tidy Modeling with R*](https://www.tmwr.org): chapter 16 (dimensionality reduction), with `step_pca()` and its relatives.
+- [STHDA's MCA guide](http://www.sthda.com/english/articles/31-principal-component-methods-in-r-practical-guide/114-mca-multiple-correspondence-analysis-in-r-essentials/): every `factoextra` plot for MCA, with code.
+
+::: {.notes}
+- Autoencoders, which last year's lab ended on, are the non-linear version of today's idea: mention them only if asked.
+:::
+
+## 30 seconds of feedback {.closing}
+
+:::: {.columns style="align-items:center"}
+
+::: {.column width="45%" style="text-align:center"}
+![](images/feedback-qr.svg){width="380" fig-alt="QR code linking to the feedback survey"}
+:::
+
+::: {.column width="55%"}
+::: {.card .dark}
+[How was today's lab?]{.ct}
+Scan the code, or open <a href="https://forms.gle/i3uobCAaGmkzf1ns7" style="color:#fff;text-decoration:underline">forms.gle/i3uobCAaGmkzf1ns7</a>. It takes 30 seconds and changes what next week looks like.
+:::
+:::
+
+::::
+
+::: {.notes}
+- Leave this slide up while people pack up. Ask them to fill it in before leaving.
+:::
