@@ -1,0 +1,2186 @@
+---
+title: "Finding groups: k-means and DBSCAN"
+subtitle: "MY202 · Lab 8"
+author: "Jonas Weinert"
+institute:
+  - "Department of Methodology"
+  - "London School of Economics and Political Science"
+date: today
+date-format: "D MMMM YYYY"
+footer: "MY202 · Lab 8 · Clustering"
+
+logos:
+  - "../../_extensions/lse/lse-logo.svg"
+
+format:
+  lse-revealjs:
+    embed-resources: true
+    fragments: true
+
+execute:
+  echo: true
+  message: false
+  warning: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+# Every plot of lab data on these slides is the notebook's own chunk (my202-08-lab-student.qmd; the line numbers
+# on the slides refer to it). The data sit next to the notebooks in W8/notebooksanddata (git-ignored).
+library("cluster")
+library("dbscan")
+library("tidyverse")
+library("patchwork")
+library("ggrepel")
+knitr::opts_knit$set(root.dir = "../notebooksanddata")
+options(width = 50, tibble.print_min = 4, tibble.print_max = 4, pillar.max_extra_cols = 0)
+
+theme_slide <- function() {
+  theme_minimal(base_size = 15) +
+    theme(panel.grid.minor = element_blank(), legend.position = "bottom",
+          plot.title = element_text(size = 13.5, face = "bold"), plot.title.position = "plot")
+}
+red <- "#E2001A"; dark <- "#8C0014"; pink <- "#F28A94"; grey <- "#6B6B6B"; navy <- "#1F4E79"; green <- "#1D7A46"
+cols5 <- setNames(c(red, navy, green, "#E69F00", "#7B3F9E"), 1:5)
+pct <- function(x, d = 0) paste0(formatC(100 * x, format = "f", digits = d), "%")
+big <- function(x) format(round(x), big.mark = ",")
+f1 <- function(x) formatC(x, format = "f", digits = 1)
+f2 <- function(x) formatC(x, format = "f", digits = 2)
+```
+
+```{r}
+#| label: data
+#| include: false
+# ---- Part I, as in the notebook (student lines 38–45, 63–75, 106–109)
+mca_coords <- read_csv("data/mca-week-7.csv")
+
+set.seed(123)
+coords   <- mca_coords |> select(dim_1:dim_2)
+dist_mat <- dist(coords)
+eval_kmeans <- function(k) {
+  km <- kmeans(coords, centers = k, nstart = 25)
+  tibble(
+    k            = k,
+    tot.withinss = km$tot.withinss,
+    silhouette   = mean(silhouette(km$cluster, dist_mat)[, "sil_width"])
+  )
+}
+k_metrics <- map(2:10, eval_kmeans) |> list_rbind()
+km_at <- function(k, what) k_metrics[[what]][k_metrics$k == k]
+
+set.seed(123)
+optimal_k <- 4
+final_kmeans <- kmeans(mca_coords[, 1:2], centers = optimal_k, nstart = 25)
+
+# The four groups are named by their content, never by number: k-means numbers its clusters arbitrarily.
+harm_q <- c("avoid_transport_fare", "stealing_property", "cheating_taxes", "accept_bribes", "violence_against_spouse",
+            "violence_against_child", "social_violence", "terrorism", "political_violence")
+family <- function(category) {
+  paste0(str_sub(category, -1), "_", if_else(str_remove(category, "_[yn]$") %in% harm_q, "harm", "private"))
+}
+km_tab <- table(family(mca_coords$category), final_kmeans$cluster)
+# the answer slides say "k-means finds exactly these four families"; fail the render if it stops being true
+stopifnot(nrow(mca_coords) == 36, all(rowSums(km_tab > 0) == 1), all(colSums(km_tab > 0) == 1),
+          k_metrics$k[which.max(k_metrics$silhouette)] == 4)
+cl_of <- function(f) as.integer(colnames(km_tab)[km_tab[f, ] > 0])
+fam_names <- c(n_harm = "n · harm and cheating", y_harm = "y · harm and cheating",
+               n_private = "n · private life", y_private = "y · private life")
+set.seed(123)
+km3 <- kmeans(mca_coords[, 1:2], centers = 3, nstart = 25)
+km3_tab <- table(family(mca_coords$category), km3$cluster)
+
+# ---- Part II, as in the notebook (student lines 140, 153–157, 194)
+db_result <- dbscan(mca_coords[, 1:2], eps = 0.25, minPts = 5)
+mca_coords_db <- mca_coords |> mutate(cluster = as.factor(db_result$cluster))
+clustered_points <- mca_coords_db |> filter(cluster != "0")
+noise_points <- mca_coords_db |> filter(cluster == "0")
+db_tab <- table(family(clustered_points$category), as.character(clustered_points$cluster))
+eps_grid <- c(0.1, 0.2, 0.3, 0.4, 0.5)
+db_at <- function(e) dbscan(mca_coords[, 1:2], eps = e, minPts = 5)$cluster
+eps_tab <- tibble(eps = eps_grid, clusters = map_int(eps_grid, ~ max(db_at(.x))), noise = map_int(eps_grid, ~ sum(db_at(.x) == 0)))
+eps_n <- function(e, what) eps_tab[[what]][eps_tab$eps == e]
+stopifnot(max(db_result$cluster) == 4, all(colSums(db_tab > 0) == 1),
+          setequal(noise_points$category, c("avoid_transport_fare_y", "divorce_n", "violence_against_child_y",
+                                            "death_penalty_n", "death_penalty_y")),
+          eps_n(0.1, "clusters") == 1, eps_n(0.5, "clusters") == 2, eps_n(0.5, "noise") == 0)
+```
+
+```{r}
+#| label: visuals
+#| include: false
+# ---- The park: thirty made-up people on a lawn, three ice-cream carts. One picture for all of Part I.
+set.seed(1)
+park <- tibble(x = c(rnorm(10, 14, 4), rnorm(10, 44, 4), rnorm(10, 28, 4)),
+               y = c(rnorm(10, 12, 4), rnorm(10, 16, 4), rnorm(10, 38, 4)))
+P <- as.matrix(park)
+stopifnot(min(P) > 1, max(park$x) < 57, max(park$y) < 49)
+nearest <- function(cen) {
+  k <- nrow(cen)
+  apply(as.matrix(dist(rbind(cen, P)))[-seq_len(k), seq_len(k), drop = FALSE], 1, which.min)
+}
+middle <- function(cl, k) {
+  m <- t(sapply(seq_len(k), function(j) colMeans(P[cl == j, , drop = FALSE])))
+  colnames(m) <- c("x", "y"); m
+}
+# k-means by hand: assign to the nearest cart, move each cart to the mean of its customers, until nobody switches
+lloyd <- function(init) {
+  cen <- P[init, , drop = FALSE]; cl <- rep(0L, nrow(P)); rounds <- list()
+  repeat {
+    new <- nearest(cen)
+    rounds[[length(rounds) + 1]] <- list(cen = cen, cl = new, switched = new != cl)
+    if (all(new == cl)) break
+    cl <- new; cen <- middle(cl, nrow(cen))
+  }
+  rounds
+}
+walk2 <- function(cen, cl) sum((P - cen[cl, ])^2)
+set.seed(1012); run <- lloyd(sample(30, 3))
+set.seed(1018); unlucky <- lloyd(sample(30, 3))
+fin <- run[[length(run)]]; fin_bad <- unlucky[[length(unlucky)]]
+set.seed(2)
+km_park <- map(1:8, ~ kmeans(P, centers = .x, nstart = 25))
+park_wss <- map_dbl(km_park, "tot.withinss")
+n_switch <- sum(run[[2]]$switched)
+# three rounds, a visible number of switches, the lucky run reaches the best grouping, the unlucky one does not
+stopifnot(length(run) == 3, n_switch >= 4, abs(walk2(fin$cen, fin$cl) - park_wss[3]) < 1e-6,
+          walk2(fin_bad$cen, fin_bad$cl) > 1.5 * park_wss[3])
+
+park_base <- function(title) {
+  ggplot() + coord_fixed(xlim = c(0, 58), ylim = c(0, 50), expand = FALSE) +
+    scale_colour_manual(values = cols5) + scale_fill_manual(values = cols5) +
+    theme_slide() + labs(x = NULL, y = NULL, title = title) +
+    theme(axis.text = element_blank(), panel.grid = element_blank(), legend.position = "none",
+          panel.background = element_rect(fill = "#F1F6EE", colour = NA))
+}
+people <- function(cl = NULL, size = 3.4) {
+  if (is.null(cl)) geom_point(data = park, aes(x, y), colour = grey, size = size, alpha = 0.8)
+  else geom_point(data = mutate(park, j = factor(cl)), aes(x, y, colour = j), size = size)
+}
+carts <- function(cen, alpha = 1, size = 7) {
+  geom_point(data = tibble(x = cen[, 1], y = cen[, 2], j = factor(seq_len(nrow(cen)))), aes(x, y, fill = j),
+             shape = 22, size = size, colour = "black", stroke = 1.1, alpha = alpha)
+}
+moves <- function(old, new) {
+  geom_segment(data = tibble(x = old[, 1], y = old[, 2], xend = new[, 1], yend = new[, 2]),
+               aes(x, y, xend = xend, yend = yend), arrow = arrow(length = unit(0.13, "in")), linewidth = 0.9)
+}
+walks <- function(cen, cl) {
+  geom_segment(data = mutate(park, xend = cen[cl, 1], yend = cen[cl, 2], j = factor(cl)),
+               aes(x, y, xend = xend, yend = yend, colour = j), linewidth = 0.45, alpha = 0.7)
+}
+kmeans_step <- function(s) {
+  r1 <- run[[1]]; r2 <- run[[2]]; r3 <- run[[3]]
+  switch(s,
+    park_base("1 · Thirty people on a lawn") + people(),
+    park_base("2 · Start: three carts next to random people") + people() + carts(r1$cen),
+    park_base("3 · Assign: everyone walks to the nearest cart") + people(r1$cl) + carts(r1$cen),
+    park_base("4 · Update: each cart moves to the middle") + people(r1$cl) +
+      carts(r1$cen, alpha = 0.25) + moves(r1$cen, r2$cen) + carts(r2$cen),
+    park_base(paste0("5 · Assign again: ", n_switch, " people now have a nearer cart")) + people(r2$cl) +
+      geom_point(data = park[r2$switched, ], aes(x, y), shape = 21, size = 6.5, stroke = 1.1, colour = "black") + carts(r2$cen),
+    park_base("6 · Update again. Nobody switches: done") + people(r2$cl) +
+      carts(r2$cen, alpha = 0.25) + moves(r2$cen, r3$cen) + carts(r3$cen))
+}
+wss_step <- function(s) {
+  if (s == 1) park_base(paste0("Total squared walk: ", big(walk2(fin$cen, fin$cl)))) + walks(fin$cen, fin$cl) + people(fin$cl) + carts(fin$cen)
+  else park_base(paste0("An unlucky start ends here: ", big(walk2(fin_bad$cen, fin_bad$cl)))) + walks(fin_bad$cen, fin_bad$cl) + people(fin_bad$cl) + carts(fin_bad$cen)
+}
+elbow_step <- function(k) {
+  km <- km_park[[k]]; cen <- km$centers; colnames(cen) <- c("x", "y")
+  left <- park_base(paste0(k, if (k == 1) " cart" else " carts", ": total squared walk ", big(park_wss[k]))) +
+    walks(cen, km$cluster) + people(km$cluster, size = 2.8) + carts(cen, size = 5.5)
+  curve <- tibble(k = 1:8, w = park_wss)
+  right <- ggplot(filter(curve, k <= !!k), aes(k, w)) +
+    geom_line(colour = red, linewidth = 1.1) + geom_point(colour = red, size = 3.5) +
+    scale_x_continuous(breaks = 1:8, limits = c(1, 8)) +
+    scale_y_continuous(limits = c(0, park_wss[1] * 1.05), labels = scales::comma) +
+    theme_slide() + theme(panel.grid.major.x = element_blank()) +
+    labs(x = "Number of carts (k)", y = "Total squared walk", title = "One dot per k")
+  if (k == 5) right <- right + geom_line(data = filter(curve, k >= 5), colour = pink, linewidth = 1.1) +
+    geom_point(data = filter(curve, k > 5), colour = pink, size = 3.5) +
+    annotate("text", x = 3.25, y = park_wss[3] + 0.16 * park_wss[1], label = "the elbow", colour = navy, size = 5, hjust = 0) +
+    annotate("point", x = 3, y = park_wss[3], colour = navy, size = 7, shape = 21, stroke = 1.6)
+  left + right + plot_layout(widths = c(1, 1.15))
+}
+
+# silhouette for the three-cart grouping
+km3_park <- km_park[[3]]
+D <- as.matrix(dist(P))
+sil <- silhouette(km3_park$cluster, dist(P))
+sil_mean <- map_dbl(2:8, ~ mean(silhouette(km_park[[.x]]$cluster, dist(P))[, "sil_width"]))
+p_sure <- which.max(sil[, "sil_width"]); p_torn <- which.min(sil[, "sil_width"])
+sil_a <- function(i) mean(D[i, km3_park$cluster == sil[i, "cluster"] & seq_len(30) != i])
+sil_b <- function(i) mean(D[i, km3_park$cluster == sil[i, "neighbor"]])
+sil_s <- function(i) sil[i, "sil_width"]
+stopifnot(which.max(sil_mean) == 2, sil_s(p_sure) > 0.7, sil_s(p_torn) < 0.5,
+          abs((sil_b(p_sure) - sil_a(p_sure)) / max(sil_a(p_sure), sil_b(p_sure)) - sil_s(p_sure)) < 1e-8)
+sil_lines <- function(i, to, colour, linetype = "solid") {
+  others <- which(km3_park$cluster == to & seq_len(30) != i)
+  geom_segment(data = tibble(x = P[i, 1], y = P[i, 2], xend = P[others, 1], yend = P[others, 2]),
+               aes(x, y, xend = xend, yend = yend), colour = colour, linewidth = 0.55, linetype = linetype)
+}
+sil_step <- function(s) {
+  if (s == 4) {
+    return(ggplot(tibble(k = 2:8, s = sil_mean), aes(k, s)) +
+      geom_line(colour = red, linewidth = 1.1) + geom_point(colour = red, size = 3.5) +
+      annotate("point", x = 3, y = sil_mean[2], colour = navy, size = 7, shape = 21, stroke = 1.6) +
+      scale_x_continuous(breaks = 2:8) + scale_y_continuous(limits = c(0, 0.8)) +
+      theme_slide() + theme(panel.grid.major.x = element_blank(), aspect.ratio = 50 / 58) +
+      labs(x = "Number of carts (k)", y = "Average silhouette", title = "4 · Average over everyone, for each k: highest wins"))
+  }
+  i <- if (s == 3) p_torn else p_sure
+  own <- sil[i, "cluster"]; nb <- sil[i, "neighbor"]
+  p <- park_base(c(paste0("1 · a: average distance to your own group = ", f1(sil_a(i)), " m"),
+                   paste0("2 · b: to the nearest other group = ", f1(sil_b(i)), " m"),
+                   paste0("3 · Someone between two groups: s = ", f2(sil_s(i))))[s]) +
+    sil_lines(i, own, cols5[[own]])
+  if (s >= 2) p <- p + sil_lines(i, nb, grey, "dashed")
+  p + people(km3_park$cluster) +
+    geom_point(data = park[i, ], aes(x, y), shape = 23, size = 6, fill = "white", colour = "black", stroke = 1.8)
+}
+
+# ---- The festival field: a queue curving round a picnic, and three people on their own. For Part II.
+set.seed(7)
+ang <- seq(15, 205, length.out = 24) * pi / 180
+field <- bind_rows(
+  tibble(x = 30 + rnorm(14, 0, 2.6), y = 20 + rnorm(14, 0, 2.6), what = "picnic"),
+  tibble(x = 30 + 17 * cos(ang) + rnorm(24, 0, 0.4), y = 20 + 17 * sin(ang) + rnorm(24, 0, 0.4), what = "queue"),
+  tibble(x = c(5, 54, 52), y = c(44, 46, 4), what = "alone"))
+Fm <- as.matrix(field[, 1:2])
+eps_f <- 6; min_f <- 5
+field$n_near <- rowSums(as.matrix(dist(Fm)) <= eps_f)   # counts the person too, as dbscan() does
+field$core <- field$n_near >= min_f
+field$db <- dbscan(Fm, eps = eps_f, minPts = min_f)$cluster
+set.seed(2); field$km <- kmeans(Fm, centers = 2, nstart = 25)$cluster
+q_cl <- unique(field$db[field$what == "queue"]); p_cl <- unique(field$db[field$what == "picnic"])
+# DBSCAN must find the queue, the picnic and three loners; the queue must have border points; k-means must cut the queue
+stopifnot(length(q_cl) == 1, length(p_cl) == 1, q_cl != p_cl, q_cl > 0, p_cl > 0, all(field$db[field$what == "alone"] == 0),
+          sum(field$what == "queue" & !field$core) >= 2, n_distinct(field$km[field$what == "queue"]) == 2)
+field <- field |> mutate(dbf = factor(match(db, c(q_cl, p_cl))))   # queue = colour 1, picnic = colour 2
+circle <- function(i, colour = navy) {
+  t <- seq(0, 2 * pi, length.out = 200)
+  geom_path(data = tibble(x = Fm[i, 1] + eps_f * cos(t), y = Fm[i, 2] + eps_f * sin(t)), aes(x, y), colour = colour, linewidth = 0.9, linetype = "dashed")
+}
+ex_core <- which(field$what == "picnic")[which.max(field$n_near[field$what == "picnic"])]
+ex_border <- which(field$what == "queue")[1]
+ex_alone <- which(field$what == "alone")[1]
+stopifnot(!field$core[ex_border], field$db[ex_border] == q_cl, field$n_near[ex_alone] == 1)
+why_step <- function(s) {
+  p <- park_base(c("1 · A queue, a picnic, and three people alone",
+                   "2 · k-means, k = 2: the queue is cut in half",
+                   "3 · DBSCAN: the queue, the picnic, three left out")[s])
+  if (s == 1) return(p + geom_point(data = field, aes(x, y), colour = grey, size = 3.2, alpha = 0.85))
+  if (s == 2) {
+    cen <- field |> group_by(km) |> summarise(x = mean(x), y = mean(y))
+    return(p + geom_point(data = field, aes(x, y, colour = factor(km)), size = 3.2) +
+             geom_point(data = cen, aes(x, y, fill = factor(km)), shape = 22, size = 7, colour = "black", stroke = 1.1))
+  }
+  p + geom_point(data = filter(field, db > 0), aes(x, y, colour = dbf), size = 3.2) +
+    geom_point(data = filter(field, db == 0), aes(x, y), shape = 4, size = 3.4, stroke = 1.4)
+}
+hollow <- function(d, colour = grey) geom_point(data = d, aes(x, y), shape = 21, size = 3.2, stroke = 1.1, colour = colour, fill = "white")
+# Slide 1 of 2: who stands in a crowd? Count inside the circle, then mark the core points.
+core_step <- function(s) {
+  p <- park_base(c(paste0("1 · Draw a ", eps_f, " m circle round a person and count"),
+                   paste0("2 · ", min_f, " or more inside (yourself included): a core point"),
+                   "3 · Now the same count for every person")[s])
+  ex <- c(ex_core, ex_border, ex_alone)
+  lab <- field[ex, ] |> mutate(lab = if (s == 2) paste0(n_near, c(": core", ": not core", ": not core")) else as.character(n_near))
+  counts <- geom_label(data = lab, aes(x + c(0, 4.5, 3.5), y + c(-8.3, -7.5, -8.3), label = lab), colour = navy, fontface = "bold", size = if (s == 2) 4.2 else 5, label.size = 0)
+  if (s == 3) return(p + circle(ex_core, grey) + circle(ex_border, grey) + circle(ex_alone, grey) +
+                       geom_point(data = filter(field, core), aes(x, y), colour = "#3A3A3A", size = 3.2) + hollow(filter(field, !core)) + counts)
+  # steps 1 and 2: only the three people and whoever is inside their circles; everyone else is faded
+  near <- setdiff(which(colSums(Dm[ex, ] <= eps_f) > 0), ex)
+  p <- p + geom_point(data = field[-c(ex, near), ], aes(x, y), colour = grey, size = 3.2, alpha = 0.18) +
+    circle(ex_core) + circle(ex_border) + circle(ex_alone) +
+    geom_point(data = field[near, ], aes(x, y), colour = grey, size = 3.2, alpha = 0.85)
+  if (s == 1) return(p + geom_point(data = field[ex, ], aes(x, y), colour = navy, size = 3.6) + counts)
+  p + geom_point(data = field[ex_core, ], aes(x, y), colour = "#3A3A3A", size = 3.8) +
+    geom_point(data = field[c(ex_border, ex_alone), ], aes(x, y), shape = 21, size = 3.6, stroke = 1.3, colour = "#3A3A3A", fill = "white") + counts
+}
+
+# Slide 2 of 2: grow a cluster hop by hop. The colour starts at one core point in the middle of the queue.
+# hop 0 = the starting point; hop h = everyone inside the circle of a core point of hop h - 1 who has no colour yet.
+Dm <- as.matrix(dist(Fm))
+seed <- which(field$what == "queue")[12]
+hops_from <- function(seed) {
+  hop <- rep(NA_integer_, nrow(field)); hop[seed] <- 0L
+  repeat {
+    h <- max(hop, na.rm = TRUE)
+    tellers <- which(hop == h & field$core)
+    new <- which(is.na(hop) & colSums(Dm[tellers, , drop = FALSE] <= eps_f) > 0)
+    if (length(tellers) == 0 || length(new) == 0) break
+    hop[new] <- h + 1L
+  }
+  hop
+}
+field$hop <- hops_from(seed)
+# the second cluster starts at the core point of the picnic from which the colour needs the most hops (at its edge)
+pic_core <- which(field$what == "picnic" & field$core)
+seed2 <- pic_core[which.max(map_int(pic_core, ~ max(hops_from(.x), na.rm = TRUE)))]
+field$hop2 <- hops_from(seed2)
+stopifnot(setequal(which(!is.na(field$hop2)), which(field$what == "picnic")), max(field$hop2, na.rm = TRUE) >= 2)
+gap_pair <- which(Dm == min(Dm[field$what == "queue", field$what == "picnic"]), arr.ind = TRUE)[1, ]
+gap_m <- Dm[gap_pair[1], gap_pair[2]]
+# the hopping must colour exactly the queue, take more than three hops, and reach the border points last
+stopifnot(field$core[seed], setequal(which(!is.na(field$hop)), which(field$what == "queue")), max(field$hop, na.rm = TRUE) >= 5,
+          all(field$hop[field$what == "queue" & !field$core] >= 4), gap_m > eps_f)
+grow_step <- function(s) {
+  p <- park_base(c("3 · Pick any core point: everyone in its circle joins",
+                   "4 · The new core points pass it on",
+                   "5 · And again: the colour runs along the queue",
+                   "6 · Nobody new within reach: the cluster is complete",
+                   "7 · Next cluster: an unused core point starts",
+                   "8 · Same rule: pass it on until nobody new",
+                   "9 · Whoever is left is noise")[s])
+  upto <- if (s <= 3) s else Inf            # hops coloured so far in the queue
+  d <- field |> mutate(inq = !is.na(hop) & hop <= upto, inp = !is.na(hop2) & hop2 <= c(-1, -1, -1, -1, 1, Inf, Inf)[s],
+                       col = factor(case_when(inq ~ 1L, inp ~ 2L), levels = 1:2), fresh = (s <= 3 & inq & hop == upto) | (s == 5 & inp & hop2 == 1) | (s == 6 & inp & hop2 >= 2),
+                       dim = s %in% 5:6 & inq)   # the finished queue steps back while the picnic grows
+  if (s <= 3) for (i in which(field$core & field$hop == s - 1)) p <- p + circle(i, cols5[[1]])
+  if (s == 5) p <- p + circle(seed2, cols5[[2]])
+  if (s == 6) {   # draw only as many circles as it takes to reach everyone who joins in this step (all of them would be a scribble)
+    todo <- which(field$hop2 >= 2); cand <- which(field$core & field$hop2 >= 1)
+    while (length(todo) > 0) {
+      best <- cand[which.max(map_int(cand, ~ sum(Dm[.x, todo] <= eps_f)))]
+      if (sum(Dm[best, todo] <= eps_f) == 0) break
+      p <- p + circle(best, cols5[[2]]); todo <- todo[Dm[best, todo] > eps_f]
+    }
+  }
+  if (s == 4) {
+    g <- tibble(x = Fm[gap_pair[1], 1], y = Fm[gap_pair[1], 2], xend = Fm[gap_pair[2], 1], yend = Fm[gap_pair[2], 2])
+    p <- p + circle(ex_border, grey) +
+      geom_segment(data = g, aes(x, y, xend = xend, yend = yend), colour = "black", linewidth = 0.8, arrow = arrow(ends = "both", length = unit(0.08, "inches"))) +
+      annotate("label", x = 28, y = 30, label = paste0(f1(gap_m), " m: too far"), size = 4.2, label.size = 0, fontface = "bold") +
+      geom_label(data = field[ex_border, ], aes(x + 3.5, y - 8.3), label = paste0("only ", field$n_near[ex_border], " inside"), colour = "#3A3A3A", size = 4.2, label.size = 0, fontface = "bold")
+  }
+  p <- p + geom_point(data = filter(d, is.na(col), core), aes(x, y), colour = "#3A3A3A", size = 3.2) +
+    geom_point(data = filter(d, !is.na(col), core, !dim), aes(x, y, colour = col), size = 3.2) +
+    geom_point(data = filter(d, !is.na(col), core, dim), aes(x, y, colour = col), size = 3.2, alpha = 0.3) +
+    geom_point(data = filter(d, !is.na(col), !core, !dim), aes(x, y, colour = col), shape = 21, size = 3.2, stroke = 1.4, fill = "white") +
+    geom_point(data = filter(d, !is.na(col), !core, dim), aes(x, y, colour = col), shape = 21, size = 3.2, stroke = 1.4, fill = "white", alpha = 0.3) +
+    geom_point(data = filter(d, fresh), aes(x, y), shape = 21, size = 4.6, stroke = 1.2, colour = "black", fill = NA)
+  rest <- filter(d, is.na(col), !core)
+  if (s == 3) p <- p + geom_point(data = field[seed, ], aes(x, y), shape = 23, size = 4.4, fill = "white", colour = "black", stroke = 1.5)
+  if (s <= 2) p <- p + geom_point(data = field[seed, ], aes(x, y), shape = 23, size = 4.4, fill = "white", colour = "black", stroke = 1.5)
+  if (s %in% 5:6) p <- p + geom_point(data = field[seed2, ], aes(x, y), shape = 23, size = 4.4, fill = "white", colour = "black", stroke = 1.5)
+  if (s == 7) p + hollow(filter(rest, db > 0)) + geom_point(data = filter(rest, db == 0), aes(x, y), shape = 4, size = 3.4, stroke = 1.4)
+  else p + hollow(rest)
+}
+
+# ---- Choosing eps: how far is everyone's 4th-nearest neighbour? (minPts = 5 counts the person too, so k = minPts - 1)
+kth <- min_f - 1
+kd_field <- kNNdist(Fm, k = kth)
+kd_map <- kNNdist(as.matrix(mca_coords[, 1:2]), k = kth)
+kd_nb <- map_int(c(ex_core, ex_border, ex_alone), ~ order(Dm[.x, ])[kth + 1])   # who that neighbour is, for the three example people
+# the field must have a clear bend at eps: every core point below it, everyone else above; on the map 0.25 must sit inside the soft bend
+stopifnot(all(kd_field[field$core] <= eps_f), all(kd_field[!field$core] > eps_f), max(kd_field[field$core]) < 0.95 * eps_f,
+          abs(Dm[cbind(c(ex_core, ex_border, ex_alone), kd_nb)] - kd_field[c(ex_core, ex_border, ex_alone)]) < 1e-8,
+          mean(kd_map <= 0.2) > 0.5, mean(kd_map <= 0.3) < 0.9,
+          n_distinct(map_int(seq(0.2, 0.3, by = 0.01), ~ max(db_at(.x)))) == 1)   # the slide says: 0.2 to 0.3, always the same number of clusters
+kd_step <- function(s) {
+  if (s == 1) {
+    ex <- c(ex_core, ex_border, ex_alone)
+    seg <- tibble(x = Fm[ex, 1], y = Fm[ex, 2], xend = Fm[kd_nb, 1], yend = Fm[kd_nb, 2], lab = paste0(f1(kd_field[ex]), " m"))
+    return(park_base(paste0("1 · How far is your ", kth, "th-nearest neighbour?")) +
+      geom_point(data = field, aes(x, y), colour = grey, size = 3.2, alpha = 0.45) +
+      geom_segment(data = seg, aes(x, y, xend = xend, yend = yend), colour = navy, linewidth = 1.1) +
+      geom_point(data = seg, aes(xend, yend), colour = navy, size = 3.2, shape = 21, fill = "white", stroke = 1.3) +
+      geom_point(data = seg, aes(x, y), colour = navy, size = 3.8) +
+      geom_label(data = seg, aes(x + c(0, 5.5, 6.5), y + c(-4.5, 3.5, 3), label = lab), colour = navy, fontface = "bold", size = 4.6, label.size = 0))
+  }
+  base <- function(d, eps, ylab, title) ggplot(d, aes(rank, dist)) +
+    geom_hline(yintercept = eps, colour = red, linetype = "dashed", linewidth = 0.9) +
+    geom_line(colour = grey, linewidth = 0.6) +
+    theme_slide() + theme(panel.grid.major.x = element_blank(), legend.position = "none") + labs(x = NULL, y = ylab, title = title)
+  if (s == 2) {
+    d <- tibble(dist = kd_field, core = field$core) |> arrange(dist) |> mutate(rank = row_number())
+    return(base(d, eps_f, paste0("Distance to ", kth, "th neighbour (m)"), "2 · Sort the answers: eps goes at the bend") +
+      geom_point(data = filter(d, core), colour = "#3A3A3A", size = 2.8) +
+      geom_point(data = filter(d, !core), shape = 21, size = 2.8, stroke = 1.1, colour = grey, fill = "white") +
+      annotate("text", x = 24, y = 2.6, label = "in a crowd: short", colour = "#3A3A3A", size = 4.6, fontface = "bold") +
+      annotate("text", x = 33.5, y = 21, label = "on their own:\nlong", colour = grey, size = 4.6, fontface = "bold", hjust = 1, lineheight = 0.9) +
+      annotate("text", x = 1, y = eps_f + 1.5, label = paste0("eps = ", eps_f, " m"), colour = red, size = 4.6, fontface = "bold", hjust = 0) +
+      scale_x_continuous(breaks = NULL) + labs(x = paste0("All ", nrow(d), " people, shortest distance first")))
+  }
+  d <- tibble(dist = kd_map) |> arrange(dist) |> mutate(rank = row_number())
+  base(d, 0.25, paste0("Distance to ", kth, "th neighbour"), "3 · Our map: a soft bend, between 0.2 and 0.3") +
+    annotate("rect", xmin = -Inf, xmax = Inf, ymin = 0.2, ymax = 0.3, fill = red, alpha = 0.10) +
+    geom_point(colour = "#3A3A3A", size = 2.8) +
+    annotate("text", x = 1, y = 0.335, label = "eps = 0.25", colour = red, size = 4.6, fontface = "bold", hjust = 0) +
+    scale_x_continuous(breaks = NULL) + labs(x = paste0("All ", nrow(d), " answers, shortest distance first"))
+}
+
+# ---- The notebook's plots (same code as the student workbook, larger text for the room)
+map_plot <- function(labelled = FALSE) {
+  p <- mca_coords |>
+    ggplot(aes(dim_1, dim_2)) +
+    theme_minimal(base_size = 14) +
+    theme(panel.grid.minor = element_blank(), legend.position = "none") +
+    labs(x = "First MCA dimension", y = "Second MCA dimension")
+  if (!labelled) return(p + geom_point(size = 4))
+  shown <- c("terrorism_y", "stealing_property_n", "divorce_y", "divorce_n", "homosexuality_y", "homosexuality_n", "death_penalty_y", "death_penalty_n")
+  p + geom_point(aes(colour = str_sub(category, -1)), size = 4) +
+    geom_label_repel(data = filter(mca_coords, category %in% shown), aes(label = category, colour = str_sub(category, -1)),
+                     size = 3.3, seed = 4, box.padding = 0.6, min.segment.length = 0, label.size = 0, alpha = 0.9) +
+    scale_colour_manual(values = c(n = navy, y = red))
+}
+k_plot <- function() {
+  metric_labels <- c(tot.withinss = "Elbow Method", silhouette = "Silhouette Width")
+  k_metrics |>
+    pivot_longer(-k, names_to = "metric") |>
+    ggplot(aes(k, value)) +
+    geom_line(linetype = "dashed") +
+    geom_point(size = 2.5) +
+    facet_wrap(~ metric, scales = "free_y", labeller = as_labeller(metric_labels)) +
+    scale_x_continuous(breaks = 2:10) +
+    labs(y = NULL) +
+    theme_minimal(base_size = 14) +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          strip.text = element_text(hjust = 0, size = 15))
+}
+final_plot <- function(named = FALSE) {
+  p <- mca_coords |>
+    mutate(cluster = as.factor(final_kmeans$cluster)) |>
+    ggplot(aes(dim_1, dim_2, colour = cluster)) +
+    geom_point(size = 4) +
+    theme_minimal(base_size = 14) +
+    theme(panel.grid.minor = element_blank(), legend.position = "bottom") +
+    ggsci::scale_colour_uchicago()
+  if (!named) return(p)
+  cen <- as_tibble(final_kmeans$centers) |> mutate(cluster = factor(1:4), name = fam_names[map_chr(1:4, ~ rownames(km_tab)[km_tab[, .x] > 0])])
+  odd <- mca_coords |> mutate(cluster = as.factor(final_kmeans$cluster)) |> filter(str_detect(category, "death_penalty|suicide"))
+  p + geom_label(data = cen, aes(label = name), size = 3.9, fontface = "bold", label.size = 0, alpha = 0.85,
+                 nudge_y = c(n_harm = -0.2, y_harm = 0.26, n_private = 0.33, y_private = -0.3)[map_chr(1:4, ~ rownames(km_tab)[km_tab[, .x] > 0])],
+                 show.legend = FALSE) +
+    geom_text_repel(data = odd, aes(label = category), size = 3.1, colour = "black", seed = 2, box.padding = 0.6, min.segment.length = 0, show.legend = FALSE) +
+    scale_y_continuous(expand = expansion(mult = 0.14))
+}
+db_plot <- function(label_noise = FALSE) {
+  p <- ggplot() +
+    geom_point(data = clustered_points, aes(dim_1, dim_2, color = cluster), size = 4) +
+    geom_point(data = noise_points, aes(dim_1, dim_2), color = "black", size = 2, shape = 4) +
+    labs(caption = "X marks indicate noise points") +
+    theme_minimal(base_size = 14) +
+    theme(panel.grid.minor = element_blank(), legend.position = "bottom") +
+    ggsci::scale_colour_uchicago()
+  if (label_noise) p <- p + geom_text_repel(data = noise_points, aes(dim_1, dim_2, label = category), size = 3.4, seed = 3, box.padding = 0.7, min.segment.length = 0)
+  p
+}
+eps_plot <- function() {
+  d <- map_dfr(eps_grid, ~ mca_coords |> mutate(cluster = as.factor(db_at(.x)), eps = .x))
+  strip <- setNames(paste0("eps = ", eps_tab$eps, "\n", eps_tab$clusters, if_else(eps_tab$clusters == 1, " cluster, ", " clusters, "), eps_tab$noise, " noise"), eps_tab$eps)
+  ggplot() +
+    geom_point(data = filter(d, cluster != "0"), aes(dim_1, dim_2, color = cluster), size = 2.6) +
+    geom_point(data = filter(d, cluster == "0"), aes(dim_1, dim_2), color = "black", size = 1.6, shape = 4) +
+    facet_wrap(~ eps, nrow = 1, labeller = as_labeller(strip)) +
+    theme_minimal(base_size = 13) +
+    theme(panel.grid.minor = element_blank(), legend.position = "none", axis.title = element_blank(),
+          strip.text = element_text(hjust = 0, face = "bold", size = 12)) +
+    ggsci::scale_colour_uchicago()
+}
+```
+
+## Lab overview
+
+::: {.small-table}
+| Part | Topic | Notebook | Mode | Time |
+|---|---|---|---|---|
+| | Setup, and what clustering is | lines 9–45 | together | 6 min |
+| I | **k-means**: ice-cream carts in a park, then last week's map | lines 47–130 | concept → code together → your turn | 43 min |
+| II | **DBSCAN**: a queue and a picnic, then the same map | lines 132–232 | concept → run together → your turn | 34 min |
+| | Wrap-up: k-means or DBSCAN? | | | 6 min |
+:::
+
+::: {.source-note}
+Last week we squeezed many **columns** into two. Today we sort the **rows** into groups. Still unsupervised: there is no right answer to score against, so every result has to be **read and judged**.
+:::
+
+::: {.notes}
+Timing (90 minutes): 89 planned, 1 spare. Overview and setup 3, what clustering is 3; Part I 43 (the park 5, how good 3, elbow 3, silhouette 3, the data and first plot 4, the workflow 4, your turn A 10 + answers 8, and 3 of slack inside the answers); Part II 34 (why not k-means 3, DBSCAN in three slides 8: who is core 2, growing 4, the live sliders 2; the call 4, the noise MCQ 1½, your turn B 9 + answers 7, how to choose eps and minPts 2); wrap-up 6 (comparison 3, summary 3), feedback 1. Checkpoints: data plotted by 0:25, your turn A starts by 0:30, Part II starts by 0:49, your turn B starts by 1:06. If behind, skip in this order: the noise MCQ (1½), the live sliders' minPts part (1), the "unlucky start" click (1), the silhouette's third click (1), then shorten your turn B from 9 to 7.
+
+- Open the Week 8 student workbook on Nuvolos and run the setup chunk (lines 38–45) now. `cluster` and `dbscan` are new packages: if either fails to load, say so now.
+- The data are last week's result: the map of answers from the MCA on the World Values Survey. Nobody needs last week's code; the coordinates come from a file.
+- Two methods today. The notebook's overview also mentions k-medoids and variants of k-means: there is no code for them in the notebook, and we do not cover them.
+:::
+
+## What is clustering?
+
+```{=html}
+<div class="tracker"><span class="on">What</span><span>I · k-means</span><span>II · DBSCAN</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 9–34 <span>the overview and the table of methods</span><i>concept</i></p>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="54%"}
+::: {.r-stack}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+park_base("Thirty people on a lawn, seen from above") + people()
+```
+
+::: {.fragment fragment-index=1}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+park_base("You did it by eye: three groups") + people(km3_park$cluster)
+```
+:::
+:::
+:::
+
+::: {.column width="46%"}
+::: {.ask style="font-size:0.75em"}
+How many groups of friends are on this lawn? How did you decide?
+:::
+
+::: {.fragment fragment-index=1}
+::: {.card .compact}
+[Close together = a group]{.ct}
+Nobody told you who belongs with whom. You used one thing only: **distance**.
+:::
+:::
+
+::: {.fragment fragment-index=2}
+::: {.card .compact .line}
+[Clustering does this for a table]{.ct}
+Rows are the dots, columns are the directions. It adds one new column: a **group number** per row.
+:::
+:::
+
+::: {.fragment fragment-index=2}
+::: {.card .compact .dark}
+[No outcome, so no accuracy]{.ct}
+The groups are a **suggestion**. You judge whether they mean anything.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 3 minutes.
+
+- Ask the question, take "three", then ask how they knew. Someone says "they are close together". That is the whole idea.
+- Click: by eye this is easy with two columns and thirty rows. With twenty columns nobody can look at the picture, so we need a procedure that does what the eye did.
+- Click: the output of every clustering method is one new column. Compare with Labs 3 to 5: there the group column existed (diabetes yes or no, PTSD yes or no) and we predicted it. Today nobody gave us the column: we make it up from the distances.
+- Link to last week: PCA and MCA made new columns that summarise columns. Clustering makes a new column that summarises rows.
+:::
+
+# k-means {.divider background-color="#8C0014"}
+
+::: {.kicker}
+Part I
+:::
+
+You choose the number of groups, *k* · the algorithm finds them
+
+## k-means: three carts in a park
+
+```{=html}
+<div class="tracker"><span class="done">What</span><span class="on">I · k-means</span><span>II · DBSCAN</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="54%"}
+::: {.r-stack}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+kmeans_step(1)
+```
+
+::: {.fragment fragment-index=1}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+kmeans_step(2)
+```
+:::
+
+::: {.fragment fragment-index=2}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+kmeans_step(3)
+```
+:::
+
+::: {.fragment fragment-index=3}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+kmeans_step(4)
+```
+:::
+
+::: {.fragment fragment-index=4}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+kmeans_step(5)
+```
+:::
+
+::: {.fragment fragment-index=5}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+kmeans_step(6)
+```
+:::
+:::
+:::
+
+::: {.column width="46%"}
+::: {.ask style="font-size:0.75em"}
+You run three ice-cream carts. Where should they stand so that nobody walks far?
+:::
+
+```{=html}
+<div class="calc sm" style="margin-top:0.5em">
+  <div class="fragment" data-fragment-index="1"><span class="cl">Start</span><span class="cx">k carts at random spots <small>here k = 3</small></span></div>
+  <div class="fragment" data-fragment-index="2"><span class="cl">Assign</span><span class="cx">everyone to the nearest cart</span></div>
+  <div class="fragment" data-fragment-index="3"><span class="cl">Update</span><span class="cx">each cart to the <b>mean</b> of its customers</span></div>
+  <div class="fragment hl" data-fragment-index="4"><span class="cl">Repeat</span><span class="cx">assign, update … until nobody switches</span></div>
+</div>
+```
+
+::: {.fragment fragment-index=5}
+::: {.card .compact .dark}
+[That is the whole algorithm]{.ct}
+***k* groups, each described by its mean**: k-means. A cart's final spot is a **centre** (or centroid); its customers are a **cluster**.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 5 minutes. The picture to remember from today. Last year's deck did this on a line of countries by happiness; this is the same six steps on a lawn.
+
+- Take ideas for where to put the carts. Everyone will point at the middle of each group. The algorithm does not know where the groups are, so it has to find those middles.
+- Click: it starts badly on purpose: three random people get a cart next to them. Two carts are in the same group.
+- Click: everybody walks to their nearest cart. The colours are the first guess at the groups, and it is a poor one.
+- Click: each cart moves to the average position of the people who came to it. Average of the x positions, average of the y positions: the mean.
+- Click: with the carts in new places, `r n_switch` people (circled) are now nearer to a different cart. They switch.
+- Click: move the carts again. Now nobody wants to switch, so nothing changes any more, and the algorithm stops.
+- Two things to say out loud: we chose k = 3 ourselves, and the start was random. Both come back on the next slides.
+:::
+
+## How good is a grouping?
+
+```{=html}
+<div class="tracker"><span class="done">What</span><span class="on">I · k-means</span><span>II · DBSCAN</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="54%"}
+::: {.r-stack}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+wss_step(1)
+```
+
+::: {.fragment fragment-index=1}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+wss_step(2)
+```
+:::
+:::
+:::
+
+::: {.column width="46%"}
+::: {.card .compact}
+[One number: the total squared walk]{.ct}
+Measure each person's distance to their cart, square it, add them all up. **Small = tight groups.** R calls it `tot.withinss`.
+:::
+
+::: {.fragment fragment-index=1}
+::: {.card .compact .line}
+[k-means can get stuck]{.ct}
+Another random start: two carts share one group, one cart serves two. Nobody wants to switch, so it stops, at `r big(walk2(fin_bad$cen, fin_bad$cl))` instead of `r big(walk2(fin$cen, fin$cl))`.
+:::
+:::
+
+::: {.fragment fragment-index=2}
+::: {.card .compact .dark}
+[`nstart = 25`]{.ct}
+Run it from 25 random starts and keep the one with the smallest total. It is in every `kmeans()` call in the notebook.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 3 minutes. Skip the "unlucky start" click if behind, and say `nstart` in one sentence.
+
+- The thin lines are the walks. The number in the title is the sum of their squared lengths. The full name is "total within-cluster sum of squares".
+- Why squared? It punishes long walks more, and it is the quantity the mean makes smallest: that is why the update step uses the mean.
+- Click: the same lawn, the same k, a different random start. The result is stable (nobody switches) and clearly worse. k-means only ever improves on where it started.
+- Click: the cure is cheap: many starts, keep the best. Because the starts are random, the notebook also sets a seed, so everyone in the room gets the same result.
+:::
+
+## How many groups? The elbow
+
+```{=html}
+<div class="tracker"><span class="done">What</span><span class="on">I · k-means</span><span>II · DBSCAN</span><span>Wrap-up</span></div>
+```
+
+::: {.r-stack}
+```{r}
+#| echo: false
+#| fig-width: 11
+#| fig-height: 3.3
+elbow_step(1)
+```
+
+::: {.fragment fragment-index=1}
+```{r}
+#| echo: false
+#| fig-width: 11
+#| fig-height: 3.3
+elbow_step(2)
+```
+:::
+
+::: {.fragment fragment-index=2}
+```{r}
+#| echo: false
+#| fig-width: 11
+#| fig-height: 3.3
+elbow_step(3)
+```
+:::
+
+::: {.fragment fragment-index=3}
+```{r}
+#| echo: false
+#| fig-width: 11
+#| fig-height: 3.3
+elbow_step(4)
+```
+:::
+
+::: {.fragment fragment-index=4}
+```{r}
+#| echo: false
+#| fig-width: 11
+#| fig-height: 3.3
+elbow_step(5)
+```
+:::
+:::
+
+::: {.cards .c3 style="margin-top:0.2em"}
+::: {.card .compact}
+[More carts, less walking]{.ct}
+Always. With 30 carts the total is 0: one each. So "smallest total" cannot choose k.
+:::
+::: {.fragment fragment-index=2}
+::: {.card .compact .line}
+[Big drops, then small]{.ct}
+Carts 2 and 3 each serve a real group. Cart 4 only splits a group that was already together.
+:::
+:::
+::: {.fragment fragment-index=4}
+::: {.card .compact .dark}
+[Pick the bend: the elbow]{.ct}
+The last k that still bought a big drop. Here 3. On real data the bend is often soft: a judgement.
+:::
+:::
+:::
+
+::: {.notes}
+Timing: 3 minutes. Four clicks, one cart more each time; the curve on the right grows by one dot per click.
+
+- One cart: everybody walks to the middle of the lawn. The total is huge.
+- Click, click: two carts, three carts. Each time the total falls a lot, because a whole group gets its own cart.
+- Click, click: four, five. The total still falls, but only a little: the new cart splits a group of friends in two.
+- The curve has the shape of a bent arm. The elbow is where the big gains stop.
+- The first card is the important one for beginners: the total never goes up when you add a cart, so you cannot just minimise it. This is the same trap as k = 1 in kNN scoring perfectly on its own training rows.
+:::
+
+## A second opinion: the silhouette
+
+```{=html}
+<div class="tracker"><span class="done">What</span><span class="on">I · k-means</span><span>II · DBSCAN</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="54%"}
+::: {.r-stack}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+sil_step(1)
+```
+
+::: {.fragment fragment-index=1}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+sil_step(2)
+```
+:::
+
+::: {.fragment fragment-index=3}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+sil_step(3)
+```
+:::
+
+::: {.fragment fragment-index=4}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+sil_step(4)
+```
+:::
+:::
+:::
+
+::: {.column width="46%"}
+::: {.ask style="font-size:0.75em"}
+Ask one person: are you clearly in your group, or between two?
+:::
+
+```{=html}
+<div class="calc sm" style="margin-top:0.5em">
+  <div><span class="cl">a · own group</span><span class="cx">`r f1(sil_a(p_sure))` m on average</span></div>
+  <div class="fragment" data-fragment-index="1"><span class="cl">b · next group</span><span class="cx">`r f1(sil_b(p_sure))` m on average</span></div>
+  <div class="fragment hl" data-fragment-index="2"><span class="cl">silhouette</span><span class="cx">(b − a) ÷ the larger = <b>`r f2(sil_s(p_sure))`</b></span></div>
+</div>
+```
+
+::: {.fragment fragment-index=3}
+::: {.card .compact .line}
+[Reading it]{.ct}
+Near **1**: clearly in the group. Near **0**: between two groups (this person: `r f2(sil_s(p_torn))`). **Below 0**: probably in the wrong one.
+:::
+:::
+
+::: {.fragment fragment-index=4}
+::: {.card .compact .dark}
+[One number per k]{.ct}
+Average everyone's silhouette. Unlike the elbow curve it can go **down** when k is too large, so the highest point is the suggestion.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 3 minutes. Skip the third click (the person between groups) if behind.
+
+- The elbow looks at the carts. The silhouette asks each person.
+- The diamond is one person. The coloured lines go to everyone in their own group: on average `r f1(sil_a(p_sure))` metres. Click: the dashed lines go to the nearest other group: `r f1(sil_b(p_sure))` metres.
+- Click: the silhouette compares the two. If the other group is much farther than your own, it is close to 1.
+- Click: the person with the lowest silhouette on the lawn sits at the edge of their group, facing the next one.
+- Click: average over all thirty, and do that for every k. With too many carts, real groups are split, people end up close to "another" group, and the average falls. It peaks at 3 here, and agrees with the elbow.
+- On the lab data the two will not agree quite so neatly. That is the first exercise.
+:::
+
+## The data: last week's map
+
+```{=html}
+<div class="tracker"><span class="done">What</span><span class="on">I · k-means</span><span>II · DBSCAN</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 36–57 <span>setup, then the first task: plot the two dimensions</span><i>code together</i></p>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="46%"}
+::: {.anatomy .one}
+```{=html}
+<p class="anat-code" style="font-size:0.6em"><span class="tok">mca_coords</span> |&gt;
+  ggplot(<span class="tok">aes(dim_1, dim_2)</span>) +
+  <span class="tok">geom_point(size = 4)</span></p>
+```
+
+1. **36 rows, one per answer**: 18 questions × `_y` or `_n`.
+2. **Its place** on last week's MCA map.
+3. **One dot per answer.**
+:::
+
+::: {.card .compact .line style="margin-top:0.6em"}
+[Remember the map]{.ct}
+**Close** = given by the same people. So a cluster is a set of answers that **go together**.
+:::
+:::
+
+::: {.column width="54%"}
+::: {.r-stack}
+```{r}
+#| echo: false
+#| fig-width: 5.6
+#| fig-height: 3.2
+map_plot()
+```
+
+::: {.fragment fragment-index=1}
+```{r}
+#| echo: false
+#| fig-width: 5.6
+#| fig-height: 3.2
+map_plot(labelled = TRUE)
+```
+:::
+:::
+
+::: {.ask style="font-size:0.72em"}
+Can you see clusters? How many?
+:::
+
+::: {.fragment fragment-index=2}
+::: {.card .compact .dark}
+[To some extent]{.ct}
+A tight knot bottom left, a looser group top right. The other two corners are less clear.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 4 minutes. The notebook leaves this chunk empty (lines 51–55): type the three lines together, then ask the question.
+
+- The file holds the coordinates of the 36 answer categories from last week's MCA: 18 questions from the World Values Survey ("is this ever justifiable?"), each split into y (above that question's median) and n. `cheating_benefits`, last week's supplementary question, is not in the file.
+- The notebook's version also adds `theme_minimal()` and axis labels. Not needed to see the picture.
+- Take a show of hands for 2, 3, 4, 5 clusters before clicking. Expect disagreement: that is the point of the next two slides.
+- Click: colours and a few labels, to remind everyone what the dots are. Every `_y` (red) is on the right, every `_n` (blue) on the left: last week's Dim 1.
+- Click: the notebook's answer. Keep the show of hands in mind for the exercise.
+:::
+
+## Find k: read the workflow
+
+```{=html}
+<div class="tracker"><span class="done">What</span><span class="on">I · k-means</span><span>II · DBSCAN</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 59–96 <span>"the complete workflow for finding the correct k": given, ready to run</span><i>run together</i></p>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="62%"}
+::: {.anatomy .one}
+```{=html}
+<p class="anat-code" style="font-size:0.5em">eval_kmeans &lt;- function(k) {
+  km &lt;- <span class="tok">kmeans(coords, centers = k, nstart = 25)</span>
+  tibble(
+    k            = k,
+    tot.withinss = <span class="tok">km$tot.withinss</span>,
+    silhouette   = <span class="tok">mean(silhouette(km$cluster, dist_mat)[, "sil_width"])</span>
+  )
+}
+
+<span class="tok">map(2:10, eval_kmeans)</span> |&gt; list_rbind()</p>
+```
+
+1. **Run k-means** with k carts, from 25 starts, and keep the best.
+2. **The total squared walk** of that run: for the elbow.
+3. **Everyone's silhouette, averaged**: the second opinion.
+4. **Do all of that for k = 2, 3, …, 10** and stack the nine rows.
+:::
+:::
+
+::: {.column width="38%"}
+```{r}
+#| echo: false
+k_metrics |> mutate(across(-k, ~ round(.x, 2))) |> head(4)
+```
+
+::: {.card .compact .line style="margin-top:0.4em"}
+[`set.seed(123)`]{.ct}
+The starts are random. The seed makes everyone's numbers the same.
+:::
+
+::: {.card .compact .dark}
+[Why start at 2?]{.ct}
+A silhouette needs a "next group". With one cluster there is none.
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 4 minutes. Run lines 61–96 together, then read the function piece by piece. Nothing to type.
+
+- `coords` is the table with only the two coordinate columns; `dist_mat` holds all distances between the 36 answers, computed once.
+- The function is the two slides we just saw, written down: fit, read off the total, compute the silhouette. `km` is a list; `$tot.withinss` and `$cluster` are two of its parts.
+- `silhouette()` comes from the `cluster` package and returns one row per point; `[, "sil_width"]` picks the column with the values.
+- `map(2:10, ...)` calls the function nine times: the loop from Lab 5's tuning grid, written by hand.
+- The rest of the chunk reshapes the nine rows and draws two panels. Leave the plot on screen: reading it is the first task of the exercise.
+:::
+
+## Your turn A: choose k and meet the clusters {.yourturn}
+
+```{=html}
+<div class="timer" data-minutes="10"></div>
+```
+
+:::: {.yt}
+
+::: {.tasks}
+[Part I · lines 98–130 · in pairs]{.lbl}
+
+1. **Line 98:** look at the two panels. Where is the elbow? Where does the silhouette peak? Which *k* would you pick?
+2. **Line 107:** replace `NA` with your *k*.
+3. **Lines 111–114:** finish the plot: pipe into a scatter plot and colour the points by `cluster`.
+4. **Lines 120–126:** write code that lists which answers are in which cluster.
+5. **Line 128:** what is in each cluster? Give each a name. Do the groups make sense?
+:::
+
+::: {.cheat}
+[Syntax you need]{.lbl}
+
+```r
+optimal_k <- ___                    # your choice
+
+mca_coords |>
+  mutate(cluster = as.factor(final_kmeans$cluster)) |>
+  ggplot(aes(dim_1, dim_2, colour = ___)) +
+  geom_point(size = 4)
+
+mca_coords |>
+  mutate(cluster = as.factor(final_kmeans$cluster)) |>
+  arrange(cluster) |>               # sort by group
+  print(n = Inf)                    # show all 36 rows
+```
+
+::: {.hints}
+- `final_kmeans$cluster`: 36 group numbers, one per row, in the order of the table
+- `as.factor()` makes them labels, so each group gets its own colour
+:::
+
+::: {.stuck}
+**Stuck?**
+
+- `centers` error: `optimal_k` is still `NA`
+- No colours: `colour = cluster` goes **inside** `aes()`
+:::
+:::
+
+::::
+
+::: {.notes}
+Your turn, 10 minutes. Click the timer (or press T). Tasks 1 and 2 take two minutes; most of the time goes on the list and the naming.
+
+- Circulate: the common mistake at task 3 is leaving the `|>` off the end of the `mutate()` line.
+- Any k that a pair can defend is fine for now. Most will pick 3 or 4.
+- Remind pairs what the labels mean: `_y` is "above the typical answer on how justifiable", `_n` is "at or below".
+- Fast finishers: rerun with `optimal_k <- 3` and see which two groups merge; print `final_kmeans$centers`.
+:::
+
+## Answers A: which k? {.solution}
+
+```{r}
+#| echo: false
+#| fig-width: 11
+#| fig-height: 3
+k_plot()
+```
+
+::: {.cards .c3 style="margin-top:0.3em"}
+::: {.card .compact}
+[Elbow: 3 or 4]{.ct}
+The total falls from `r f1(km_at(2, "tot.withinss"))` to `r f1(km_at(3, "tot.withinss"))` to `r f1(km_at(4, "tot.withinss"))`, then only to `r f1(km_at(5, "tot.withinss"))`. A soft bend.
+:::
+::: {.fragment}
+::: {.card .compact .line}
+[Silhouette: 4, just]{.ct}
+`r f2(km_at(4, "silhouette"))` at k = 4 against `r f2(km_at(3, "silhouette"))` at k = 3: nearly a tie. After 4 it falls steadily.
+:::
+:::
+::: {.fragment}
+::: {.card .compact .dark}
+[So: 4, and say why]{.ct}
+Both measures allow it. The tie-breaker is whether the four groups **mean something**. That is the next task.
+:::
+:::
+:::
+
+::: {.notes}
+Timing: 3 minutes.
+
+- The notebook's answer: the elbow slows at 3 to 4, the silhouette peaks at 4.
+- Be honest about the tie: 3 is a defensible answer. With 3, k-means merges the two `_n` groups into one cluster of 18 and keeps the two `_y` groups apart; ask anyone who tried it.
+- The numbers do not choose k for you. They rule out the bad choices (2, and anything above 5); between the good ones, interpretation decides.
+:::
+
+## Solutions A: fit, plot, list {.solution}
+
+:::: {.walk .dense}
+
+::: {.walk-code}
+```r
+set.seed(123)
+optimal_k <- 4
+
+final_kmeans <- kmeans(mca_coords[, 1:2],
+                       centers = optimal_k, nstart = 25)
+
+mca_coords |>
+  mutate(cluster = as.factor(final_kmeans$cluster)) |>
+  ggplot(aes(dim_1, dim_2, colour = cluster)) +
+  geom_point(size = 4) +
+  theme_minimal() +
+  ggsci::scale_colour_uchicago()
+
+mca_coords |>
+  mutate(cluster = as.factor(final_kmeans$cluster)) |>
+  arrange(cluster) |>
+  print(n = Inf)
+```
+
+::: {.walk-say}
+Fit once with the k you chose, colour the map, then list the members.
+:::
+:::
+
+::: {.walk-out}
+
+::: {.fragment fragment-index=0 lines="1-5"}
+::: {.say}
+`kmeans()` returns a list. `$centers` holds the four final cart positions; `$cluster` the group number of each of the 36 answers. `[, 1:2]` keeps the two coordinates and leaves the names out.
+:::
+
+```{r}
+#| echo: false
+round(final_kmeans$centers, 2)
+```
+:::
+
+::: {.fragment fragment-index=1 lines="7-12"}
+::: {.say}
+One colour per cluster, one cluster per corner of the map. The last two lines are styling from the notebook; the first three do the work.
+:::
+
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 3.6
+final_plot()
+```
+:::
+
+::: {.fragment fragment-index=2 lines="14-17"}
+::: {.say}
+Sorted by cluster, all rows (the first six here). The cluster **numbers are only labels**: on another machine "1" and "3" may swap. Describe clusters by what is in them.
+:::
+
+```{r}
+#| echo: false
+mca_coords |>
+  mutate(cluster = as.factor(final_kmeans$cluster)) |>
+  arrange(cluster) |>
+  select(category, cluster, dim_1) |>
+  print(n = 6)
+```
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 2 minutes. Each click highlights the next step of the code and shows its result.
+
+- Step 1: the seed again, because `kmeans()` draws random starts. Each cluster has `r paste(final_kmeans$size, collapse = ", ")` answers.
+- Step 3 is shortened to fit the slide: the notebook prints all 36 rows with both coordinates.
+- Note for tutors: the solutions file numbers the clusters differently from this render (it calls the permissive private-life answers "Cluster 1"). Numbering depends on the random starts and the R version, which is why the next slide names the groups instead.
+:::
+
+## Answers A: what is in each cluster? {.solution}
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="56%"}
+```{r}
+#| echo: false
+#| fig-width: 6
+#| fig-height: 4.5
+final_plot(named = TRUE)
+```
+:::
+
+::: {.column width="44%"}
+::: {.card .compact}
+[2 kinds of question × 2 answers]{.ct}
+**Harm and cheating** (stealing, bribes, violence, terrorism …) and **private life** (divorce, abortion, sexuality, euthanasia …), each split into its `_n` and its `_y` answers.
+:::
+
+::: {.fragment}
+::: {.card .compact .line}
+[It is last week's map, in words]{.ct}
+Left against right: n against y (Dim 1). Top against bottom: which kind of question (Dim 2). k-means found both without being told.
+:::
+:::
+
+::: {.fragment}
+::: {.card .compact .dark}
+[The awkward ones]{.ct}
+Both death-penalty answers sit near the middle and go with nothing strongly. k-means **must** still put them in a group.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 3 minutes.
+
+- Read the four corners. Bottom left, the tightest: "n" to harm and cheating: stealing, bribes, violence, terrorism are not justifiable. Almost everyone gives these answers together, which is why they sit in a knot.
+- Top right: the "y" answers to the same questions. Rare answers, spread out.
+- Top left and bottom right: n and y on private life: homosexuality, abortion, divorce, sex before marriage, euthanasia. The notebook calls these the socially conservative and socially liberal clusters.
+- Click: this is exactly what we read off the biplot last week by eye. Clustering has turned that reading into a column.
+- Click: the notebook's own observation: the death penalty does not behave like the other "liberal" items. Both of its answers are the points nearest the middle of the map: they do not go strongly with anything. Suicide is another one to ask about: it sits with private life, at the edge.
+- Bridge: a method that is allowed to say "this one belongs nowhere" would be more honest here. That is Part II.
+:::
+
+# DBSCAN {.divider background-color="#8C0014"}
+
+::: {.kicker}
+Part II
+:::
+
+No *k* · groups are crowds · and some points belong to no group
+
+## Where k-means goes wrong
+
+```{=html}
+<div class="tracker"><span class="done">What</span><span class="done">I · k-means</span><span class="on">II · DBSCAN</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 132–134 <span>"DBSCAN is fundamentally different"</span><i>concept</i></p>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="54%"}
+::: {.r-stack}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+why_step(1)
+```
+
+::: {.fragment fragment-index=1}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+why_step(2)
+```
+:::
+
+::: {.fragment fragment-index=2}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+why_step(3)
+```
+:::
+:::
+:::
+
+::: {.column width="46%"}
+::: {.ask style="font-size:0.75em"}
+Which groups do you see on this field?
+:::
+
+::: {.fragment fragment-index=1}
+::: {.card .compact}
+[k-means thinks in carts]{.ct}
+A group is a blob round one centre. A queue has no centre, and the loners **must** join a group.
+:::
+:::
+
+::: {.fragment fragment-index=2}
+::: {.card .compact .line}
+[You thought in crowds]{.ct}
+A group is where people stand **densely**, whatever its shape.
+:::
+:::
+
+::: {.fragment fragment-index=2}
+::: {.card .compact .dark}
+[DBSCAN does what you did]{.ct}
+No k to choose · any shape · and it may leave points out as **noise**.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 3 minutes. Last year's nested rings, as a queue and a picnic.
+
+- Ask the question first. Everyone sees the queue, the picnic, and three people who are not part of either.
+- Click: k-means with k = 2 does its job correctly: it minimises the walk to two carts. The result cuts the queue in half, because the best two carts sit left and right. The loners are coloured too: k-means has no way to say "none".
+- Click: what your eye did was follow the density. The queue is one group because you can walk along it from person to person without a gap.
+- The notebook's three bullet points are the dark card: no k, arbitrary shapes, noise points. The price is two other settings, `eps` and `minPts`. Next slide.
+:::
+
+## DBSCAN 1: who stands in a crowd?
+
+```{=html}
+<div class="tracker"><span class="done">What</span><span class="done">I · k-means</span><span class="on">II · DBSCAN</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="54%"}
+::: {.r-stack}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+core_step(1)
+```
+
+::: {.fragment fragment-index=1}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+core_step(2)
+```
+:::
+
+::: {.fragment fragment-index=2}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+core_step(3)
+```
+:::
+:::
+:::
+
+::: {.column width="46%"}
+```{=html}
+<div class="calc sm">
+  <div><span class="cl">Setting 1</span><span class="cx"><code>eps</code> = `r eps_f` m: the radius, who counts as <b>near</b> you</span></div>
+  <div><span class="cl">Setting 2</span><span class="cx"><code>minPts</code> = `r min_f`: the head count that makes a <b>crowd</b></span></div>
+</div>
+```
+
+::: {.ask style="font-size:0.75em"}
+Three people, three counts: `r field$n_near[ex_core]`, `r field$n_near[ex_border]` and `r field$n_near[ex_alone]`. Who is standing in a crowd?
+:::
+
+::: {.fragment fragment-index=1}
+::: {.card .compact .dark}
+[Core point = in a crowd]{.ct}
+`r field$n_near[ex_core]` is `r min_f` or more: a **core point** (solid dot). `r field$n_near[ex_border]` and `r field$n_near[ex_alone]` are fewer: **not core** (rings).
+:::
+:::
+
+::: {.fragment fragment-index=2}
+::: {.card .compact .line}
+[Then everyone gets the same test]{.ct}
+One circle and one count per person, before any cluster exists.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 2 minutes. DBSCAN in two slides: first sort the people, then grow the clusters.
+
+- Two settings replace k. `eps` is a radius: who counts as your neighbour. `minPts` is a head count: how many people, including yourself, make a crowd.
+- Three people only; everyone outside their circles is faded so the count is easy to see. `r field$n_near[ex_core]` people inside in the picnic, `r field$n_near[ex_border]` at the end of the queue, `r field$n_near[ex_alone]` (only themselves) for the person on their own. Ask who is in a crowd if a crowd is `r min_f`.
+- Click: the verdict for these three. The person in the picnic becomes a solid dot, a core point. The other two become rings: not core.
+- Click: now the same test for everyone else. Solid dark dots have at least `r min_f` inside their circle: core points. Rings do not: the two people at each end of the queue, and the three on their own.
+- Nothing has a colour yet. So far every person has only answered one question: am I in a crowd?
+- `minPts` counts the point itself in the `dbscan` package: "5" means four neighbours plus you.
+:::
+
+## DBSCAN 2: grow a cluster, hop by hop
+
+```{=html}
+<div class="tracker"><span class="done">What</span><span class="done">I · k-means</span><span class="on">II · DBSCAN</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="54%"}
+::: {.r-stack}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+grow_step(1)
+```
+
+::: {.fragment fragment-index=1}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+grow_step(2)
+```
+:::
+
+::: {.fragment fragment-index=2}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+grow_step(3)
+```
+:::
+
+::: {.fragment fragment-index=3}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+grow_step(4)
+```
+:::
+
+::: {.fragment fragment-index=4}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+grow_step(5)
+```
+:::
+
+::: {.fragment fragment-index=5}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+grow_step(6)
+```
+:::
+
+::: {.fragment fragment-index=6}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+grow_step(7)
+```
+:::
+:::
+:::
+
+::: {.column width="46%"}
+```{=html}
+<div class="calc sm">
+  <div><span class="cl">Start</span><span class="cx">a core point <small>diamond</small> colours its circle</span></div>
+  <div class="fragment" data-fragment-index="1"><span class="cl">Pass it on</span><span class="cx">new <b>core</b> points colour their circles</span></div>
+  <div class="fragment" data-fragment-index="2"><span class="cl">Repeat</span><span class="cx">the colour follows the shape</span></div>
+  <div class="fragment" data-fragment-index="3"><span class="cl">Stop</span><span class="cx">nobody new in reach. <b>Border</b> rings join, pass nothing on</span></div>
+  <div class="fragment" data-fragment-index="4"><span class="cl">Next cluster</span><span class="cx">an unused core point starts, <b>same rule</b></span></div>
+  <div class="fragment hl" data-fragment-index="6"><span class="cl">Noise</span><span class="cx">never reached: <b>cluster 0</b> in R <small>crosses</small></span></div>
+</div>
+```
+
+::: {.fragment fragment-index=6}
+::: {.card .compact .dark}
+[The number of clusters is a result]{.ct}
+You never said "two". You said what a crowd is, and two crowds were found.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 4 minutes. The Part II picture to remember. Say it as a message being passed along: "pass it on".
+
+- Start: pick any core point, here the diamond in the middle of the queue. Everyone inside its circle gets its colour. The black rings mark who just joined.
+- Click: the people who just joined are core points themselves, so each draws their own circle, and everyone inside those joins. Nothing else happens in DBSCAN: this one move, repeated.
+- Click: the same again. The colour has moved two more people along in both directions. It follows the queue because the next person is always within reach, not because anyone told it the shape.
+- Click: it stops for two reasons, and both are on the plot. The picnic is `r f1(gap_m)` m from the nearest person in the queue, further than `eps`, so no circle reaches it. And the people at the ends are border points: they were reached, so they join, but with only `r field$n_near[ex_border]` in their circle they are not in a crowd and do not pass it on.
+- Click: there are core points the colour never reached: the picnic. Pick one of them, the new diamond. Second colour, same first move: everyone in its circle joins. The finished queue is faded so the eye stays on the picnic.
+- Click: the new core points pass it on, exactly as in the queue, and after `r max(field$hop2, na.rm = TRUE)` hops nobody new is within reach. The ring at the edge of the picnic is a border point again.
+- Click: three people were never inside a core point's circle. They are noise. R gives them the cluster number 0.
+- If someone asks why border points do not pass it on: otherwise one person standing between two crowds would glue them into one.
+:::
+
+## DBSCAN 3: now you choose eps and minPts
+
+```{=html}
+<div class="tracker"><span class="done">What</span><span class="done">I · k-means</span><span class="on">II · DBSCAN</span><span>Wrap-up</span></div>
+```
+
+```{r}
+#| echo: false
+#| results: asis
+# the same field as on the last three slides, queue first so that it takes the first colour
+field |> arrange(match(what, c("queue", "picnic", "alone"))) |>
+  transmute(x = round(x, 2), y = round(y, 2), w = str_sub(what, 1, 1)) |>
+  jsonlite::toJSON() |> (\(j) cat("<script>window.dbField = ", j, ";</script>\n", sep = ""))()
+```
+
+```{=html}
+<style>
+.dbsim { display: grid; grid-template-columns: 540px 1fr; gap: 34px; align-items: start; margin-top: 6px; }
+.dbsim svg { width: 540px; height: 466px; background: #F1F6EE; border-radius: 10px; display: block; touch-action: none; }
+.dbsim .pt circle { transition: fill .35s, stroke .35s, opacity .35s; stroke-width: 0.26; cursor: pointer; }
+.dbsim .pt path { transition: opacity .35s; stroke: #111; stroke-width: 0.34; stroke-linecap: round; opacity: 0; fill: none; }
+.dbsim .reach { fill: none; stroke-width: 0.2; stroke-dasharray: 0.8 0.6; opacity: 0; transition: opacity .25s; }
+.dbsim .ref { transition: transform .1s linear; fill: rgba(31,78,121,0.07); stroke: #1F4E79; stroke-width: 0.22; stroke-dasharray: 0.9 0.7; }
+.dbsim .reflab-bg { fill: rgba(255,255,255,0.9); stroke: #1F4E79; stroke-width: 0.12; }
+.dbsim .reflab { font: 700 2px "Montserrat", sans-serif; fill: #1F4E79; text-anchor: middle; paint-order: stroke; stroke: #F1F6EE; stroke-width: 0.6; }
+.dbsim .side { font-family: "Lato", sans-serif; font-size: 20px; line-height: 1.3; }
+.dbsim .dial { display: grid; grid-template-columns: 1fr auto; align-items: baseline; margin-bottom: 14px; }
+.dbsim .dial label { font-family: "Montserrat", sans-serif; font-weight: 700; font-size: 19px; }
+.dbsim .dial label small { font-family: "Lato", sans-serif; font-weight: 400; font-size: 15px; color: #6B6B6B; margin-left: 8px; }
+.dbsim .dial output { font-family: "Montserrat", sans-serif; font-weight: 800; font-size: 26px; color: #E2001A; }
+.dbsim .dial input { grid-column: 1 / -1; width: 100%; accent-color: #E2001A; height: 26px; margin: 2px 0 0; }
+.dbsim .presets { display: flex; gap: 8px; margin: 0 0 16px; }
+.dbsim button { font: 700 14px "Montserrat", sans-serif; padding: 7px 12px; border-radius: 999px; border: 1.5px solid #8C0014; background: #fff; color: #8C0014; cursor: pointer; }
+.dbsim button:hover, .dbsim button.on { background: #8C0014; color: #fff; }
+.dbsim .stage { cursor: pointer; display: grid; grid-template-columns: 34px 1fr; gap: 10px; align-items: start; padding: 8px 10px; border-radius: 10px; opacity: .38; transition: opacity .3s, background .3s; }
+.dbsim .stage.on { opacity: 1; background: #FBE9EB; }
+.dbsim .stage:hover { opacity: 1; outline: 1.5px solid #F28A94; }
+.dbsim button.play { background: #8C0014; color: #fff; }
+.dbsim .stage.done { opacity: 1; }
+.dbsim .stage b.n { font: 800 17px "Montserrat", sans-serif; width: 30px; height: 30px; border-radius: 50%; background: #8C0014; color: #fff; display: grid; place-items: center; }
+.dbsim .stage strong { font-family: "Montserrat", sans-serif; }
+.dbsim .verdict { margin-top: 12px; padding: 12px 14px; border-radius: 10px; background: #8C0014; color: #fff; font-weight: 700; min-height: 78px; opacity: 0; transition: opacity .4s; }
+.dbsim .verdict.on { opacity: 1; }
+.dbsim .hint { font-size: 14px; color: #6B6B6B; margin-top: 8px; }
+.dbsim .speed { display: flex; align-items: center; gap: 8px; margin-top: 10px; font: 700 14px "Montserrat", sans-serif; color: #6B6B6B; }
+.dbsim .speed button { padding: 4px 11px; font-size: 13px; }
+</style>
+<div class="dbsim" id="dbsim">
+  <svg viewBox="0 0 58 50" aria-label="The festival field: move the sliders to run DBSCAN"><g class="reaches"></g><circle class="ref" r="6"></circle><g class="pts"></g><rect class="reflab-bg" rx="0.7"></rect><text class="reflab"></text></svg>
+  <div class="side">
+    <div class="dial"><label for="dbs-eps"><code>eps</code><small>how far "near" reaches</small></label><output id="dbs-eps-out">6 m</output>
+      <input type="range" id="dbs-eps" min="1" max="20" step="0.5" value="6"></div>
+    <div class="dial"><label for="dbs-min"><code>minPts</code><small>how many make a crowd</small></label><output id="dbs-min-out">5</output>
+      <input type="range" id="dbs-min" min="2" max="12" step="1" value="5"></div>
+    <div class="presets"><button data-eps="2" data-min="5">eps too small</button><button data-eps="6" data-min="5">as before</button><button data-eps="10" data-min="5">eps too big</button><button data-play="1" class="play">▶ play</button></div>
+    <div class="stage" data-stage="1" role="button" title="Step 1: count"><b class="n">1</b><span><strong>Count.</strong> <span class="t1"></span></span></div>
+    <div class="stage" data-stage="2" role="button" title="Step 2: grow"><b class="n">2</b><span><strong>Grow.</strong> <span class="t2"></span></span></div>
+    <div class="verdict"></div>
+    <div class="hint">Click <b>1</b> to count, <b>2</b> to grow, or ▶ play for both. Click a person to see why they are core, border or noise.</div>
+    <div class="speed">Speed <button data-slow="1" class="on">normal</button><button data-slow="3">slow</button></div>
+  </div>
+</div>
+<script>
+(function () {
+  var root = document.getElementById('dbsim'); if (!root || !window.dbField) return;
+  var P = window.dbField, n = P.length, NS = 'http://www.w3.org/2000/svg';
+  var COLS = ['#E2001A', '#1F4E79', '#1D7A46', '#E69F00', '#7B3F9E', '#00A3A3', '#B85C00', '#D6338A', '#5A6F00', '#444444'];
+  var DARK = '#3A3A3A', GREY = '#6B6B6B';
+  var D = P.map(function (a) { return P.map(function (b) { return Math.hypot(a.x - b.x, a.y - b.y); }); });
+  var svg = root.querySelector('svg'), gp = svg.querySelector('.pts'), gr = svg.querySelector('.reaches');
+  var ref = svg.querySelector('.ref'), reflab = svg.querySelector('.reflab'), reflabBg = svg.querySelector('.reflab-bg');
+  var epsIn = root.querySelector('#dbs-eps'), minIn = root.querySelector('#dbs-min');
+  var epsOut = root.querySelector('#dbs-eps-out'), minOut = root.querySelector('#dbs-min-out');
+  var st1 = root.querySelector('[data-stage="1"]'), st2 = root.querySelector('[data-stage="2"]');
+  var t1 = root.querySelector('.t1'), t2 = root.querySelector('.t2'), verdict = root.querySelector('.verdict');
+  var sel = 11, run = 0, timers = [], slow = 1, mode = 0;   // mode 0 = nothing counted yet, 1 = counted, 2 = grown
+  function el(tag, attrs, parent) { var e = document.createElementNS(NS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); parent.appendChild(e); return e; }
+  var dots = P.map(function (p, i) {
+    var g = el('g', { 'class': 'pt' }, gp), cy = 50 - p.y;
+    var x = el('path', { d: 'M' + (p.x - 0.8) + ' ' + (cy - 0.8) + 'L' + (p.x + 0.8) + ' ' + (cy + 0.8) + 'M' + (p.x - 0.8) + ' ' + (cy + 0.8) + 'L' + (p.x + 0.8) + ' ' + (cy - 0.8) }, g);
+    var c = el('circle', { cx: p.x, cy: cy, r: 0.78 }, g);
+    c.addEventListener('click', function () { sel = i; drawRef(model()); });
+    return { c: c, x: x };
+  });
+  function eps() { return +epsIn.value; } function minPts() { return +minIn.value; }
+  // DBSCAN as on the slides: count, then grow hop by hop. Returns every hop so that it can be replayed.
+  function model() {
+    var e = eps(), m = minPts(), cnt = [], core = [], lab = [], hops = [], k = 0, i, j;
+    for (i = 0; i < n; i++) { cnt[i] = 0; for (j = 0; j < n; j++) if (D[i][j] <= e) cnt[i]++; core[i] = cnt[i] >= m; lab[i] = 0; }
+    for (i = 0; i < n; i++) {
+      if (!core[i] || lab[i]) continue;
+      k++; lab[i] = k; hops.push({ k: k, tellers: [], joined: [i] });
+      var front = [i];
+      while (front.length) {
+        var joined = [];
+        front.forEach(function (t) { for (var j = 0; j < n; j++) if (!lab[j] && D[t][j] <= e) { lab[j] = k; joined.push(j); } });
+        if (joined.length) hops.push({ k: k, tellers: front, joined: joined });
+        front = joined.filter(function (j) { return core[j]; });
+      }
+    }
+    return { cnt: cnt, core: core, lab: lab, hops: hops, k: k };
+  }
+  function paint(i, core, colour, noise) {
+    var d = dots[i];
+    d.c.style.fill = core ? colour : '#fff'; d.c.style.stroke = colour;
+    d.c.style.opacity = noise ? 0 : 1; d.x.style.opacity = noise ? 1 : 0;
+  }
+  function drawRef(M, at) {
+    var i = at === undefined ? sel : at, p = P[i], c = M.cnt[i], verdictToo = mode || at !== undefined;
+    ref.style.transform = 'translate(' + p.x + 'px,' + (50 - p.y) + 'px)'; ref.setAttribute('r', eps());
+    var line1 = c + ' inside' + (verdictToo ? ': ' + (M.core[i] ? 'core' : 'not core') : ''), line2 = '';
+    // once the clusters are grown, say why this person ended up where they did
+    if (mode === 2 && at === undefined) line2 = M.core[i] ? 'so it passes the colour on' : M.lab[i] ? 'but in reach of a core point: joins' : 'and not in reach of a core point: noise';
+    var ly = Math.min(48.5, Math.max(2.6, 50 - p.y - eps() - 1.2));
+    if (line2 && ly < 5.5) ly = Math.min(48, 50 - p.y + eps() + 5);   // no room for two lines above the circle: go below it
+    var lx = line2 ? Math.min(39.5, Math.max(18.5, p.x)) : Math.min(50, Math.max(8, p.x));
+    reflab.textContent = '';
+    [line1, line2].forEach(function (s, k) {
+      if (!s) return;
+      var ts = el('tspan', { x: lx, y: ly - (line2 && k === 0 ? 2.3 : 0) }, reflab); ts.textContent = s;
+      if (k === 1) ts.setAttribute('style', 'font-size:1.7px');
+    });
+    // a white plate behind the two-line explanation, so it stays readable on top of other people
+    var bb = null; if (line2) try { bb = reflab.getBBox(); } catch (e) {}
+    if (bb && bb.width) { reflabBg.setAttribute('x', bb.x - 0.8); reflabBg.setAttribute('y', bb.y - 0.4); reflabBg.setAttribute('width', bb.width + 1.6); reflabBg.setAttribute('height', bb.height + 0.8); reflabBg.style.display = ''; }
+    else reflabBg.style.display = 'none';
+  }
+  function stop() { run++; timers.forEach(clearTimeout); timers = []; gr.innerHTML = ''; }
+  function plural(k, w) { return k + ' ' + w + (k === 1 ? '' : 's'); }
+  // Step 1: everyone counts. Solid = core, ring = not core. No colours yet.
+  // Before any click: everyone is a plain grey dot. Only the dashed circle follows the eps slider.
+  function blank(M) {
+    epsOut.textContent = eps() + ' m'; minOut.textContent = minPts();
+    for (var i = 0; i < n; i++) paint(i, true, GREY, false);
+    drawRef(M);
+    t1.textContent = 'Click here: who has ' + minPts() + ' or more people within ' + eps() + ' m?';
+    t2.textContent = 'Then click here to grow the clusters.';
+    st1.className = 'stage'; st2.className = 'stage'; verdict.className = 'verdict';
+  }
+  function count(M) {
+    epsOut.textContent = eps() + ' m'; minOut.textContent = minPts();
+    for (var i = 0; i < n; i++) paint(i, M.core[i], M.core[i] ? DARK : GREY, false);
+    drawRef(M);
+    var nc = M.core.filter(Boolean).length;
+    t1.textContent = plural(nc, 'core point') + ' (solid) have ' + minPts() + ' or more people within ' + eps() + ' m.';
+    st1.className = 'stage on'; st2.className = 'stage'; t2.textContent = 'Click here to grow the clusters.'; verdict.className = 'verdict';
+  }
+  function say(M) {
+    var q = {}, p = {}, a = 0, noise = 0;
+    P.forEach(function (pt, i) { var l = M.lab[i]; if (!l) noise++; if (pt.w === 'q' && l) q[l] = 1; if (pt.w === 'p' && l) p[l] = 1; if (pt.w === 'a' && l) a++; });
+    var qk = Object.keys(q), pk = Object.keys(p), qn = P.filter(function (pt, i) { return pt.w === 'q' && !M.lab[i]; }).length;
+    var merged = qk.some(function (l) { return p[l]; }), msg;
+    if (M.k === 0) msg = 'Nobody is in a crowd, so nothing can grow: everyone is noise.';
+    else if (merged && a === 3) msg = 'The circles reach everyone: one cluster swallows the whole field.';
+    else if (merged) msg = 'The circles now reach across the gap: the queue and the picnic merge.';
+    else if (qk.length > 1) msg = 'The circles no longer reach the next person: the queue breaks into ' + qk.length + ' pieces.';
+    else if (qk.length === 0) msg = 'The queue is not dense enough to count as a crowd: only the picnic is left.';
+    else if (qk.length === 1 && pk.length === 1 && noise === 3) msg = 'The queue, the picnic, and three people left out: what your eye saw.';
+    else if (qn > 0) msg = 'Parts of the queue are too thin for this setting and turn into noise.';
+    else msg = 'The groups hold, but check who has become noise or been pulled in.';
+    return '<span style="font-size:1.25em">' + plural(M.k, 'cluster') + ' · ' + noise + ' noise</span><br>' + msg;
+  }
+  // Step 2: grow each cluster hop by hop, then mark the noise.
+  function grow(M, fast) {
+    var me = run, step = fast ? 0 : slow * Math.max(110, Math.min(320, 3600 / Math.max(1, M.hops.length)));
+    st1.className = 'stage done'; st2.className = 'stage on';
+    function finish() {
+      if (me !== run) return; gr.innerHTML = '';
+      for (var i = 0; i < n; i++) if (!M.lab[i]) paint(i, false, GREY, true);
+      t2.textContent = M.k ? 'Every core point passed its colour to everyone in its circle. Rings joined but passed nothing on.' : 'No core point to start from.';
+      st2.className = 'stage done'; verdict.innerHTML = say(M); verdict.className = 'verdict on'; drawRef(M);
+    }
+    M.hops.forEach(function (h, s) {
+      timers.push(setTimeout(function () {
+        if (me !== run) return;
+        var colour = COLS[(h.k - 1) % COLS.length]; gr.innerHTML = '';
+        h.tellers.forEach(function (t) { var c = el('circle', { 'class': 'reach', cx: P[t].x, cy: 50 - P[t].y, r: eps(), stroke: colour }, gr); requestAnimationFrame(function () { c.style.opacity = 0.9; }); });
+        h.joined.forEach(function (j) { paint(j, M.core[j], colour, false); });
+        t2.textContent = 'Cluster ' + h.k + (h.tellers.length ? ': passing it on…' : ': start at a core point.');
+      }, step * s));
+    });
+    timers.push(setTimeout(finish, step * M.hops.length + (fast ? 0 : 150)));
+  }
+  // Nothing happens by itself. Click 1 to count (again to undo), click 2 to grow, play for both.
+  // The sliders keep what is on screen: grey dots stay grey, a count is redone live, a grown result falls back to the count.
+  function refresh() { stop(); var M = model(); if (mode === 0) blank(M); else { mode = 1; count(M); } }
+  // Click 1: the circle visits every person in turn, counts, and marks them solid (core) or ring (not core).
+  function sweep(M, then) {
+    var me = run, k = 0, STEP = 115 * slow;
+    blank(M); st1.className = 'stage on'; t2.textContent = '';
+    P.forEach(function (p, i) {
+      timers.push(setTimeout(function () {
+        if (me !== run) return;
+        drawRef(M, i); paint(i, M.core[i], M.core[i] ? DARK : GREY, false); if (M.core[i]) k++;
+        t1.textContent = 'Person ' + (i + 1) + ' of ' + n + ': ' + M.cnt[i] + ' inside. ' + plural(k, 'core point') + ' so far.';
+      }, STEP * (i + 1)));
+    });
+    timers.push(setTimeout(function () { if (me !== run) return; count(M); if (then) then(M); }, STEP * (n + 4)));
+  }
+  function step1() { stop(); if (mode === 1) { mode = 0; blank(model()); } else { mode = 1; sweep(model()); } }
+  function growAfter(wait) { stop(); var M = model(), me = run; mode = 1; count(M); mode = 2; timers.push(setTimeout(function () { if (me === run) grow(M, false); }, wait)); }
+  function step2() { growAfter(mode === 0 ? 900 * slow : 0); }
+  function play() { stop(); mode = 1; sweep(model(), function () { growAfter(700 * slow); }); }
+  [epsIn, minIn].forEach(function (inp) {
+    inp.addEventListener('input', refresh);
+    inp.addEventListener('change', function () { refresh(); inp.blur(); });   // blur: the clicker's arrow keys go back to the deck
+  });
+  st1.addEventListener('click', step1); st2.addEventListener('click', step2);
+  root.querySelectorAll('.presets button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      if (b.dataset.play) play(); else { epsIn.value = b.dataset.eps; minIn.value = b.dataset.min; refresh(); }
+      b.blur();
+    });
+  });
+  // Speed applies to the next count, grow or play: slow takes three times as long.
+  var speeds = root.querySelectorAll('.speed button');
+  speeds.forEach(function (b) {
+    b.addEventListener('click', function () {
+      slow = +b.dataset.slow; ref.style.transitionDuration = (0.1 * slow) + 's';
+      speeds.forEach(function (o) { o.classList.toggle('on', o === b); }); b.blur();
+    });
+  });
+  refresh();
+})();
+</script>
+```
+
+::: {.notes}
+Timing: 2 minutes. The slide is live: the sliders run DBSCAN in the browser on the same field. Arrow keys still move the deck after you let go of a slider.
+
+- Nothing happens by itself. It opens with plain grey dots and the settings from the last two slides: eps = 6 m, minPts = 5. Click the row "1 Count": the dashed circle walks from person to person, about five seconds for all 41, shows each count, and turns each person into a solid dot (core) or a ring (not core). Click "2 Grow" to watch the clusters grow one at a time: two clusters and three noise points. Clicking "1 Count" a second time takes the count away again. The "play" button runs both steps in a row. "Speed: slow" at the bottom makes the count, the growing and play take three times as long, for talking over them.
+- Drag eps down slowly. Once the count is on, the sliders redo it live: the circle shrinks and solid dots turn into rings. Before you have clicked 1, only the dashed circle moves. Stop at about 2 m and ask what will happen, then click 2: the queue disappears, because no circle reaches far enough to hold four neighbours.
+- Drag eps up to about 10 m, ask, click 2: the circles reach across the gap, and the queue and the picnic become one cluster. Further up, the people on their own are swallowed as well.
+- Back to "as before", then raise minPts and click 2. The queue is thin: once a crowd needs more people than a 6 m stretch of queue holds, the queue turns to noise and only the picnic is left.
+- The message for your turn B: eps decides how far the colour can jump, minPts decides how dense a crowd must be before it may pass the colour on. Too strict gives noise, too loose gives one big cluster. There is no correct value, only a value that fits the data and the question.
+- Click any person to move the dashed circle and read off their count. After step 2 the label also says why they ended up where they did: a solid dot is "core, so it passes the colour on"; a ring is "not core, but in reach of a core point: joins"; a cross is "not core, and not in reach of a core point: noise". Click one of each.
+:::
+
+## Run DBSCAN on the map
+
+```{=html}
+<div class="tracker"><span class="done">What</span><span class="done">I · k-means</span><span class="on">II · DBSCAN</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 136–176 <span>"Task 4: Basic DBSCAN" and the plot: given, ready to run</span><i>run together</i></p>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="52%"}
+::: {.anatomy .one}
+```{=html}
+<p class="anat-code" style="font-size:0.56em">db_result &lt;- <span class="tok">dbscan(</span><span class="tok">mca_coords[, 1:2]</span>,
+                    <span class="tok">eps = 0.25</span>, <span class="tok">minPts = 5</span>)</p>
+```
+
+1. **From the `dbscan` package.** No seed: nothing here is random.
+2. **The two coordinates** of the 36 answers.
+3. **The radius**, in the units of the map's axes.
+4. **A crowd**: 5 answers inside the circle, the point itself included.
+:::
+
+```{r}
+#| echo: false
+cat("Clusters found:", max(db_result$cluster), "\n")
+cat("Noise points:", sum(db_result$cluster == 0), "\n")
+```
+:::
+
+::: {.column width="48%"}
+```{r}
+#| echo: false
+#| fig-width: 5
+#| fig-height: 3.5
+db_plot()
+```
+
+::: {.card .compact .dark}
+[Cluster 0 is not a cluster]{.ct}
+`db_result$cluster` holds 0, 1, 2, 3, 4. The zeros are the noise points, drawn as ×.
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 4 minutes. Run lines 138–145 and 151–176 together.
+
+- Compare with `kmeans()`: no `centers =`, no `nstart =`, no seed. DBSCAN gives the same answer every time.
+- `max(db_result$cluster)` counts the clusters because they are numbered 1, 2, 3, …; `sum(... == 0)` counts the zeros.
+- The plot chunk splits the table in two (`clustered_points` and `noise_points`) so that the noise can be drawn as crosses. Both tables are used again in the exercise.
+- Four clusters, without anyone asking for four. Compare with the k-means picture: the same four corners, minus `r nrow(noise_points)` points.
+- Leave the discussion question at line 147 for the next slide.
+:::
+
+## Class discussion: what is a noise point?
+
+```{=html}
+<div class="tracker"><span class="done">What</span><span class="done">I · k-means</span><span class="on">II · DBSCAN</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> line 147 <span>the discussion after Task 4</span><i>30 seconds with your neighbour</i></p>
+```
+
+::: {.ask}
+DBSCAN reports `r nrow(noise_points)` noise points on the map. What does that mean?
+:::
+
+```{=html}
+<div class="mcq">
+  <div class="opt"><b>A</b>Five rows contain errors and should be deleted from the data</div>
+  <div class="opt right"><b>B</b>Five answers have too few close neighbours to belong to any crowd, with these settings</div>
+  <div class="opt"><b>C</b>Five answers were put in the smallest cluster</div>
+  <div class="opt"><b>D</b>Five answers that k-means would have put in the wrong cluster</div>
+  <div class="fragment why"><b>B.</b> A noise point is not a core point and is not within reach of one. It is a statement about <b>density</b>, and it depends on <code>eps</code> and <code>minPts</code>: change them and other points become noise. "Noise" is the algorithm's word. It does not mean the data are wrong.</div>
+</div>
+```
+
+::: {.notes}
+Timing: 1½ minutes. First item to skip if behind.
+
+- Thirty seconds in pairs, a show of hands, click.
+- A is the one to argue against: the word "noise" (and "outlier", in the notebook's answer) sounds like "mistake". These are real answers that real people gave; they just do not go together with a set of other answers.
+- "With these settings" matters: the exercise changes `eps` and the noise points change with it.
+:::
+
+## Your turn B: clusters, noise, and eps {.yourturn}
+
+```{=html}
+<div class="timer" data-minutes="9"></div>
+```
+
+:::: {.yt}
+
+::: {.tasks}
+[Part II · lines 178–232 · in pairs]{.lbl}
+
+1. **Lines 180–186:** write code that lists the answers in each cluster, and the noise points.
+2. **Line 188:** what is in each cluster? Which answers are hard to place?
+3. **Lines 198–230:** the same chunk again with `eps = 0.5`. Run it, then try **0.1, 0.2, 0.3, 0.4**. Note clusters and noise each time.
+4. **Line 196:** how does `eps` change the clusters? What happens to the noise? Should every point belong to a cluster? Which `eps` would you keep?
+:::
+
+::: {.cheat}
+[Syntax you need]{.lbl}
+
+```r
+clustered_points |>          # made in lines 153–157
+  arrange(cluster) |>
+  print(n = Inf)
+
+noise_points |>
+  print(n = Inf)
+
+# Task 5: change one number, rerun the whole chunk
+db_result <- dbscan(mca_coords[, 1:2], eps = 0.5, minPts = 5)
+```
+
+::: {.hints}
+- **Small `eps`**: small circles, few core points
+- **Large `eps`**: big circles, crowds reach each other and merge
+- Think of the field: what would a 1 m circle do? A 30 m circle?
+:::
+
+::: {.stuck}
+**Stuck?**
+
+- `clustered_points` not found: run lines 151–176 first
+- The list did not change with `eps`: rerun the **whole** chunk, not only the first line
+:::
+:::
+
+::::
+
+::: {.notes}
+Your turn, 9 minutes (7 if behind). Click the timer (or press T).
+
+- Task 1 reuses `arrange()` and `print(n = Inf)` from exercise A, on tables the notebook has already made.
+- Task 3: the chunk at lines 198–230 overwrites `db_result`, `clustered_points` and `noise_points` each time it runs. That is fine, but it means the list from task 1 must be made before task 3, or with `eps = 0.25` again.
+- Circulate with one question: "how many noise points did you get with 0.1, and why so many?"
+- Fast finishers: keep `eps = 0.25` and change `minPts` to 3 and to 8; `kNNdistplot(mca_coords[, 1:2], minPts = 5)` is the usual aid for choosing `eps`.
+:::
+
+## Answers B: clusters and noise {.solution}
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="56%"}
+```{r}
+#| echo: false
+#| fig-width: 6
+#| fig-height: 4.5
+db_plot(label_noise = TRUE)
+```
+:::
+
+::: {.column width="44%"}
+```r
+clustered_points |> arrange(cluster) |>
+  print(n = Inf)
+noise_points |> print(n = Inf)
+```
+
+::: {.card .compact}
+[The same four groups]{.ct}
+As in Part I. Two methods with different ideas of a "group" agree: a reason to believe the groups.
+:::
+
+::: {.fragment}
+::: {.card .compact .line}
+[Five answers left out]{.ct}
+Both death-penalty answers, `divorce_n`, fare dodging `_y`, violence against a child `_y`: between crowds, or at the thin edge of one.
+:::
+:::
+
+::: {.fragment}
+::: {.card .compact .dark}
+[What DBSCAN adds]{.ct}
+Clusters **and** the points that fit none. k-means hid these five inside its groups.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 3 minutes.
+
+- The cluster numbers again differ from k-means' numbers: compare contents, never numbers.
+- Click: the five noise points, labelled on the plot. The death penalty was the awkward item in Part I as well: here the method says so itself. Fare dodging is the mildest of the "harm and cheating" items; its y-answer sits apart from terrorism and bribery.
+- Note for tutors: the solutions name four of the five (against divorce, both death-penalty answers, fare dodging); `violence_against_child_y` is the fifth.
+- Click: the notebook's conclusion: "we can find clusters AND outliers".
+:::
+
+## Answers B: turning eps {.solution}
+
+```{r}
+#| echo: false
+#| fig-width: 11
+#| fig-height: 2.9
+eps_plot()
+```
+
+::: {.cards .c3 style="margin-top:0.3em"}
+::: {.card .compact}
+[Small eps: almost all noise]{.ct}
+At 0.1 only the tight knot has 5 answers inside a circle: `r eps_n(0.1, "clusters")` cluster, `r eps_n(0.1, "noise")` noise points.
+:::
+::: {.fragment}
+::: {.card .compact .line}
+[Large eps: crowds merge]{.ct}
+Noise falls: `r paste(eps_tab$noise, collapse = ", ")`. At 0.5 nothing is left out, and two clusters remain: every `_n` and every `_y`.
+:::
+:::
+::: {.fragment}
+::: {.card .compact .dark}
+[Keep 0.25 to 0.3]{.ct}
+Four readable groups and a handful of noise points. Not every point has to belong: the leftovers are a finding too.
+:::
+:::
+:::
+
+::: {.notes}
+Timing: 4 minutes. The four key questions of Task 5, in order.
+
+- How does eps affect the clusters? It sets how easily points count as neighbours. Too small: hardly any core points. Too large: everything is within reach of everything.
+- What happens to the noise? It only ever shrinks as eps grows.
+- Click: at 0.5 the result is last week's Dim 1 and nothing else: left against right. True, and much less informative than four groups.
+- Should all points belong to a cluster? No. Forcing the death-penalty answers into a group made the group harder to name in Part I.
+- Click: which eps? The notebook says 0.25: half of it gives one cluster, twice it gives two mixed ones. As with k, the choice is argued, not computed.
+- eps is in the units of the data. On this map 0.25 is small; on the festival field it was 6 metres. There is no default that works everywhere.
+:::
+
+## How do you choose eps and minPts?
+
+```{=html}
+<div class="tracker"><span class="done">What</span><span class="done">I · k-means</span><span class="on">II · DBSCAN</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 190–232 <span>"which eps is best?" · the plot is one extra line</span><i>concept</i></p>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="54%"}
+::: {.r-stack}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+kd_step(1)
+```
+
+::: {.fragment fragment-index=1}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+kd_step(2)
+```
+:::
+
+::: {.fragment fragment-index=2}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 4.2
+kd_step(3)
+```
+:::
+:::
+:::
+
+::: {.column width="46%"}
+```{=html}
+<div class="calc sm">
+  <div><span class="cl">minPts first</span><span class="cx">the smallest group you would call a cluster <small>rule of thumb: 2 × columns</small></span></div>
+  <div><span class="cl">Then eps</span><span class="cx">how far is everyone's `r kth`th-nearest neighbour? <small>minPts − 1</small></span></div>
+  <div class="fragment" data-fragment-index="1"><span class="cl">Sort</span><span class="cx">crowds short, loners long: <b>eps at the bend</b></span></div>
+  <div class="fragment" data-fragment-index="2"><span class="cl">In R</span><span class="cx"><code>kNNdistplot(x, k = `r kth`)</code></span></div>
+</div>
+```
+
+::: {.fragment fragment-index=2}
+::: {.card .compact .dark}
+[No score picks eps for you]{.ct}
+The bend suggests. A range with the same clusters reassures: 0.2 to 0.3, always `r eps_n(0.3, "clusters")`. **You** judge the meaning.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 2 minutes. This answers the question your turn B leaves open: is there anything better than trying values? There is one plot, and it is still read by eye, like the elbow.
+
+- minPts is chosen by thinking, not by tuning: how small may a group be and still count? The usual rule of thumb is twice the number of columns. We cluster on two coordinates, so 4, and the notebook uses 5.
+- For eps, go back to the field. Ask each person how far away their `r kth`th-nearest neighbour is: `r kth` neighbours plus yourself is a crowd of `r min_f`. In the picnic that is `r f1(kd_field[ex_core])` m, at the end of the queue `r f1(kd_field[ex_border])` m, for the person on their own `r f1(kd_field[ex_alone])` m.
+- Click: sort all `r nrow(field)` answers. Everyone standing in a crowd has a short distance, about `r f1(max(kd_field[field$core]))` m or less. Then the curve bends upwards: the ends of the queue, then the three people on their own. An eps just above the flat part makes the people in crowds core points and nobody else: that is our 6 m.
+- Click: the same plot for the lab map, one line with `kNNdistplot()` from the dbscan package. Real data rarely bend sharply. Here the rise is gradual, and anything between 0.2 and 0.3 is defensible. The notebook's 0.25 is in the middle.
+- The check is what you just did in Task 5: across that range DBSCAN always finds `r eps_n(0.3, "clusters")` clusters and only the number of noise points drifts. A result that survives a range of settings can be trusted more than one that appears at a single value.
+- If asked about scores: the silhouette can be computed, but it rewards round, compact groups and would mark the queue down, so it is not used to tune DBSCAN.
+:::
+
+## k-means or DBSCAN?
+
+```{=html}
+<div class="tracker"><span class="done">What</span><span class="done">I · k-means</span><span class="done">II · DBSCAN</span><span class="on">Wrap-up</span></div>
+```
+
+::: {.small-table}
+| | k-means | DBSCAN |
+|---|---|---|
+| **A group is** | The points nearest one centre | A dense crowd, chained point to point |
+| **You choose** | *k*, the number of groups | `eps` and `minPts`: what counts as a crowd |
+| **Shapes** | Round blobs of similar size | Any shape |
+| **Points far from everything** | Forced into a group, and they pull its centre | Left out as noise (cluster 0) |
+| **Random?** | Yes: `set.seed()` and `nstart = 25` | No |
+| **Today** | 4 clusters of 9 answers | 4 clusters and 5 noise points at `eps = 0.25` |
+:::
+
+::: {.fragment}
+::: {.cards .c2 style="margin-top:0.5em"}
+::: {.card .compact .line}
+[Neither is "right"]{.ct}
+There is no outcome to check against. Trust groups that **survive a change of method and settings**, and that you can name.
+:::
+::: {.card .compact .dark}
+[Clustering always answers]{.ct}
+Give k-means random dots and it still returns k groups. Finding clusters is not evidence that groups exist.
+:::
+:::
+:::
+
+::: {.notes}
+Timing: 3 minutes. The notebook's table (lines 31–34) in plain words, with two rows added.
+
+- The notebook's table says k-means has "computed centroids", high outlier sensitivity and suits spherical clusters; DBSCAN has no centres, very low outlier sensitivity and suits arbitrary shapes. Each row here is one of those cells.
+- Ask before clicking: "your data are customers with income and age, and you need exactly three segments for three marketing teams." k-means: the number is fixed by the use. "You are looking for unusual bank transactions." DBSCAN: the noise points are what you are after.
+- Click: the two warnings to take away. Today both methods found the same four groups, and the groups matched what we read off the biplot last week. That agreement is the evidence, not either result on its own.
+:::
+
+## Summary
+
+```{=html}
+<div class="tracker"><span class="done">What</span><span class="done">I · k-means</span><span class="done">II · DBSCAN</span><span class="on">Wrap-up</span></div>
+```
+
+```{=html}
+<div class="checks" style="grid-template-columns:1fr">
+  <div><b>1</b><span><strong>Clustering</strong> adds a group column that nobody gave you, using only distances between rows. There is no accuracy: you judge the groups by whether they are tight, stable and nameable</span></div>
+  <div><b>2</b><span><strong>k-means</strong> is the carts in the park: assign everyone to the nearest centre, move each centre to the mean, repeat. You choose <em>k</em> with the <strong>elbow</strong> (total squared distance) and the <strong>silhouette</strong> (is each point clearly in its group?). In code: <code>kmeans(x, centers = k, nstart = 25)</code>, <code>$cluster</code>, <code>$tot.withinss</code>, <code>silhouette()</code></span></div>
+  <div><b>3</b><span><strong>DBSCAN</strong> is the festival field: core points have <code>minPts</code> neighbours within <code>eps</code>, clusters grow from core to core, and whoever is left is <strong>noise</strong>. In code: <code>dbscan(x, eps = 0.25, minPts = 5)</code>, <code>$cluster</code>, with 0 for noise</span></div>
+</div>
+```
+
+**Question:** DBSCAN called both death-penalty answers noise; k-means put them into groups. Which would you report, and what would you say about those two answers?
+
+::: {.notes}
+Wrap-up, 3 minutes.
+
+- Recap in three sentences.
+- Exit question: there is no single right answer. A good one reports the four groups, says that both methods agree on them, and says separately that the death penalty (and a few others) does not go with either family of attitudes. Leaving them out of the groups is more honest than hiding them inside.
+- Weeks 7 and 8 together: first compress the columns, then group the rows. Clustering on two MCA dimensions, as today, is a common pipeline: distances behave better in two dimensions than in nineteen (last week's first slide).
+:::
+
+## Further reading {.closing}
+
+- The completed notebook goes up after class.
+- [*An Introduction to Statistical Learning*](https://www.statlearning.com): 12.4 (clustering methods: k-means and hierarchical clustering). Free PDF.
+- [The `dbscan` package vignette](https://cran.r-project.org/package=dbscan): the algorithm in pictures, and `kNNdistplot()` for choosing `eps`.
+- [`tidyclust`](https://tidyclust.tidymodels.org): k-means in the tidymodels style of Labs 3–5, with `tune_cluster()` for choosing *k*.
+
+::: {.notes}
+- k-means++ (a smarter way to place the first carts) and k-medoids (carts may only stand where a person stands, which makes them less sensitive to outliers) were in last year's lab. The notebook's overview still names them; mention them only if asked.
+:::
+
+## 30 seconds of feedback {.closing}
+
+:::: {.columns style="align-items:center"}
+
+::: {.column width="45%" style="text-align:center"}
+![](images/feedback-qr.svg){width="380" fig-alt="QR code linking to the feedback survey"}
+:::
+
+::: {.column width="55%"}
+::: {.card .dark}
+[How was today's lab?]{.ct}
+Scan the code, or open <a href="https://forms.gle/i3uobCAaGmkzf1ns7" style="color:#fff;text-decoration:underline">forms.gle/i3uobCAaGmkzf1ns7</a>. It takes 30 seconds and changes what next week looks like.
+:::
+:::
+
+::::
+
+::: {.notes}
+- Leave this slide up while people pack up. Ask them to fill it in before leaving.
+:::
