@@ -1,0 +1,924 @@
+---
+title: "Finding groups: k-means and DBSCAN"
+subtitle: "MY202 · Lab 8 · Self-paced guide"
+author: "Jonas Weinert"
+date: today
+date-format: "D MMMM YYYY"
+format: lse-html
+
+execute:
+  echo: false
+  message: false
+  warning: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+# The outputs on this page are real: they come from running the lab code on the lab data.
+knitr::opts_knit$set(root.dir = "../notebooksanddata")
+```
+
+```{r}
+#| label: shared
+#| include: false
+# The guide uses exactly the same data and examples (the park, the festival field) as the Lab 8 slides:
+# it runs the slides' setup, data and visuals chunks, so the two can never disagree.
+deck <- readLines("../slides/W8-lab-slides.qmd")
+chunk_code <- function(label) {
+  start <- which(deck == paste0("#| label: ", label))
+  ends <- which(deck == "```")
+  deck[(start + 1):(min(ends[ends > start]) - 1)]
+}
+code <- unlist(lapply(c("setup", "data", "visuals"), chunk_code))
+code <- code[!grepl("^#\\|", code) & !grepl("opts_knit", code)]
+eval(parse(text = code), envir = globalenv())
+options(width = 72, tibble.print_min = 6, tibble.print_max = 40, pillar.max_extra_cols = 0)
+small_titles <- theme(plot.title = element_text(size = 12.5))
+side <- function(...) patchwork::wrap_plots(..., nrow = 1) & small_titles
+with_cluster <- mca_coords |> mutate(cluster = as.factor(final_kmeans$cluster))
+```
+
+## Before you start
+
+This page walks you through Lab 8 one small step at a time. It assumes you have done Labs 1 to 7: you know notebooks, chunks, the pipe `|>`, `ggplot`, and last week's MCA map. Everything new is explained the first time it appears, and there is a [glossary](#glossary) at the end.
+
+**What's new this week.** Last week we squeezed many **columns** into two. This week we sort the **rows** into groups. That is called **clustering**, and it is still unsupervised: nobody tells us which row belongs to which group, so there is no accuracy to compute. Every result has to be read and judged. We use two methods:
+
+- **k-means**: you choose the number of groups, and the method finds them.
+- **DBSCAN**: you say what counts as a crowd, and the method finds the crowds, and the points that belong to none.
+
+Each part goes in the same order: first **the idea**, with an everyday example you can follow by eye; then **the code**; then **your turn** in the notebook.
+
+:::: {.legend}
+::: {.l-do}
+**Your turn**
+Something to do in the notebook. The box says which notebook lines to go to.
+:::
+::: {.l-see}
+**What you should see**
+The real result R gives back. Compare it with yours.
+:::
+::: {.l-idea}
+**Big idea**
+A concept worth remembering beyond today.
+:::
+::: {.l-quiz}
+**Check yourself**
+A quick question. Click an answer to see if you were right.
+:::
+::::
+
+At the end of each step there is a **Mark as done** button. Your ticks are saved in this browser, so you can close the page and pick up where you left off.
+
+**There is a little code to write this week**: one plot and two short lists, each three or four lines. For every task, **try it in the notebook first**, then open the "Show the code" box. For every question, write your own answer into the notebook before you open "Compare with our answer". All line numbers on this page refer to the student notebook (`my202-08-lab-student.qmd`).
+
+::: {.callout-note title="Plan for about 2 hours"}
+Part I (k-means) takes about an hour, Part II (DBSCAN) about 50 minutes. Nothing runs for more than a second or two.
+:::
+
+### Open the notebook and run the setup chunk {.step}
+
+::: {.doit q="Setup · notebook lines 36–45"}
+1. Open the Lab 8 **student notebook** on Nuvolos.
+2. Run the chunk at **lines 38–45**. It loads three packages and the data.
+:::
+
+| Package | What it gives you |
+|---|---|
+| `cluster` | `silhouette()`, one of the two ways to choose the number of groups. |
+| `dbscan` | `dbscan()`, the method of Part II. |
+| `tidyverse` | As before. `kmeans()` itself comes with R and needs no package. |
+
+The last line reads `data/mca-week-7.csv`: the coordinates of last week's MCA map. You do not need last week's code.
+
+::: {.callout-warning title="Two things in the notebook to ignore"}
+The notebook's title says "Student Solutions", but it is the student version. Its overview also promises "k-means variants" and "k-medoids": there is no code for them in the notebook, and this guide does not cover them.
+:::
+
+::: {.callout-tip collapse="true" title="Working on your own computer?"}
+Run `install.packages(c("cluster", "dbscan", "ggsci"))` once. The file `mca-week-7.csv` from Moodle must sit in a folder called `data` next to the notebook.
+:::
+
+### The idea: what is clustering? {.step}
+
+::: {.doit q="Read · notebook lines 9–34"}
+Skim the overview and the small table comparing k-means and DBSCAN, then come back. The table will make sense by the end of this page.
+:::
+
+Thirty people are sitting on a lawn, seen from above. How many groups of friends are there?
+
+```{r}
+#| fig-width: 10
+#| fig-height: 4.6
+side(park_base("Thirty people on a lawn, seen from above") + people(),
+     park_base("You did it by eye: three groups") + people(km3_park$cluster))
+```
+
+You said three, and nobody told you who belongs with whom. You used one thing only: **distance**. People who sit close together are a group.
+
+Clustering does the same for a table. The rows are the dots, the columns are the directions, and the method adds **one new column**: a group number for each row. With two columns and thirty rows your eye can do it. With twenty columns nobody can look at the picture, so we need a procedure.
+
+::: {.idea}
+**Clustering** groups rows that are close to each other. Its output is a new column that nobody gave you. Because there is no true answer to compare with, the groups are a **suggestion**: you judge whether they mean anything.
+:::
+
+Compare with Labs 3 to 5. There the group column existed (diabetes yes or no) and we predicted it. Today we make the column up from the distances.
+
+## Part I: k-means {#part1}
+
+**About an hour.** You choose the number of groups, *k*, and the method finds them. First on the lawn, then on last week's map.
+
+### The idea: three carts in a park {.step}
+
+You run three ice-cream carts on that lawn. Where should they stand so that nobody has to walk far? You would put one in the middle of each group. The method does not know where the groups are, so it has to find those middles. It starts badly on purpose:
+
+```{r}
+#| fig-width: 10
+#| fig-height: 4.6
+side(kmeans_step(2), kmeans_step(3))
+```
+
+**Start:** three random people get a cart next to them (the squares). Two carts have landed in the same group. **Assign:** everyone walks to their nearest cart. The colours are a first guess at the groups, and a poor one.
+
+```{r}
+#| fig-width: 10
+#| fig-height: 4.6
+side(kmeans_step(4), kmeans_step(5))
+```
+
+**Update:** each cart moves to the middle of the people who came to it: the average of their positions, their **mean**. **Assign again:** with the carts in new places, `r n_switch` people (circled) are now nearer to a different cart, and switch.
+
+```{r}
+#| fig-width: 5.2
+#| fig-height: 4.6
+kmeans_step(6) + small_titles
+```
+
+**Update again.** Now nobody wants to switch, so nothing changes any more and the method stops.
+
+```{=html}
+<div class="calc-g">
+  <div><span>Start</span><b>k carts at random spots</b><small>here k = 3</small></div>
+  <div><span>Assign</span><b>everyone to the nearest cart</b></div>
+  <div><span>Update</span><b>each cart to the mean of its customers</b></div>
+  <div class="hl"><span>Repeat</span><b>assign, update … until nobody switches</b></div>
+</div>
+```
+
+::: {.idea}
+That is the whole algorithm: ***k* groups, each described by its mean**, hence k-means. A cart's final spot is called a **centre** (or centroid). Its customers are a **cluster**.
+:::
+
+Two things to notice: **we** chose k = 3, and the start was **random**. Both come back in the next steps.
+
+### The idea: how good is a grouping? {.step}
+
+We need one number that says how well the carts are placed. Measure each person's distance to their cart, square it, and add them all up:
+
+```{r}
+#| fig-width: 10
+#| fig-height: 4.6
+side(wss_step(1), wss_step(2))
+```
+
+Left: the result from the last step. The thin lines are the walks, and the total of their squared lengths is `r big(walk2(fin$cen, fin$cl))`. **A small total means tight groups.** R calls this number `tot.withinss`, short for "total within-cluster sum of squares".
+
+Right: the same lawn and the same k, but a different random start. Two carts share one group and one cart serves two. Nobody wants to switch, so the method stops here too, at `r big(walk2(fin_bad$cen, fin_bad$cl))`. k-means can get **stuck**: it only ever improves on where it started.
+
+The cure is cheap. Run it from many random starts and keep the result with the smallest total. That is what `nstart = 25` does, and it is in every `kmeans()` call in the notebook. Because the starts are random, the notebook also calls `set.seed(123)`, so that everyone gets the same result.
+
+::: {.callout-tip collapse="true" title="Why squared distances?"}
+Squaring punishes long walks more than short ones. It is also the quantity that the mean makes smallest, which is why the update step moves each cart to the mean.
+:::
+
+### The idea: how many groups? The elbow {.step}
+
+On the lawn you could see that k = 3. On real data you cannot. Could we try several values of k and keep the one with the smallest total?
+
+```{r}
+#| fig-width: 10
+#| fig-height: 3.9
+elbow_step(1) & small_titles
+```
+
+```{r}
+#| fig-width: 10
+#| fig-height: 3.9
+elbow_step(3) & small_titles
+```
+
+```{r}
+#| fig-width: 10
+#| fig-height: 3.9
+elbow_step(5) & small_titles
+```
+
+With one cart everyone walks to the middle of the lawn, and the total is huge (`r big(park_wss[1])`). With two and with three carts it falls a lot, because each new cart serves a real group: `r big(park_wss[2])`, then `r big(park_wss[3])`. With four and five it still falls, but only a little (`r big(park_wss[4])`, `r big(park_wss[5])`): the new cart only splits a group of friends in two.
+
+More carts **always** means less walking. With 30 carts the total would be 0: one cart each. So "the smallest total" cannot choose k. Instead, look for the bend in the curve: the last k that still bought a big drop. The curve looks like a bent arm, so this is called the **elbow**. Here it is at 3.
+
+On real data the bend is often soft, and picking it is a judgement.
+
+### The idea: a second opinion, the silhouette {.step}
+
+The elbow looks at the carts. The **silhouette** asks each person: are you clearly in your group, or between two?
+
+```{r}
+#| fig-width: 10
+#| fig-height: 4.6
+side(sil_step(1), sil_step(2))
+```
+
+Take the person marked with a diamond. Left: the lines go to everyone in their own group, on average `r f1(sil_a(p_sure))` m away. Call that **a**. Right: the dashed lines go to the nearest *other* group, on average `r f1(sil_b(p_sure))` m away. Call that **b**.
+
+```{=html}
+<div class="calc-g">
+  <div><span>a · own group</span><b>`r f1(sil_a(p_sure))` m on average</b></div>
+  <div><span>b · next group</span><b>`r f1(sil_b(p_sure))` m on average</b></div>
+  <div class="hl"><span>silhouette</span><b>(b − a) ÷ the larger of the two = `r f2(sil_s(p_sure))`</b></div>
+</div>
+```
+
+- Near **1**: the other group is much farther away than your own. You are clearly in your group.
+- Near **0**: you sit between two groups.
+- **Below 0**: you are probably in the wrong one.
+
+```{r}
+#| fig-width: 10
+#| fig-height: 4.6
+side(sil_step(3), sil_step(4))
+```
+
+Left: the person with the lowest silhouette on the lawn (`r f2(sil_s(p_torn))`) sits at the edge of their group, facing the next one. Right: average everyone's silhouette, and do that for every k. Unlike the elbow curve, this one can go **down** when k is too large: real groups get split, and people end up close to "another" group. So the highest point is the suggestion. It peaks at 3 and agrees with the elbow.
+
+:::: {.quiz}
+You run k-means with k = 6 on some data and the average silhouette is 0.08. What does that suggest?
+
+::: {.opt}
+The six groups are tight and well separated
+
+::: {.fb}
+That would give a value near 1. A value near 0 means the opposite.
+:::
+:::
+
+::: {.opt .right}
+Most points sit between two groups: these six groups are not clearly separated
+
+::: {.fb}
+Yes. On average, a point is hardly closer to its own group than to the next one. Try another k, or accept that the data have no clear groups.
+:::
+:::
+
+::: {.opt}
+k-means got stuck and needs a larger `nstart`
+
+::: {.fb}
+`nstart` guards against a bad random start for a given k. A low silhouette is about the groups themselves, not about the start.
+:::
+:::
+::::
+
+### Meet the data: last week's map {.step}
+
+::: {.doit q="Part 2 · notebook lines 47–57"}
+The chunk at lines 51–55 is empty. Write code that plots `dim_1` on the x-axis and `dim_2` on the y-axis, one point per row of `mca_coords`. Then answer the question at line 49: can you see clusters, and how many?
+:::
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+mca_coords |>
+  ggplot(aes(dim_1, dim_2)) +
+  geom_point(size = 4)
+```
+
+`mca_coords` goes into `ggplot()`, `aes()` says which column goes on which axis, and `geom_point()` draws one dot per row. You can add `+ theme_minimal()` and axis labels, but you do not need them to see the picture.
+:::
+
+::: {.expect}
+```{r}
+#| fig-width: 6.5
+#| fig-height: 4.2
+map_plot()
+```
+:::
+
+**What are the dots?** The table has `r nrow(mca_coords)` rows. Each row is one **answer** from last week's World Values Survey data: 18 questions of the form "is this ever justifiable?", each with two answers.
+
+- `divorce_y` means: rated divorce as **more** justifiable than the typical respondent did.
+- `divorce_n` means: at or below the typical answer.
+
+`dim_1` and `dim_2` are that answer's place on last week's MCA map. Here is the same plot with a few labels, and colour for `_y` (red) and `_n` (blue):
+
+```{r}
+#| fig-width: 6.5
+#| fig-height: 4.2
+map_plot(labelled = TRUE)
+```
+
+Remember how to read the map: two answers are **close** when mostly the same people gave them. So a cluster on this map is a set of answers that **go together**.
+
+::: {.callout-tip collapse="true" title="Compare with our answer"}
+To some extent. There is a tight knot at the bottom left and a looser group at the top right. The other two corners are less clear. Two, three, four and five are all answers people give at this point, which is why the next step uses the elbow and the silhouette.
+:::
+
+### Find k: run the workflow {.step}
+
+::: {.doit q="Part 2 · notebook lines 59–96"}
+Run the chunk. It is complete: nothing to type. Leave the plot on screen for the next step.
+:::
+
+The chunk is the last three ideas written down as code.
+
+::: {.anatomy}
+`eval_kmeans <- function(k) { km <-` [`kmeans(coords, centers = k, nstart = 25)`]{.tok} `; tibble(k = k, tot.withinss =` [`km$tot.withinss`]{.tok}`, silhouette =` [`mean(silhouette(km$cluster, dist_mat)[, "sil_width"])`]{.tok}`) }` &nbsp; [`map(2:10, eval_kmeans)`]{.tok} `|> list_rbind()`
+
+1. **Run k-means** with k carts, from 25 starts, and keep the best.
+2. **The total squared walk** of that run: for the elbow.
+3. **Everyone's silhouette, averaged**: the second opinion.
+4. **Do all of that for k = 2, 3, …, 10** and stack the nine results into one table.
+:::
+
+Before the function, `coords` keeps only the two coordinate columns, and `dist_mat` holds the distances between all pairs of answers, computed once. `kmeans()` returns a list: `km$tot.withinss` and `km$cluster` are two of its parts. The first four of the nine rows:
+
+::: {.expect}
+```{r}
+k_metrics |> mutate(across(-k, ~ round(.x, 2))) |> head(4)
+```
+:::
+
+The rest of the chunk reshapes the table and draws one panel per measure:
+
+::: {.expect}
+```{r}
+#| fig-width: 9
+#| fig-height: 3.6
+k_plot()
+```
+:::
+
+::: {.callout-tip collapse="true" title="Why does it start at k = 2?"}
+A silhouette needs a "next group" to compare with. With one cluster there is none.
+:::
+
+### Your turn: which k? {.step}
+
+::: {.doit q="Discussion · notebook lines 98–100"}
+Look at the two panels. Where is the elbow? Where does the silhouette peak? Write down the k you would pick and why.
+:::
+
+::: {.callout-tip collapse="true" title="Compare with our answer"}
+- **Elbow: 3 or 4.** The total falls from `r f1(km_at(2, "tot.withinss"))` at k = 2 to `r f1(km_at(3, "tot.withinss"))` and `r f1(km_at(4, "tot.withinss"))`, then only to `r f1(km_at(5, "tot.withinss"))`. A soft bend.
+- **Silhouette: 4, just.** `r f2(km_at(4, "silhouette"))` at k = 4 against `r f2(km_at(3, "silhouette"))` at k = 3: nearly a tie. After 4 it falls steadily.
+- **So: 4.** Both measures allow it. But 3 is a defensible answer too. The numbers rule out the bad choices (2, and anything above 5). Between the good ones, what decides is whether the groups **mean something**, and that is the next two steps.
+:::
+
+### Your turn: fit and plot the clusters {.step}
+
+::: {.doit q="Part 2 · notebook lines 102–116"}
+1. At line 107, replace `NA` with your k. To compare with this page, use 4.
+2. At lines 111–114, finish the code: pipe the table into a scatter plot and colour the points by `cluster`.
+:::
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+set.seed(123)
+optimal_k <- 4
+
+final_kmeans <- kmeans(mca_coords[, 1:2], centers = optimal_k, nstart = 25)
+
+mca_coords |>
+  mutate(cluster = as.factor(final_kmeans$cluster)) |>
+  ggplot(aes(dim_1, dim_2, colour = cluster)) +
+  geom_point(size = 4)
+```
+
+- `mca_coords[, 1:2]` keeps the two coordinate columns and leaves the names out.
+- `final_kmeans$cluster` holds `r nrow(mca_coords)` group numbers, one per row, in the order of the table. `mutate()` attaches them as a new column: the column that clustering adds.
+- `as.factor()` turns the numbers into labels, so that each group gets its own colour.
+:::
+
+::: {.callout-tip collapse="true" title="Stuck?"}
+- An error mentioning `centers`: `optimal_k` is still `NA`.
+- A table is printed and no plot appears: the `mutate()` line needs `|>` at its end.
+- All points have one colour: `colour = cluster` goes **inside** `aes()`.
+:::
+
+::: {.expect}
+```{r}
+#| fig-width: 6.5
+#| fig-height: 4.4
+final_plot()
+```
+:::
+
+One colour per cluster, and one cluster per corner of the map. Each has `r paste(unique(final_kmeans$size), collapse = ", ")` answers.
+
+### Your turn: who is in each cluster? {.step}
+
+::: {.doit q="Part 2 · notebook lines 118–130"}
+1. In the empty chunk at lines 122–126, write code that shows which answers are in which cluster.
+2. Then answer line 128: what is in each cluster? Give each one a name. Do the groups make sense?
+:::
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+mca_coords |>
+  mutate(cluster = as.factor(final_kmeans$cluster)) |>
+  arrange(cluster) |>
+  print(n = Inf)
+```
+
+`arrange(cluster)` sorts the rows by group. `print(n = Inf)` shows all rows instead of the first ten.
+:::
+
+::: {.expect}
+```{r}
+with_cluster |> arrange(cluster) |> select(category, cluster, dim_1, dim_2) |> print(n = Inf)
+```
+:::
+
+::: {.callout-important title="The cluster numbers are only labels"}
+On your screen, "1" and "3" may be swapped compared with this page: the numbering depends on the random starts. Always describe a cluster by **what is in it**, never by its number.
+:::
+
+::: {.callout-tip collapse="true" title="Compare with our answer"}
+```{r}
+#| fig-width: 7
+#| fig-height: 4.8
+final_plot(named = TRUE)
+```
+
+There are two kinds of question, and each is split into its two answers:
+
+- **"n" to harm and cheating** (cluster `r cl_of("n_harm")` here, bottom left): stealing, bribes, violence, terrorism are *not* justifiable. Almost everyone gives these answers together, which is why they form a tight knot.
+- **"y" to harm and cheating** (cluster `r cl_of("y_harm")`, top right): the opposite answers to the same questions. They are rare, and more spread out.
+- **"n" to private life** (cluster `r cl_of("n_private")`, top left): divorce, abortion, homosexuality, sex before marriage, euthanasia rated as less justifiable. The socially conservative answers.
+- **"y" to private life** (cluster `r cl_of("y_private")`, bottom right): the same questions rated as more justifiable. The socially liberal answers.
+
+This is last week's reading of the map, found without being told: left against right is n against y (Dim 1), and top against bottom is the kind of question (Dim 2).
+
+**The awkward ones.** Both death-penalty answers sit near the middle of the map and go with nothing strongly. k-means **must** still put them in a group. Keep that in mind for Part II.
+:::
+
+:::: {.quiz}
+A friend runs the same code and says: "My cluster 2 is your cluster 4. One of us has made a mistake." Has anyone?
+
+::: {.opt .right}
+No. The numbers are arbitrary labels; what matters is that the same answers are grouped together
+
+::: {.fb}
+Yes. If the members are the same, the clusterings are the same. The numbers depend on which random start happened to win.
+:::
+:::
+
+::: {.opt}
+Yes: with `set.seed(123)` the numbers must match exactly
+
+::: {.fb}
+The seed makes results repeatable on one setup. Across R versions or machines, the numbering can still differ while the groups stay the same.
+:::
+:::
+
+::: {.opt}
+Yes: cluster 1 is always the largest cluster
+
+::: {.fb}
+The numbers have no order: not by size, not by position.
+:::
+:::
+::::
+
+## Part II: DBSCAN {#part2}
+
+**About 50 minutes.** No k. Groups are crowds, and some points belong to no group.
+
+### The idea: where k-means goes wrong {.step}
+
+::: {.doit q="Read · notebook lines 132–134"}
+Read the four bullet points on how DBSCAN differs, then come back.
+:::
+
+A festival field, seen from above. Which groups do you see?
+
+```{r}
+#| fig-width: 5.2
+#| fig-height: 4.6
+why_step(1) + small_titles
+```
+
+A queue curving round a picnic, and three people on their own. Now let k-means and DBSCAN try:
+
+```{r}
+#| fig-width: 10
+#| fig-height: 4.6
+side(why_step(2), why_step(3))
+```
+
+Left: k-means with k = 2 does its job correctly. It finds the two cart positions with the least walking, and that cuts the queue in half. For k-means, a group is a blob round one centre, and a queue has no centre. The three people on their own are coloured too: k-means has no way to say "none".
+
+Right: what your eye did. A group is where people stand **densely**, whatever its shape. The queue is one group because you can walk along it from person to person without a gap.
+
+::: {.idea}
+**DBSCAN** does what you did. There is no k to choose, a cluster can have any shape, and a point may be left out as **noise**. The price is two other settings: `eps` and `minPts`.
+:::
+
+### The idea: who stands in a crowd? {.step}
+
+DBSCAN works in two steps. The first sorts the people. It needs two settings:
+
+```{=html}
+<div class="calc-g">
+  <div><span>eps</span><b>`r eps_f` m</b><small>a radius: who counts as near you</small></div>
+  <div><span>minPts</span><b>`r min_f`</b><small>a head count: how many make a crowd, yourself included</small></div>
+</div>
+```
+
+Draw a `r eps_f` m circle round a person and count who is inside. Here are three people, with everyone outside their circles faded:
+
+```{r}
+#| fig-width: 10
+#| fig-height: 4.6
+side(core_step(1), core_step(2))
+```
+
+Left: the counts are `r field$n_near[ex_core]` in the picnic, `r field$n_near[ex_border]` at the end of the queue, and `r field$n_near[ex_alone]` (only themselves) for the person on their own. Right: the verdict. `r field$n_near[ex_core]` is `r min_f` or more, so the person in the picnic stands in a crowd: a **core point**, drawn as a solid dot. The other two have fewer, so they are **not core**, drawn as rings.
+
+```{r}
+#| fig-width: 5.2
+#| fig-height: 4.6
+core_step(3) + small_titles
+```
+
+Then everyone gets the same test: one circle and one count per person. Nothing has a colour yet. So far, each person has only answered one question: am I in a crowd?
+
+### The idea: grow a cluster, hop by hop {.step}
+
+The second step grows the clusters, like a message being passed along.
+
+```{r}
+#| fig-width: 10
+#| fig-height: 4.6
+side(grow_step(1), grow_step(2))
+```
+
+**Start** (left): pick any core point, here the diamond in the middle of the queue. Everyone inside its circle gets its colour. The black rings mark who just joined. **Pass it on** (right): the people who just joined are core points themselves, so each draws their own circle, and everyone inside those joins too.
+
+```{r}
+#| fig-width: 10
+#| fig-height: 4.6
+side(grow_step(3), grow_step(4))
+```
+
+**Repeat** (left): the colour moves along the queue in both directions. It follows the shape because the next person is always within reach, not because anyone told it the shape. **Stop** (right), for two reasons that are both on the plot:
+
+- The picnic is `r f1(gap_m)` m from the nearest person in the queue. That is more than `eps`, so no circle reaches it.
+- The people at the ends of the queue were reached, so they join. But with only `r field$n_near[ex_border]` in their circle they are not core, and they pass nothing on. A point like that is called a **border point**.
+
+```{r}
+#| fig-width: 10
+#| fig-height: 4.6
+side(grow_step(5), grow_step(6))
+```
+
+**Next cluster:** there are core points the colour never reached: the picnic. Pick one of them (the new diamond), give it a second colour, and apply the same rule. The finished queue is faded here so you can watch the picnic.
+
+```{r}
+#| fig-width: 5.2
+#| fig-height: 4.6
+grow_step(7) + small_titles
+```
+
+**Noise:** three people were never inside a core point's circle. They belong to no cluster. In R they get the cluster number **0**.
+
+::: {.idea}
+DBSCAN: (1) a point with at least `minPts` points within `eps` is a **core point**; (2) a cluster grows from core point to core point; (3) a point that is reached but is not core joins as a **border point**; (4) whoever is never reached is **noise**. You never said "two clusters". You said what a crowd is, and two crowds were found.
+:::
+
+::: {.callout-tip collapse="true" title="Why do border points not pass the colour on?"}
+Otherwise one person standing between two crowds would glue them into one cluster. Only people who are themselves in a crowd may extend it.
+:::
+
+### Try it: you choose eps and minPts {.step}
+
+This is the same field, and it is live: the two sliders run DBSCAN in your browser.
+
+```{r}
+#| results: asis
+# The simulation is the one on the slides: its code is read from the deck, with a narrower layout for this page.
+sim_start <- which(deck == "<style>" & c(startsWith(deck[-1], ".dbsim {"), FALSE))
+sim_end <- min(which(deck == "```" & seq_along(deck) > sim_start)) - 1
+stopifnot(length(sim_start) == 1, sim_end > sim_start)
+pts <- field |> arrange(match(what, c("queue", "picnic", "alone"))) |>
+  transmute(x = round(x, 2), y = round(y, 2), w = str_sub(what, 1, 1)) |> jsonlite::toJSON()
+cat("```{=html}\n<script>window.dbField = ", pts, ";</script>\n", sep = "")
+cat(deck[sim_start:sim_end], sep = "\n")
+cat("\n<style>\n",
+    ".dbsim { grid-template-columns: 1fr; gap: 16px; margin: 1em 0 1.4em; }\n",
+    ".dbsim svg { width: 100%; max-width: 560px; height: auto; }\n",
+    ".dbsim .side { font-size: 17px; max-width: 560px; }\n",
+    ".dbsim .verdict { min-height: 0; }\n",
+    "</style>\n```\n", sep = "")
+```
+
+::: {.doit q="Play · no notebook needed"}
+1. Click **1 Count**: the circle visits every person, counts, and marks them solid (core) or ring (not core). Then click **2 Grow** and watch the clusters grow. You should get 2 clusters and 3 noise points, as above.
+2. Click a cross, a ring and a solid dot. The label says why each one ended up where it did.
+3. Drag `eps` down to 2 m, then click **2 Grow**. Before you click: what do you expect?
+4. Drag `eps` up to 10 m and grow again. Then try 20 m.
+5. Click **as before**, raise `minPts` to 9, and grow again.
+:::
+
+::: {.callout-tip collapse="true" title="Compare with what we saw"}
+- **`eps` = 2 m:** the circles are too small to hold five people anywhere along the queue. Only a few people in the picnic are core points, and almost everyone else is noise.
+- **`eps` = 10 m:** the circles reach across the gap, and the queue and the picnic merge into one cluster. At 20 m the people on their own start to be swallowed as well.
+- **`minPts` = 9:** the queue is thin. A 6 m circle on the queue never holds nine people, so the whole queue turns into noise and only the picnic is left.
+
+`eps` decides how far the colour can jump. `minPts` decides how dense a crowd must be before it may pass the colour on. Too strict gives noise; too loose gives one big cluster.
+:::
+
+:::: {.quiz}
+With `eps` = 6 m and `minPts` = 5, a person has 3 people inside their circle (themselves included). One of the three is a core point of the red cluster. What is this person?
+
+::: {.opt}
+A core point of the red cluster
+
+::: {.fb}
+Core needs 5 or more inside your own circle. This person has 3.
+:::
+:::
+
+::: {.opt .right}
+A border point: red, but they pass nothing on
+
+::: {.fb}
+Yes. They are within reach of a core point, so they join its cluster. They are not core themselves, so the cluster does not grow through them.
+:::
+:::
+
+::: {.opt}
+Noise
+
+::: {.fb}
+Noise means not core **and** not within reach of any core point. This person is within reach of one.
+:::
+:::
+::::
+
+### Run DBSCAN on the map {.step}
+
+::: {.doit q="Task 4 · notebook lines 136–176"}
+Run the chunk at lines 138–145, then the plot chunk at lines 151–176. Both are complete.
+:::
+
+::: {.anatomy}
+`db_result <-` [`dbscan(`]{.tok}[`mca_coords[, 1:2]`]{.tok}`,` [`eps = 0.25`]{.tok}`,` [`minPts = 5`]{.tok}`)`
+
+1. **From the `dbscan` package.** There is no seed: nothing here is random, so you get the same answer every time.
+2. **The two coordinates** of the `r nrow(mca_coords)` answers.
+3. **The radius**, in the units of the map's axes. On the field it was 6 metres; this map is about 2 units wide, so 0.25 is a small circle.
+4. **A crowd**: 5 answers inside the circle, the point itself included.
+:::
+
+::: {.expect}
+```{r}
+cat("Clusters found:", max(db_result$cluster), "\n")
+cat("Noise points:", sum(db_result$cluster == 0), "\n")
+```
+:::
+
+`db_result$cluster` holds one number per answer: 0, 1, 2, 3 or 4. The zeros are the noise points, so **cluster 0 is not a cluster**. `max()` gives the number of clusters because they are numbered 1, 2, 3, …, and `sum(... == 0)` counts the zeros.
+
+The plot chunk splits the table in two, `clustered_points` and `noise_points`, so that the noise can be drawn as crosses. You will use both tables in the next step.
+
+::: {.expect}
+```{r}
+#| fig-width: 6.5
+#| fig-height: 4.6
+db_plot()
+```
+:::
+
+Four clusters, without anyone asking for four: the same four corners as with k-means, minus `r nrow(noise_points)` points.
+
+::: {.doit q="Discussion · notebook lines 147–149"}
+What is meant by a noise point? Write your answer, then try the question below.
+:::
+
+:::: {.quiz}
+DBSCAN reports `r nrow(noise_points)` noise points on the map. What does that mean?
+
+::: {.opt}
+Five rows contain errors and should be deleted from the data
+
+::: {.fb}
+"Noise" is the algorithm's word. These are real answers that real people gave. They just do not go together with a set of other answers.
+:::
+:::
+
+::: {.opt .right}
+Five answers have too few close neighbours to belong to any crowd, with these settings
+
+::: {.fb}
+Yes. A noise point is not a core point and is not within reach of one. That is a statement about density, and it depends on `eps` and `minPts`: change them and other points become noise.
+:::
+:::
+
+::: {.opt}
+Five answers were put in the smallest cluster
+
+::: {.fb}
+Noise points are in no cluster at all. The 0 is a marker, not a group.
+:::
+:::
+
+::: {.opt}
+Five answers that k-means would have put in the wrong cluster
+
+::: {.fb}
+There is no "wrong" cluster to compare with: clustering has no true answer. Noise is defined by DBSCAN's own rule only.
+:::
+:::
+::::
+
+### Your turn: clusters and noise {.step}
+
+::: {.doit q="Part 3 · notebook lines 178–190"}
+1. In the empty chunk at lines 182–186, write code that lists the answers in each cluster, and the noise points.
+2. Then answer line 188: what is in each cluster? Which answers are hard to place?
+:::
+
+::: {.callout-tip collapse="true" title="Show the code"}
+```r
+clustered_points |>
+  arrange(cluster) |>
+  print(n = Inf)
+
+noise_points |>
+  print(n = Inf)
+```
+
+Both tables were made by the plot chunk (lines 153–157). If R says `clustered_points` was not found, run that chunk first.
+:::
+
+::: {.expect}
+```{r}
+noise_points |> select(category, cluster, dim_1, dim_2) |> print(n = Inf)
+```
+:::
+
+::: {.callout-tip collapse="true" title="Compare with our answer"}
+```{r}
+#| fig-width: 7
+#| fig-height: 4.8
+db_plot(label_noise = TRUE)
+```
+
+- **The same four groups** as in Part I: n and y on harm and cheating, n and y on private life. Two methods with different ideas of what a group is agree, and that is a reason to believe the groups. (The cluster numbers differ from the k-means numbers. Compare contents, never numbers.)
+- **Five answers are left out:** both death-penalty answers, `divorce_n`, `avoid_transport_fare_y` and `violence_against_child_y`. They sit between crowds, or at the thin edge of one.
+- **What DBSCAN adds:** clusters **and** the points that fit none. k-means hid these five inside its groups. The death penalty was the awkward item in Part I too; here the method says so itself.
+:::
+
+### Your turn: turn eps {.step}
+
+::: {.doit q="Task 5 · notebook lines 192–232"}
+1. Run the chunk at lines 198–230. It is the same code again with `eps = 0.5`.
+2. Change the number at line 200 to **0.1, 0.2, 0.3 and 0.4**, and rerun the **whole** chunk each time. Note the clusters and noise points.
+3. Answer the four key questions at line 196.
+:::
+
+::: {.callout-tip collapse="true" title="Stuck?"}
+- The plot did not change: rerun the whole chunk, not only the first line.
+- This chunk overwrites `db_result`, `clustered_points` and `noise_points`. If you want the lists from the last step back, run the chunks at lines 138–176 again.
+:::
+
+::: {.expect}
+```{r}
+eps_tab
+```
+
+```{r}
+#| fig-width: 8.4
+#| fig-height: 2.7
+eps_plot()
+```
+:::
+
+::: {.callout-tip collapse="true" title="Compare with our answer"}
+1. **How does `eps` affect the clusters?** It sets how easily points count as neighbours. At 0.1 only the tight knot has five answers inside a circle: `r eps_n(0.1, "clusters")` cluster and `r eps_n(0.1, "noise")` noise points. As `eps` grows, more crowds appear, and then they reach each other and merge.
+2. **What happens to the noise?** It shrinks: `r paste(eps_tab$noise, collapse = ", ")`. At 0.5 nothing is left out, and two clusters remain: every `_n` and every `_y`. That is last week's Dim 1 and nothing else: true, and much less informative than four groups.
+3. **Should all points belong to a cluster?** No. Forcing the death-penalty answers into a group made that group harder to name in Part I. The leftovers are a finding too.
+4. **Which `eps`?** Between 0.2 and 0.3: four readable groups and a handful of noise points. The notebook's 0.25 is in the middle. As with k, the choice is argued, not computed.
+:::
+
+### How do you choose eps and minPts? {.step}
+
+Is there anything better than trying values? There is one plot. Like the elbow, it is read by eye.
+
+**`minPts` first, by thinking.** How small may a group be and still count as a cluster? A common rule of thumb is twice the number of columns you cluster on. We use two coordinates, so 4; the notebook uses 5.
+
+**Then `eps`.** Go back to the field and ask each person: how far away is your `r kth`th-nearest neighbour? (`r kth` neighbours plus yourself is a crowd of `r min_f`.)
+
+```{r}
+#| fig-width: 10
+#| fig-height: 4.6
+side(kd_step(1), kd_step(2))
+```
+
+Left: `r f1(kd_field[ex_core])` m in the picnic, `r f1(kd_field[ex_border])` m at the end of the queue, `r f1(kd_field[ex_alone])` m for the person on their own. Right: all `r nrow(field)` answers, sorted. Everyone standing in a crowd has a short distance, about `r f1(max(kd_field[field$core]))` m or less. Then the curve bends upwards: the ends of the queue, then the three people on their own. An `eps` just above the flat part makes the people in crowds core points and nobody else. **`eps` goes at the bend**: that is our 6 m.
+
+```{r}
+#| fig-width: 5.4
+#| fig-height: 4.2
+kd_step(3) + small_titles
+```
+
+The same plot for the lab map. Real data rarely bend sharply: here the rise is gradual, and anything between 0.2 and 0.3 is defensible. Your results from the last step are the check: across that range DBSCAN always finds `r eps_n(0.3, "clusters")` clusters, and only the number of noise points drifts.
+
+::: {.idea}
+No score picks `eps` for you. The bend suggests a value, a range of values that gives the same clusters reassures, and **you** judge whether the groups mean something.
+:::
+
+::: {.callout-tip collapse="true" title="Go further: draw this plot yourself"}
+It is one line, from the `dbscan` package. It is not in the notebook, so type it into the console:
+
+```r
+kNNdistplot(mca_coords[, 1:2], k = 4)
+```
+
+`k = 4` is `minPts − 1`. You can add `abline(h = 0.25, lty = 2)` to draw a line at the notebook's `eps`.
+:::
+
+## Wrap-up {#wrapup}
+
+### k-means or DBSCAN? {.step}
+
+| | k-means | DBSCAN |
+|---|---|---|
+| **A group is** | The points nearest one centre | A dense crowd, chained point to point |
+| **You choose** | *k*, the number of groups | `eps` and `minPts`: what counts as a crowd |
+| **Shapes** | Round blobs of similar size | Any shape |
+| **Points far from everything** | Forced into a group, and they pull its centre | Left out as noise (cluster 0) |
+| **Random?** | Yes: `set.seed()` and `nstart = 25` | No |
+| **Today** | 4 clusters of 9 answers | 4 clusters and `r nrow(noise_points)` noise points at `eps = 0.25` |
+
+This is the notebook's table (lines 31–34) in plain words. Which one to use depends on the question. If you need exactly three customer segments for three marketing teams, the number is fixed by the use: k-means. If you are looking for unusual bank transactions, the noise points are what you are after: DBSCAN.
+
+::: {.idea}
+Neither result is "right": there is no outcome to check against. Trust groups that **survive a change of method and settings**, and that you can name. And remember that clustering always answers: give k-means random dots and it still returns k groups. Finding clusters is not evidence that groups exist.
+:::
+
+### What you learned {.step}
+
+:::: {.legend}
+::: {.l-idea}
+**Clustering**
+Adds a group column that nobody gave you, using only distances between rows. There is no accuracy: you judge groups by whether they are tight, stable and nameable.
+:::
+::: {.l-idea}
+**k-means**
+The carts in the park: assign everyone to the nearest centre, move each centre to the mean, repeat. `kmeans(x, centers = k, nstart = 25)`, then `$cluster`.
+:::
+::: {.l-idea}
+**Choosing k**
+The elbow (total squared distance, `$tot.withinss`) and the silhouette (is each point clearly in its group?). They narrow the choice; meaning decides.
+:::
+::: {.l-idea}
+**DBSCAN**
+The festival field: core points have `minPts` neighbours within `eps`, clusters grow from core to core, and whoever is left is noise. `dbscan(x, eps = 0.25, minPts = 5)`, with 0 for noise.
+:::
+::::
+
+**One question to take away:** DBSCAN called both death-penalty answers noise; k-means put them into groups. Which would you report, and what would you say about those two answers?
+
+**Further reading**
+
+- [*An Introduction to Statistical Learning*](https://www.statlearning.com), free online: section 12.4 (clustering methods).
+- [The `dbscan` package](https://cran.r-project.org/package=dbscan): its vignette shows the algorithm in pictures, and `kNNdistplot()` for choosing `eps`.
+- [`tidyclust`](https://tidyclust.tidymodels.org): k-means in the tidymodels style of Labs 3 to 5.
+
+### Glossary {#glossary}
+
+Underlined words on this page are explained in this list. Click or tap one anywhere on the page to see what it means and where it was first explained.
+
+::: {.glossary}
+
+| Word | Meaning |
+|---|---|
+| **border point** []{match="border points?"} | In DBSCAN, a point that is within `eps` of a core point but is not core itself. It joins the cluster and passes nothing on |
+| **centre** []{match="centres?;centroids?"} | In k-means, the mean position of a cluster's points: a cart's final spot. Also called a centroid |
+| **cluster** []{match="clusters?"} | A group of rows that a clustering method has put together |
+| **clustering** | Grouping rows that are close to each other, without being told the groups |
+| **core point** []{match="core points?"} | In DBSCAN, a point with at least `minPts` points (itself included) within `eps`: someone standing in a crowd |
+| **DBSCAN** | A clustering method that finds dense crowds of any shape and leaves other points out as noise |
+| **elbow** | The bend in the curve of total squared distance against k: the last k that still bought a big drop |
+| **eps** | DBSCAN's radius: how far away a point may be and still count as a neighbour. In the units of the data |
+| **k-means** | A clustering method that finds k groups by repeating two moves: assign every point to the nearest centre, move every centre to the mean of its points |
+| **minPts** | DBSCAN's head count: how many points within `eps`, the point itself included, make a crowd |
+| **noise point** []{match="noise points?"} | In DBSCAN, a point that is not core and not within reach of a core point. Cluster number 0 in R |
+| **nstart** | How many random starts `kmeans()` tries before keeping the best |
+| **silhouette** []{match="silhouettes?"} | For one point: is it closer to its own cluster than to the next one? Near 1 clearly yes, near 0 between two |
+| **total squared distance** []{match="total squared walk;tot\\.withinss"} | Every point's squared distance to its centre, added up. Small means tight clusters. `tot.withinss` in R |
+| **unsupervised** | Learning without an outcome to predict: looking for structure in the data themselves |
+:::
