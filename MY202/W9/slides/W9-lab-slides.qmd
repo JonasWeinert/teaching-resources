@@ -1,0 +1,1779 @@
+---
+title: "Text as data: from words to predictions"
+subtitle: "MY202 · Lab 9"
+author: "Jonas Weinert"
+institute:
+  - "Department of Methodology"
+  - "London School of Economics and Political Science"
+date: today
+date-format: "D MMMM YYYY"
+footer: "MY202 · Lab 9 · Text as data"
+
+logos:
+  - "../../_extensions/lse/lse-logo.svg"
+
+format:
+  lse-revealjs:
+    embed-resources: true
+    fragments: true
+
+execute:
+  echo: true
+  message: false
+  warning: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+# Every plot of lab data on these slides is the notebook's own chunk (my202-09-lab-student.qmd; the line numbers
+# on the slides refer to it). The data sit next to the notebook in W9/notebooksanddata (git-ignored).
+library("quanteda")
+library("quanteda.textstats")
+library("quanteda.textplots")
+library("textrecipes")
+library("tidyverse")
+library("tidymodels")
+library("vip")
+library("shapviz")
+library("ggraph")
+library("igraph")
+library("patchwork")
+knitr::opts_knit$set(root.dir = "../notebooksanddata")
+options(width = 50, tibble.print_min = 4, tibble.print_max = 4, pillar.max_extra_cols = 0)
+
+theme_slide <- function() {
+  theme_minimal(base_size = 15) +
+    theme(panel.grid.minor = element_blank(), legend.position = "bottom",
+          plot.title = element_text(size = 13.5, face = "bold"), plot.title.position = "plot")
+}
+red <- "#E2001A"; dark <- "#8C0014"; pink <- "#F28A94"; grey <- "#6B6B6B"; navy <- "#1F4E79"; green <- "#1D7A46"
+pct <- function(x, d = 0) paste0(formatC(100 * x, format = "f", digits = d), "%")
+big <- function(x) format(round(x), big.mark = ",")
+f1 <- function(x) formatC(x, format = "f", digits = 1)
+f2 <- function(x) formatC(x, format = "f", digits = 2)
+esc <- function(x) htmltools::htmlEscape(x)
+```
+
+```{r}
+#| label: data
+#| include: false
+# ---- Part I, as in the notebook (student lines 46–52, 65–126). The first chunk is empty in the workbook.
+nhs_reviews <- read_csv("data/NHS-reviews.csv") |> drop_na(review_positive)
+nhs_corpus <- corpus(nhs_reviews, text_field = "review_text")
+tok_clean <- tokens(nhs_corpus, remove_punct = TRUE, remove_symbols = TRUE, remove_numbers = TRUE)
+nhs_tokens <- tok_clean |> tokens_remove(pattern = stopwords("en"))
+dfm_full <- dfm(nhs_tokens)
+nhs_dfm <- dfm_full |> dfm_trim(min_termfreq = 12)
+dfm_stop <- dfm(tok_clean)                               # line 144: what if the stopwords stay in?
+n_class <- table(nhs_reviews$review_positive)
+len <- tibble(ntoken = ntoken(nhs_tokens), positive = docvars(nhs_tokens)$review_positive)
+len_med <- tapply(len$ntoken, len$positive, median)
+stopifnot(nrow(nhs_reviews) == 1986, nfeat(dfm_full) == 7560, nfeat(nhs_dfm) == 1033, len_med[["Negative"]] > 1.5 * len_med[["Positive"]],
+          all(names(topfeatures(dfm_stop, 4)) %in% stopwords("en")), names(topfeatures(nhs_dfm, 1)) == "appointment",
+          all(nhs_reviews$review_positive[nhs_reviews$star_rating >= 3] == "Positive"), all(c("not", "at", "all") %in% stopwords("en")))
+
+# ---- Part II, as in the notebook (student lines 170–179, 189–216)
+positive_lgl <- docvars(nhs_dfm)$review_positive == "Positive"
+tstat <- textstat_keyness(nhs_dfm, target = positive_lgl)
+key <- as_tibble(tstat)
+kw <- function(w, what) key[[what]][key$feature == w]
+side_total <- c(pos = sum(nhs_dfm[positive_lgl, ]), neg = sum(nhs_dfm[!positive_lgl, ]))
+# the keyness slides say: both sides hold about the same number of words, so an unrelated word splits half and half
+stopifnot(abs(side_total[["pos"]] / sum(side_total) - 0.5) < 0.01, key$feature[1] == "thank", key$feature[nrow(key)] == "told",
+          abs(kw("surgery", "chi2")) < 1, kw("thank", "n_target") == 319, kw("thank", "n_reference") == 10)
+nhs_bigram_counts <-
+  nhs_tokens |>
+  tokens_ngrams(n = 2, concatenator = " ") |>
+  dfm() |>
+  textstat_frequency() |>
+  as_tibble() |>
+  select(bigram = feature, n = frequency) |>
+  separate(bigram, into = c("word1", "word2"), sep = " ") |>
+  slice_max(n, n = 60, with_ties = FALSE)
+bg <- function(a, b) nhs_bigram_counts$n[nhs_bigram_counts$word1 == a & nhs_bigram_counts$word2 == b]
+stopifnot(nhs_bigram_counts$word1[1] == "get", nhs_bigram_counts$word2[1] == "appointment", length(bg("face", "face")) == 1)
+
+# ---- Part III, as in the notebook (student lines 228–287). The split chunk (239–243) is empty in the workbook.
+nhs_model_data <-
+  nhs_reviews |>
+  select(review_text, positive = review_positive) |>
+  mutate(positive = as.factor(positive))
+set.seed(123)
+nhs_split <- initial_split(nhs_model_data, prop = 0.75, strata = positive)
+nhs_train <- training(nhs_split)
+nhs_test <- testing(nhs_split)
+nhs_rec <-
+  recipe(positive ~ review_text, data = nhs_train) |>
+  step_tokenize(review_text) |>
+  step_stopwords(review_text, language = "en") |>
+  step_tokenfilter(review_text, min_times = 10) |>
+  step_tfidf(review_text)
+model <-
+  boost_tree(mtry = 0.03, trees = 2000, learn_rate = 0.01) |>
+  set_mode("classification") |>
+  set_engine("xgboost", counts = FALSE)
+set.seed(123)
+nhs_fit <-
+  workflow() |>
+  add_recipe(nhs_rec) |>
+  add_model(model) |>
+  fit(data = nhs_train)
+
+idf <- nhs_fit |> extract_recipe() |> tidy(number = 4) |> select(token, weight)
+nhs_matrix <- nhs_fit |> extract_recipe() |> bake(new_data = nhs_train, all_predictors(), composition = "matrix")
+n_feat <- ncol(nhs_matrix)
+words <- str_remove(colnames(nhs_matrix), "tfidf_review_text_")
+doc_n <- setNames(colSums(nhs_matrix > 0), words)
+idf_w <- function(w) idf$weight[idf$token == w]
+vi_tab <- nhs_fit |> vi() |> mutate(Variable = str_remove(Variable, "tfidf_review_text_"))
+
+# SHAP. The notebook (lines 306–331) hands shapviz() the dense matrix. The model was fitted on a sparse one, in which a word that
+# is absent counts as missing, not as 0, so on the dense matrix the booster predicts something else (see the lesson plan).
+# Here the booster gets the same sparse input as in training; a check below makes sure the pushes add up to the predictions.
+nhs_sparse <- nhs_fit |> extract_recipe() |> bake(new_data = nhs_train, all_predictors(), composition = "dgCMatrix")
+shap <- shapviz(extract_fit_engine(nhs_fit), X_pred = xgboost::xgb.DMatrix(nhs_sparse), X = as.data.frame(nhs_matrix))
+colnames(shap) <- str_remove(colnames(shap), "tfidf\\_review\\_text\\_")
+S <- get_shap_values(shap); base <- get_baseline(shap)
+p_neg_train <- predict(nhs_fit, nhs_train, type = "prob")$.pred_Negative
+shap_rank <- names(sort(colMeans(abs(S)), decreasing = TRUE))
+dense_wrong <- mean((predict(extract_fit_engine(nhs_fit), nhs_matrix) > 0.5) == (nhs_train$positive == "Negative"))
+# positive SHAP = towards "Negative" (R's first level); the pushes plus the start give exactly the workflow's prediction
+stopifnot(n_feat == 100, max(abs(plogis(rowSums(S) + base) - p_neg_train)) < 1e-4, abs(plogis(base) - mean(nhs_train$positive == "Negative")) < 0.01,
+          shap_rank[1] == "thank", setequal(shap_rank[1:5], vi_tab$Variable[1:5]), mean(S[nhs_matrix[, words == "thank"] > 0, "thank"]) < -1,
+          mean(S[nhs_matrix[, words == "told"] > 0, "told"]) > 0.5)
+
+aug_test <- augment(nhs_fit, new_data = nhs_test); aug_train <- augment(nhs_fit, new_data = nhs_train)
+cm <- conf_mat(aug_test, positive, .pred_class)
+f1_scores <-
+  bind_rows(
+    aug_train |> f_meas(truth = positive, estimate = .pred_class) |> mutate(set = "Training"),
+    aug_test |> f_meas(truth = positive, estimate = .pred_class) |> mutate(set = "Testing")
+  ) |>
+  mutate(set = factor(set, levels = c("Training", "Testing")))
+f1_of <- function(s) f1_scores$.estimate[f1_scores$set == s]
+n_wrong <- sum(aug_test$.pred_class != aug_test$positive)
+odd_words <- intersect(c("one", "just", "need", "still", "never"), vi_tab$Variable[1:20])
+stopifnot(length(odd_words) >= 2)
+f1_pos <- f_meas(aug_test, truth = positive, estimate = .pred_class, event_level = "second")$.estimate
+# the last discussion question asks for another model: a lasso logistic regression on the same recipe
+set.seed(123)
+lasso_fit <- workflow() |> add_recipe(nhs_rec) |>
+  add_model(logistic_reg(penalty = 0.01, mixture = 1) |> set_engine("glmnet")) |> fit(data = nhs_train)
+f1_lasso <- augment(lasso_fit, new_data = nhs_test) |> f_meas(truth = positive, estimate = .pred_class) |> pull(.estimate)
+stopifnot(f1_of("Training") > f1_of("Testing") + 0.08, f1_of("Testing") > 0.75, abs(f1_lasso - f1_of("Testing")) < 0.05, levels(nhs_train$positive)[1] == "Negative")
+```
+
+```{r}
+#| label: visuals
+#| include: false
+# ---- The café: six made-up reviews. One example for the bag of words, TF-IDF and the exit question.
+cafe <- tibble(
+  review = c("Great coffee, and the staff are so friendly!", "Friendly staff. The coffee was great.", "I love the cakes and the coffee here.",
+             "The coffee was cold and the staff were rude.", "We had to wait 20 minutes for a cold coffee.", "Rude staff, and a long wait. Never again!"),
+  happy = rep(c("yes", "no"), each = 3))
+cafe_corpus <- corpus(cafe, text_field = "review")
+cafe_raw <- as.list(tokens(cafe_corpus))
+cafe_tokens <- tokens(cafe_corpus, remove_punct = TRUE, remove_symbols = TRUE, remove_numbers = TRUE) |> tokens_remove(pattern = stopwords("en"))
+cafe_dfm <- dfm(cafe_tokens)
+dropped <- function(tok) tolower(tok) %in% stopwords("en") | !str_detect(tok, "[[:alpha:]]")
+cafe_counts <- colSums(cafe_dfm)[order(-colSums(cafe_dfm))]
+# the slides strike out exactly the tokens quanteda drops, and say: coffee is in five of the six reviews
+stopifnot(identical(unname(map(cafe_raw, ~ .x[!dropped(.x)])), unname(as.list(cafe_tokens))), nfeat(cafe_dfm) == 12,
+          sum(cafe_dfm[, "coffee"] > 0) == 5, sum(cafe_dfm[, "rude"] > 0) == 2)
+
+tk <- function(x, cls = "") paste0('<span class="tk ', cls, '">', esc(x), "</span>", collapse = "")
+lab <- function(h, frag = NULL) paste0('<span class="bw-lab ', h, if (is.null(frag)) "" else paste0(' fragment" data-fragment-index="', frag), '">',
+                                       c(yes = "happy", no = "unhappy", q = "?")[h], "</span>")
+# a word that gets a box on a later click (the text itself is there from the start)
+hl <- function(x, words, cls, idx) str_replace_all(x, regex(paste0("\\b(", paste(words, collapse = "|"), ")\\b"), ignore_case = TRUE),
+                                                   paste0('<span class="fragment hlw ', cls, '" data-fragment-index="', idx, '">\\1</span>'))
+# Slide 3: the six reviews bare; click 1 shows the labels, click 2 boxes the words that gave it away, click 3 boxes "coffee"
+read_panel <- function() {
+  rows <- map_chr(1:6, function(i) {
+    txt <- esc(cafe$review[i]) |> hl(c("great", "friendly", "love"), "pos", 2) |> hl(c("cold", "rude", "wait"), "neg", 2) |> hl("coffee", "neu", 3)
+    paste0('<div class="bw-row">', lab(cafe$happy[i], frag = 1), '<div class="bw-body">', txt, "</div></div>")
+  })
+  paste0('<div class="bw"><p class="bw-title">Six reviews of a café (made up)</p>', paste(rows, collapse = ""), "</div>")
+}
+dfm_table <- function(extra = NULL, extra_lab = NULL) {
+  m <- as.matrix(cafe_dfm)[, names(cafe_counts)]
+  cells <- function(v, cls = if_else(v == 0, "z", "nz")) paste0('<td class="', cls, '">', v, "</td>", collapse = "")
+  head_row <- paste0("<tr><th></th>", paste0("<th>", colnames(m), "</th>", collapse = ""), "</tr>")
+  rows <- map_chr(1:6, ~ paste0("<tr><td>", lab(cafe$happy[.x]), "</td>", cells(m[.x, ]), "</tr>"))
+  if (!is.null(extra)) rows <- c(rows, paste0('<tr class="new"><td>', lab(extra_lab), "</td>", if (is.character(extra)) cells(extra, "q") else cells(extra), "</tr>"))
+  paste0('<table class="bw-dfm">', head_row, paste(rows, collapse = ""), "</table>")
+}
+# Slide 6: a seventh review. First the sentence and an empty row, then what the cleaning leaves and the row it gets.
+seventh <- "Not friendly at all."
+sev_raw <- as.list(tokens(seventh))[[1]]
+sev_row <- as.numeric(dfm_match(dfm(tokens(seventh, remove_punct = TRUE) |> tokens_remove(pattern = stopwords("en"))), names(cafe_counts)))
+stopifnot(sum(sev_row) == 1, sev_row[names(cafe_counts) == "friendly"] == 1, sum(!dropped(sev_raw)) == 1)
+seventh_panel <- function(s) {
+  line <- if (s == 1) paste0("“", esc(seventh), "”") else paste(map_chr(sev_raw, ~ tk(.x, if (dropped(.x)) "drop" else "keep")), collapse = "")
+  paste0('<div class="bw"><p class="bw-title">', c("A seventh review arrives", "What is left of it: one word")[s], "</p>",
+         '<div class="bw-row" style="border-bottom:none">', lab(if (s == 1) "q" else "no"), '<div class="bw-body">', line, "</div></div>",
+         dfm_table(if (s == 1) rep("?", length(sev_row)) else sev_row, if (s == 1) "q" else "no"), "</div>")
+}
+bag_panel <- function(s) {
+  title <- c("1 · A corpus: six documents, each with what we know about it",
+             "2 · Tokens: cut every review into pieces",
+             "3 · Clean: drop punctuation, numbers and stopwords",
+             "4 · Count: one row per review, one column per word")[s]
+  if (s == 4) {
+    body <- dfm_table()
+  } else {
+    body <- paste(map_chr(1:6, function(i) {
+      inner <- switch(s, esc(cafe$review[i]), tk(cafe_raw[[i]]),
+                      paste(map_chr(cafe_raw[[i]], ~ tk(.x, if (dropped(.x)) "drop" else "keep")), collapse = ""))
+      paste0('<div class="bw-row">', lab(cafe$happy[i]), '<div class="bw-body">', inner, "</div></div>")
+    }), collapse = "")
+  }
+  paste0('<div class="bw"><p class="bw-title">', title, "</p>", body, "</div>")
+}
+
+# ---- TF-IDF by hand on café review 4, with textrecipes' own numbers
+cafe_rec <- recipe(happy ~ review, data = cafe) |> step_tokenize(review) |> step_stopwords(review) |> step_tfidf(review) |> prep()
+cafe_idf <- tidy(cafe_rec, number = 3)
+cafe_tfidf <- bake(cafe_rec, NULL) |> rename_with(~ str_remove(.x, "tfidf_review_"))
+r4 <- tibble(word = c("coffee", "staff", "cold", "rude")) |>
+  mutate(in_reviews = map_int(word, ~ sum(cafe_dfm[, .x] > 0)), tf = 1 / 4,
+         idf = cafe_idf$weight[match(word, cafe_idf$token)], tfidf = map_dbl(word, ~ cafe_tfidf[[.x]][4]),
+         word = factor(word, levels = rev(word)))
+# the slide's two formulas must be the ones textrecipes uses
+stopifnot(abs(r4$idf - log(1 + 6 / r4$in_reviews)) < 1e-8, abs(r4$tfidf - r4$tf * r4$idf) < 1e-8, r4$tfidf[3] > 1.5 * r4$tfidf[1])
+tfidf_step <- function(s) {
+  d <- r4 |> mutate(value = list(tf, idf, tfidf)[[s]],
+                    label = list(rep("1 of 4 words = 0.25", 4), paste0("in ", in_reviews, " of 6: ", f2(idf)), paste0("0.25 × ", f2(idf), " = ", f2(tfidf)))[[s]])
+  ggplot(d, aes(value, word)) +
+    geom_col(fill = c(grey, navy, red)[s], width = 0.62) +
+    geom_text(aes(label = label), hjust = -0.06, size = 5.2, fontface = "bold", colour = "#1A1A1A") +
+    scale_x_continuous(limits = c(0, c(0.6, 3.6, 0.9)[s]), expand = c(0, 0)) +
+    theme_slide() + theme(panel.grid = element_blank(), axis.text.x = element_blank(), axis.text.y = element_text(size = 17, face = "bold", colour = "#1A1A1A")) +
+    labs(x = NULL, y = NULL, title = c("1 · TF: how much of this review is the word?",
+                                       "2 · IDF: how rare is the word across reviews?",
+                                       "3 · TF × IDF: the number the model gets")[s])
+}
+
+# ---- Keyness by hand, on the lab data: where are a word's uses, against an even split?
+key_words <- c("thank", "friendly", "helpful", "staff", "surgery", "gp", "appointment", "phone", "told")
+key_d <- key |> filter(feature %in% key_words) |> mutate(total = n_target + n_reference, share = n_target / total) |>
+  arrange(share) |> mutate(feature = factor(feature, levels = feature))
+stopifnot(nrow(key_d) == length(key_words))
+key_step <- function(s) {
+  if (s == 4) {
+    return(ggplot(key_d, aes(chi2, feature, fill = chi2 > 0)) +
+      geom_col(width = 0.68, show.legend = FALSE) + geom_vline(xintercept = 0, linewidth = 0.5) +
+      scale_fill_manual(values = c(`TRUE` = navy, `FALSE` = red)) +
+      theme_slide() + theme(panel.grid.major.y = element_blank(), axis.text.y = element_text(size = 15, colour = "#1A1A1A")) +
+      labs(x = "Keyness (chi-squared, with a sign)", y = NULL, title = "4 · Keyness: how surprising is the split, and which way?"))
+  }
+  d <- if (s <= 2) filter(key_d, feature == "thank") else key_d
+  long <- d |> transmute(feature, Positive = if (s == 1) 0.5 else share, Negative = 1 - Positive) |>
+    pivot_longer(-feature, names_to = "side", values_to = "share") |> mutate(side = factor(side, levels = c("Negative", "Positive")))
+  p <- ggplot(long, aes(share, feature, fill = side)) +
+    geom_col(width = if (s <= 2) 0.34 else 0.68, alpha = if (s == 1) 0.45 else 1) +
+    geom_vline(xintercept = 0.5, linetype = "dashed", linewidth = 0.8) +
+    scale_fill_manual(values = c(Positive = navy, Negative = red), breaks = c("Positive", "Negative"), name = "Uses in reviews that are") +
+    scale_x_continuous(labels = scales::percent, expand = c(0, 0)) +
+    theme_slide() + theme(panel.grid = element_blank(), axis.text.y = element_text(size = 15, colour = "#1A1A1A"), plot.margin = margin(5, 18, 5, 5)) +
+    labs(x = "Share of the word's uses", y = NULL,
+         title = c(paste0("1 · If “thank” had nothing to do with mood: ", round(kw("thank", "n_target") + kw("thank", "n_reference")), " uses, half and half"),
+                   paste0("2 · In fact: ", round(kw("thank", "n_target")), " in positive reviews, ", round(kw("thank", "n_reference")), " in negative"),
+                   "3 · The same count for other words")[s])
+  if (s <= 2) p <- p + annotate("label", x = 0.5, y = 1.36, label = "an even split", size = 4.6, fontface = "bold", vjust = 0, label.size = 0)
+  p
+}
+
+# ---- SHAP for one real training review: a start, a push per word, a prediction
+ex <- which(str_detect(nhs_train$review_text, "^Friendly, approachable, they listen"))
+stopifnot(length(ex) == 1)
+ex_present <- words[nhs_matrix[ex, ] > 0]
+ex_push <- S[ex, ex_present][order(-abs(S[ex, ex_present]))]
+ex_rest <- sum(S[ex, setdiff(colnames(S), ex_present)])
+ex_end <- base + sum(S[ex, ])
+# the slide names the four words of this review the model can see, and says the review is positive and predicted positive
+stopifnot(setequal(ex_present, c("friendly", "get", "really", "appointment")), names(ex_push)[1:2] == c("friendly", "get"), ex_push[["friendly"]] < -1,
+          ex_push[["get"]] > 0.8, nhs_train$positive[ex] == "Positive", plogis(ex_end) < 0.3, abs(plogis(ex_end) - p_neg_train[ex]) < 1e-4)
+wf <- tibble(step = c("friendly", "get", "really", "appointment", paste0("the ", n_feat - 4, " absent words")),
+             push = c(ex_push[c("friendly", "get", "really", "appointment")], ex_rest)) |>
+  mutate(from = base + lag(cumsum(push), default = 0), to = base + cumsum(push), row = row_number())
+shap_step <- function(s) {
+  show <- c(0, 1, 2, 5, 5)[s]
+  d <- wf |> filter(row <= show)
+  rows <- c("start", wf$step, "prediction")
+  p <- ggplot() +
+    geom_vline(xintercept = base, colour = grey, linetype = "dashed", linewidth = 0.7) +
+    annotate("point", x = base, y = "start", size = 5.5, colour = "#3A3A3A") +
+    scale_y_discrete(limits = rev(rows)) +
+    scale_x_continuous(limits = qlogis(c(0.04, 0.72)), breaks = qlogis(c(0.05, 0.1, 0.2, 0.38, 0.6)), labels = c("5%", "10%", "20%", "38%", "60%")) +
+    theme_slide() + theme(panel.grid.major.y = element_blank(), axis.text.y = element_text(size = 14, colour = "#1A1A1A")) +
+    labs(x = "Chance that the review is negative", y = NULL,
+         title = c(paste0("1 · Start: ", pct(plogis(base)), " of the training reviews are negative"),
+                   "2 · “friendly” is in the review: a push towards positive",
+                   "3 · “get” is in it too: a push back towards negative",
+                   "4 · The other words, present and absent, push a little",
+                   paste0("5 · Add it all up: ", pct(plogis(ex_end)), " negative, so the model says positive"))[s])
+  if (show > 0) p <- p +
+    geom_segment(data = d, aes(x = from, xend = to, y = step, yend = step, colour = push > 0), linewidth = 4.2,
+                 arrow = arrow(length = unit(0.1, "in"), type = "closed"), linejoin = "mitre", show.legend = FALSE) +
+    geom_text(data = d, aes(x = pmax(from, to) + 0.2, y = step, label = formatC(push, format = "f", digits = 2, flag = "+")), hjust = 0, size = 4.4, fontface = "bold") +
+    scale_colour_manual(values = c(`TRUE` = red, `FALSE` = navy))
+  if (s == 5) p <- p + annotate("point", x = ex_end, y = "prediction", size = 6.5, shape = 23, fill = "white", colour = "black", stroke = 1.8) +
+    annotate("label", x = ex_end + 0.14, y = "prediction", label = pct(plogis(ex_end)), hjust = 0, size = 4.6, label.size = 0, fontface = "bold")
+  p
+}
+
+# ---- The notebook's plots (same code as the student workbook, larger text for the room)
+stars_plot <- function(coloured = TRUE) {
+  nhs_reviews |> count(star_rating, review_positive) |>
+    ggplot(aes(factor(star_rating), n, fill = review_positive)) +
+    geom_col(width = 0.7) + geom_text(aes(label = n), vjust = -0.4, size = 4.6) +
+    scale_fill_manual(values = if (coloured) c(Positive = navy, Negative = red) else c(Positive = "#9A9A9A", Negative = "#9A9A9A"),
+                      name = "review_positive", guide = if (coloured) "legend" else guide_legend(override.aes = list(alpha = 0), theme = theme(legend.text = element_text(colour = "white"), legend.title = element_text(colour = "white")))) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.22))) +
+    theme_slide() + theme(panel.grid.major.x = element_blank()) + labs(x = "star_rating", y = "Reviews")
+}
+top_plot <- function() {
+  tibble(word = names(topfeatures(nhs_dfm, 12)), n = topfeatures(nhs_dfm, 12)) |>
+    ggplot(aes(n, fct_reorder(word, n))) + geom_col(fill = navy, width = 0.7) +
+    theme_slide() + theme(panel.grid.major.y = element_blank()) + labs(x = "Uses in all reviews", y = NULL, title = "The 12 most used words in the DFM")
+}
+length_plot <- function() {
+  len |>
+    ggplot(aes(ntoken, fill = positive)) +
+    geom_density(alpha = 0.5) +
+    scale_fill_manual(values = c(Positive = navy, Negative = red)) +
+    theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank(), legend.position = "bottom") +
+    labs(x = "Tokens in the review (stopwords removed)", y = "Density", fill = NULL)
+}
+bigram_plot <- function() {
+  set.seed(5)
+  nhs_bigram_counts |>
+    graph_from_data_frame() |>
+    ggraph(layout = "fr") +
+    geom_edge_link(aes(edge_alpha = n, edge_width = n), colour = "grey40",
+                   arrow = grid::arrow(type = "closed", length = unit(2, "mm")), end_cap = circle(2, "mm"), show.legend = FALSE) +
+    geom_node_point(colour = "#00468B", size = 3) +
+    geom_node_text(aes(label = name), repel = TRUE, size = 3.9) +
+    scale_edge_width(range = c(0.3, 2)) +
+    theme_void()
+}
+vip_plot <- function() {
+  vi_tab |>
+    slice_max(Importance, n = 20) |>
+    mutate(Variable = fct_reorder(Variable, Importance)) |>
+    ggplot(aes(Importance, Variable)) +
+    geom_col(fill = navy) +
+    theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank(), panel.grid.major.y = element_blank()) +
+    labs(y = NULL)
+}
+shap_plot <- function(n = 15) {
+  sv_importance(shap, kind = "both", show_numbers = TRUE, max_display = n) +
+    theme_minimal(base_size = 14) +
+    theme(panel.grid.minor = element_blank(), panel.grid.major.y = element_blank()) +
+    labs(x = "SHAP value")
+}
+f1_plot <- function() {
+  f1_scores |>
+    ggplot(aes(set, .estimate, fill = set)) +
+    geom_col(width = 0.6, show.legend = FALSE) +
+    geom_text(aes(label = round(.estimate, 2)), vjust = -0.5, size = 5) +
+    scale_y_continuous(limits = c(0, 1), expand = expansion(mult = c(0, 0.08))) +
+    ggsci::scale_fill_lancet() +
+    theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank(), panel.grid.major.x = element_blank()) +
+    labs(x = NULL, y = "F1-score")
+}
+```
+
+## Lab overview
+
+```{=html}
+<style>
+.bw { background: #fff; width: 100%; min-height: 392px; text-align: left; }
+.bw-title { font-family: "Montserrat", sans-serif; font-weight: 700; font-size: 0.56em; margin: 0 0 6px; color: #1A1A1A; }
+.bw-row { display: flex; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid #E8E8E8; font-size: 0.56em; line-height: 1.45; min-height: 44px; }
+.bw-lab { display: inline-block; flex: 0 0 5.4em; width: 5.4em; text-align: center; font-family: "Montserrat", sans-serif; font-weight: 700; font-size: 0.8em; border-radius: 6px; padding: 2px 0; color: #fff; }
+.bw-lab.yes { background: #1F4E79; } .bw-lab.no { background: #E2001A; }
+.tk { display: inline-block; border: 1.5px solid #C4C4C4; border-radius: 6px; padding: 0 6px; margin: 2px; background: #FAFAFA; }
+.tk.drop { opacity: 0.38; text-decoration: line-through; border-style: dashed; }
+.tk.keep { border-color: #1F4E79; background: #EAF1F8; font-weight: 700; }
+.reveal table.bw-dfm { border-collapse: collapse; font-size: 0.47em; margin: 4px 0 0; width: 100%; }
+.reveal table.bw-dfm th { font-family: "Montserrat", sans-serif; font-weight: 700; padding: 4px 3px; border-bottom: 2px solid #1A1A1A; text-align: center; }
+.reveal table.bw-dfm td { padding: 6px 3px; text-align: center; border-bottom: 1px solid #E8E8E8; font-weight: 700; }
+.reveal table.bw-dfm td.z { color: #C9C9C9; font-weight: 400; }
+.reveal table.bw-dfm td.nz { background: #EAF1F8; color: #1F4E79; }
+.quote { font-size: 0.62em; line-height: 1.45; background: #F7F7F7; border-left: 4px solid #6B6B6B; border-radius: 0 8px 8px 0; padding: 8px 14px; margin: 0 0 0.5em; }
+.quote b { background: #EAF1F8; border: 1.5px solid #1F4E79; border-radius: 5px; padding: 0 4px; }
+.bw-lab.q { background: #9A9A9A; }
+.reveal table.bw-dfm tr.new td { border-top: 2px solid #1A1A1A; }
+.reveal table.bw-dfm td.q { color: #6B6B6B; }
+.reveal .slides section .fragment.hlw { opacity: 1; visibility: inherit; border: 1.5px solid transparent; border-radius: 5px; padding: 0 2px; transition: none; }
+.reveal .slides section .fragment.hlw.visible.pos { background: #EAF1F8; border-color: #1F4E79; }
+.reveal .slides section .fragment.hlw.visible.neg { background: #FDECEE; border-color: #E2001A; }
+.reveal .slides section .fragment.hlw.visible.neu { background: #F2F2F2; border-color: #6B6B6B; border-style: dashed; }
+</style>
+```
+
+::: {.small-table}
+| Part | Topic | Notebook | Mode | Time |
+|---|---|---|---|---|
+| | Setup, and how a model can use text at all | lines 20–63 | together | 6 min |
+| I | **Text to a table**: corpus, tokens, document-feature matrix | lines 65–164 | concept → run together → your turn | 32 min |
+| II | **Which words tell them apart?** Keyness and word pairs | lines 166–224 | concept → run together | 12 min |
+| III | **Predict and explain**: TF-IDF, boosted trees, importance and SHAP | lines 226–388 | concept → run together → your turn | 35 min |
+| | Wrap-up | | | 4 min |
+:::
+
+::: {.source-note}
+So far every column was a number or a category. Today the data are `r big(nrow(nhs_reviews))` **reviews of GP practices**, written in plain English. Step one is new: turn text into columns. Step two is Lab 5 again: a split, a recipe, boosted trees.
+:::
+
+::: {.notes}
+Timing (90 minutes): 89 planned, 1 spare. Overview and setup 3, can a model read 3; Part I 32 (the café in four steps 5, what the table forgets 2, the data 4, corpus and tokens 4, the DFM 4, your turn A 8 + answers 5); Part II 12 (keyness by hand 4, the keyness plot 4, word pairs 4); Part III 35 (TF-IDF 4, split and recipe 5, model and fit 3, SHAP for one review 4, the SHAP question 1½, your turn B 9 + answers 8); wrap-up 3, feedback 1. Checkpoints: data loaded by 0:13, your turn A starts by 0:25, Part II starts by 0:38, Part III by 0:50, your turn B starts by 1:08. If behind, skip in this order: the SHAP MCQ (1½), "what the table forgets" (2, say it in a sentence on the café slide), the word-pair network's discussion (2), then shorten your turn A from 8 to 6.
+
+- Open the Week 9 student workbook on Nuvolos and run the library chunk (lines 30–43) now. `quanteda` (three packages), `textrecipes`, `shapviz` and `ggraph` are new: if any fails to load, say so now.
+- The notebook is titled "Natural Language Processing, Part 1". Next week continues with text.
+- Nothing today is slow: the model fits in about a second.
+:::
+
+## Can a model read?
+
+```{=html}
+<div class="tracker"><span class="on">Text as data</span><span>I · Text to table</span><span>II · Which words?</span><span>III · Predict, explain</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="56%"}
+```{r}
+#| echo: false
+#| results: asis
+cat(read_panel())
+```
+:::
+
+::: {.column width="44%"}
+::: {.ask style="font-size:0.75em"}
+Which customers were happy?
+:::
+
+::: {.fragment fragment-index=1}
+::: {.ask style="font-size:0.75em"}
+How did you know?
+:::
+:::
+
+::: {.fragment fragment-index=2}
+::: {.card .compact}
+[You looked for words]{.ct}
+Some words are only in happy reviews, others only in unhappy ones.
+:::
+:::
+
+::: {.fragment fragment-index=3}
+::: {.card .compact .line}
+[And you ignored *coffee*]{.ct}
+It is in five of the six reviews, so it tells you nothing.
+:::
+:::
+
+::: {.fragment fragment-index=4}
+::: {.card .compact .dark}
+[So: one column per word]{.ct}
+A model needs numbers. Count each word in each review: a **bag of words**.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 3 minutes. Four clicks; nothing on the slide gives the answer before the room has given it.
+
+- Six reviews, no labels. Ask who was happy and take a show of hands review by review. Nobody hesitates.
+- Click: the labels. Everyone was right. Now the real question: how did you know? Let them name words.
+- Click: the words they named get a box. Blue ones are only in happy reviews, red ones only in unhappy ones.
+- Click: and "coffee"? It is in five of the six reviews, on both sides. You skipped it without noticing. Keep that for Part III.
+- Click: `lm()`, `logistic_reg()`, `boost_tree()`, `kmeans()` all took columns of numbers. If words carry the information, give the model a column per word and a count per cell. "Bag" because the words are thrown in without their order. The next slide does it step by step.
+:::
+
+# Text to a table {.divider background-color="#8C0014"}
+
+::: {.kicker}
+Part I
+:::
+
+Corpus · tokens · document-feature matrix
+
+## From six reviews to a table, in four steps
+
+```{=html}
+<div class="tracker"><span class="done">Text as data</span><span class="on">I · Text to table</span><span>II · Which words?</span><span>III · Predict, explain</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="60%"}
+::: {.r-stack}
+```{r}
+#| echo: false
+#| results: asis
+cat(bag_panel(1))
+cat('<div class="fragment" data-fragment-index="1">', bag_panel(2), "</div>")
+cat('<div class="fragment" data-fragment-index="2">', bag_panel(3), "</div>")
+cat('<div class="fragment" data-fragment-index="3">', bag_panel(4), "</div>")
+```
+:::
+:::
+
+::: {.column width="40%"}
+```{=html}
+<div class="calc sm">
+  <div><span class="cl">Corpus</span><span class="cx">the texts and their labels</span></div>
+  <div class="fragment" data-fragment-index="1"><span class="cl">Tokens</span><span class="cx">words, numbers, punctuation</span></div>
+  <div class="fragment" data-fragment-index="2"><span class="cl">Clean</span><span class="cx">keep what carries meaning <small>stopwords: the, and, was, a …</small></span></div>
+  <div class="fragment hl" data-fragment-index="3"><span class="cl">DFM</span><span class="cx">document-feature matrix</span></div>
+</div>
+```
+
+::: {.fragment fragment-index=3}
+::: {.card .compact .dark}
+[Now it is a table]{.ct}
+`r nrow(cafe)` rows, `r nfeat(cafe_dfm)` columns, mostly zeros. *Rude* and *rude* share a column.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 5 minutes. The picture to remember from Part I. Each click is one function in the notebook.
+
+- A corpus is a collection of documents: here six reviews. Each document can carry extra columns: here whether the customer was happy. quanteda calls those document variables, `docvars`.
+- Click: cut each review into tokens. A token is a word, a number or a punctuation mark. "20" is a token; so is the full stop.
+- Click: throw away what carries no meaning for our question. Punctuation and numbers go. So do the stopwords: a fixed list of `r length(stopwords("en"))` very common English words. What is left (dark boxes) is short: "coffee cold staff rude".
+- Click: count. One row per review, one column per word that survived, the count in the cell. Read review 4 across: coffee 1, staff 1, cold 1, rude 1, everything else 0.
+- The columns are called features, as in every lab since Lab 3: hence "document-feature matrix".
+- Look down the columns: "great" and "friendly" only have counts in happy rows; "cold", "rude" and "wait" only in unhappy rows; "coffee" in nearly all. A model can work with that.
+:::
+
+## What the table forgets
+
+```{=html}
+<div class="tracker"><span class="done">Text as data</span><span class="on">I · Text to table</span><span>II · Which words?</span><span>III · Predict, explain</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="58%"}
+::: {.r-stack}
+```{r}
+#| echo: false
+#| results: asis
+cat(seventh_panel(1))
+cat('<div class="fragment" data-fragment-index="1">', seventh_panel(2), "</div>")
+```
+:::
+:::
+
+::: {.column width="42%"}
+::: {.ask style="font-size:0.75em"}
+Fill in its row. Which columns get a 1?
+:::
+
+::: {.fragment fragment-index=1}
+::: {.card .compact}
+[Only *friendly*]{.ct}
+*not*, *at* and *all* are stopwords. The row looks like a happy customer's.
+:::
+:::
+
+::: {.fragment fragment-index=2}
+::: {.card .compact .line}
+[The order is gone too]{.ct}
+"Rude staff, great coffee" and "great staff, rude coffee": the same row. Hence **bag**.
+:::
+:::
+
+::: {.fragment fragment-index=3}
+::: {.card .compact .dark}
+[Every step was a choice]{.ct}
+Which stopwords, which symbols, which words to keep: you decide, and it changes the result.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 2 minutes. Second item to skip if behind: then say the first card on the previous slide.
+
+- A new review comes in: "Not friendly at all." Its row is full of question marks. Ask the room to fill it in. Most will say "not" and "friendly".
+- Click: run it through the same four steps. "Not", "at" and "all" are all on the stopword list and are struck out. One word is left, and the row has a single 1, under "friendly". Compare with the rows above: it looks like the two happiest reviews.
+- This is the price of the method. It works surprisingly well anyway, because most reviews say the same thing several times in different words. Part II looks at pairs of words, which brings a little of the order back.
+- Click: even without stopwords the order is lost: who was rude and what was great cannot be told from the counts.
+- Click: the notebook's note at line 113 makes the same point about gender pronouns: they are on the stopword list, which is fine here and wrong for a study of gender. Cleaning is part of the analysis, not something that happens before it.
+:::
+
+## The data: reviews of GP practices
+
+```{=html}
+<div class="tracker"><span class="done">Text as data</span><span class="on">I · Text to table</span><span>II · Which words?</span><span>III · Predict, explain</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 46–63 <span>"create a tibble called nhs_reviews": the chunk is empty</span><i>code together</i></p>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="52%"}
+::: {.anatomy}
+```{=html}
+<p class="anat-code" style="font-size:0.56em"><span class="tok">nhs_reviews &lt;-</span>
+  <span class="tok">read_csv(</span><span class="tok">"data/NHS-reviews.csv"</span>) <span class="tok">|&gt;</span>
+  <span class="tok">drop_na(</span><span class="tok">review_positive</span>)</p>
+```
+
+1. **Keep the result** under this name.
+2. **Read a CSV file** into a tibble.
+3. **Where the file is**: in the `data` folder.
+4. **The pipe**: pass it on.
+5. **Drop rows** with a missing value …
+6. … **in this column**: the outcome.
+:::
+
+:::
+
+::: {.column width="48%"}
+::: {.r-stack}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 2.7
+stars_plot(coloured = FALSE)
+```
+
+::: {.fragment fragment-index=1}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 2.7
+stars_plot()
+```
+:::
+:::
+
+::: {.ask style="font-size:0.72em"}
+Which of these are "positive" reviews?
+:::
+
+::: {.fragment fragment-index=1}
+::: {.card .compact .dark}
+[`review_positive`: the outcome]{.ct}
+Made from the stars: 1 or 2 is negative (`r n_class[["Negative"]]`), 3 to 5 positive (`r big(n_class[["Positive"]])`). We predict it **from the words alone**.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 4 minutes. Type the three lines together (lines 50–52 are empty in the workbook), then look at the table.
+
+- `read_csv()` and `drop_na()` are from Lab 1. Here `drop_na()` removes nothing: no review is missing its label. It is in the instructions, so we type it.
+- Six columns: the title, the text, the stars, positive or negative, the date, and whether the practice replied. Today only `review_text` and `review_positive` matter.
+- Read one review aloud from the screen: `nhs_reviews$review_text[4]`. Typos, capitals, missing spaces: this is what real text looks like.
+- The bars are the star ratings. Ask where they would draw the line between a positive and a negative review. Expect an argument about three stars.
+- Click: the data set draws it between 2 and 3. So a three-star "it was fine, but …" review counts as positive: `r sum(nhs_reviews$star_rating == 3)` of them. Worth remembering when the model gets some reviews wrong.
+- Note for tutors: the sentence after the chunk (line 54) prints the number of columns, 6, where it means the number of reviews.
+:::
+
+## Corpus, then tokens
+
+```{=html}
+<div class="tracker"><span class="done">Text as data</span><span class="on">I · Text to table</span><span>II · Which words?</span><span>III · Predict, explain</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 65–113 <span>"Introducing quanteda": given, ready to run</span><i>run together</i></p>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="56%"}
+::: {.anatomy}
+```{=html}
+<p class="anat-code" style="font-size:0.5em">nhs_corpus &lt;- <span class="tok">corpus(nhs_reviews,</span> <span class="tok">text_field = "review_text"</span>)
+
+nhs_tokens &lt;-
+  <span class="tok">tokens(nhs_corpus,</span>
+    <span class="tok">remove_punct = TRUE</span>,
+    <span class="tok">remove_symbols = TRUE</span>,
+    <span class="tok">remove_numbers = TRUE</span>) |&gt;
+  <span class="tok">tokens_remove(</span><span class="tok">pattern = stopwords("en")</span>)</p>
+```
+
+1. **Make a corpus.**
+2. **The text column.**
+3. **Cut into tokens.**
+4. **Drop** `.` `,` `!` `?`
+5. **Drop** `&` `£` `+` and emoji.
+6. **Drop** `20`, `111`, `2021`.
+7. **Then take out** …
+8. … **the `r length(stopwords("en"))` stopwords.**
+:::
+:::
+
+::: {.column width="44%"}
+[Review 3, cut into tokens]{style="display:block;font-size:0.55em;font-weight:700;margin-bottom:4px"}
+
+::: {.r-stack}
+```{r}
+#| echo: false
+#| results: asis
+r3 <- as.list(tokens(nhs_corpus[3]))[[1]]
+stopifnot(identical(r3[!dropped(r3)], as.list(nhs_tokens[3])[[1]]))
+box <- 'style="font-size:0.5em;line-height:1.5;background:#fff;text-align:left;width:100%;min-height:118px"'
+cat("<div", box, ">", paste(map_chr(r3, ~ tk(.x, "keep")), collapse = ""), "</div>")
+cat('<div class="fragment" data-fragment-index="1"', box, ">", paste(map_chr(r3, ~ tk(.x, if (dropped(.x)) "drop" else "keep")), collapse = ""), "</div>")
+```
+:::
+
+::: {.ask style="font-size:0.72em"}
+Which of these tokens will survive?
+:::
+
+::: {.fragment fragment-index=1}
+::: {.card .compact .dark style="margin-top:0.5em"}
+[`r big(sum(ntoken(tokens(nhs_corpus))))` tokens → `r big(sum(ntoken(nhs_tokens)))`]{.ct}
+More than half of everything written is punctuation or a stopword.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 4 minutes. Run lines 71–76, 80–86 and 96–109 together. Nothing to type.
+
+- `corpus()` is step 1 of the café slide. Printing `nhs_corpus` shows the first few reviews. The other five columns travel with the texts: lines 80–86 print them with `docvars()`. We use them again for the colours in the exercise and for the keyness plot.
+- `tokens()` is steps 2 and 3. The three `remove_` arguments do the cleaning while cutting. `tokens_remove()` then takes out every token on a list; `stopwords("en")` is that list. Type `stopwords("en")` in the console to see it.
+- On the right: the third review, cut into tokens by a bare `tokens()`. Ask which tokens the rest of the chunk will remove. Click: struck out is what goes, and what the model keeps is "always extremely good experience surgery GP's Practice Manager Nurses Receptionists helpful professional". Still readable.
+- The teaching moment at line 92: n-grams (pairs of words) come back in Part II; stemming (treating "appointment" and "appointments" as one word) is not used today, which is why both appear in the plots.
+:::
+
+## The document-feature matrix
+
+```{=html}
+<div class="tracker"><span class="done">Text as data</span><span class="on">I · Text to table</span><span>II · Which words?</span><span>III · Predict, explain</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 115–142 <span>the DFM, and the whole pipeline in one chunk</span><i>run together</i></p>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="50%"}
+::: {.anatomy .one}
+```{=html}
+<p class="anat-code" style="font-size:0.6em">nhs_dfm &lt;-
+  nhs_tokens |&gt;
+  <span class="tok">dfm()</span> |&gt;
+  <span class="tok">dfm_trim(</span><span class="tok">min_termfreq = 12</span>)</p>
+```
+
+1. **Count**: one row per review, one column per word, lower case.
+2. **Trim** the columns.
+3. **Keep a word only if** it is used at least 12 times in all reviews together.
+:::
+
+```{=html}
+<div class="calc sm" style="margin-top:0.5em">
+  <div><span class="cl">After dfm()</span><span class="cx">`r big(nrow(nhs_reviews))` rows × `r big(nfeat(dfm_full))` columns</span></div>
+  <div><span class="cl">Used once</span><span class="cx">`r big(sum(colSums(dfm_full) == 1))` of the words <small>plesant, explination …</small></span></div>
+  <div class="hl"><span class="cl">After trim</span><span class="cx">`r big(nrow(nhs_reviews))` rows × `r big(nfeat(nhs_dfm))` columns</span></div>
+</div>
+```
+:::
+
+::: {.column width="50%"}
+```{r}
+#| echo: false
+#| fig-width: 5.6
+#| fig-height: 3.3
+top_plot()
+```
+
+::: {.card .compact .dark}
+[Why trim?]{.ct}
+A word used once cannot tell us anything about **other** reviews. And `r pct(sparsity(nhs_dfm))` of the cells are still 0.
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 4 minutes. Run lines 117–126.
+
+- `dfm()` is step 4 of the café slide: the count table. It also turns everything into lower case.
+- Without trimming there are `r big(nfeat(dfm_full))` columns for `r big(nrow(nhs_reviews))` rows: more columns than rows, and half of the words appear exactly once, many of them typos. A column with a single 1 in it is useless for prediction: it only identifies one review.
+- `dfm_trim(min_termfreq = 12)` keeps the `r big(nfeat(nhs_dfm))` words used at least 12 times. The text under the chunk talks about a threshold of 10, which gives `r big(nfeat(dfm_trim(dfm_full, min_termfreq = 10)))`; the chunk says 12. Anything near there is fine.
+- The chunk at lines 130–140 is the same four steps in one pipe (`eval=FALSE`: it is there to read, not to run).
+- The plot: the most used words. Appointments, the surgery, getting something, the phone. Ask what kind of reviews these will be. The word cloud in the exercise shows the same counts.
+:::
+
+## Your turn A: look at the words {.yourturn}
+
+```{=html}
+<div class="timer" data-minutes="8"></div>
+```
+
+:::: {.yt}
+
+::: {.tasks}
+[Part I · lines 144–164 · in pairs]{.lbl}
+
+1. **Lines 148–152:** run the word cloud. What are these reviews about?
+2. **Line 144:** in the token chunk, delete `|> tokens_remove(pattern = stopwords("en"))`. Rerun lines 96–126 and the cloud. What do you see now?
+3. **Put the line back** and rerun lines 96–126.
+4. **Lines 156–164:** pipe the tibble into a plot that compares the number of tokens in positive and negative reviews.
+5. Which reviews are longer? Why might that be?
+:::
+
+::: {.cheat}
+[Syntax you need]{.lbl}
+
+```r
+textplot_wordcloud(nhs_dfm)      # bigger = more frequent
+
+tibble(
+  ntoken = ntoken(nhs_tokens),   # tokens per review
+  positive = docvars(nhs_tokens)$review_positive
+) |>
+  ggplot(aes(x = ___, fill = ___)) +
+  geom_density(alpha = 0.5)      # alpha: see-through
+```
+
+::: {.hints}
+- `ntoken()`: how many tokens each review has
+- `docvars(...)$review_positive`: the label of each review
+- `fill = ` a column: one colour per group
+- A box plot works too: `aes(positive, ntoken)` + `geom_boxplot()`
+:::
+
+::: {.stuck}
+**Stuck?**
+
+- Cloud unchanged in task 2: rerun the DFM chunk (117–126) as well
+- `|>` error: the pipe goes at the **end** of the line before `ggplot(`
+:::
+:::
+
+::::
+
+::: {.notes}
+Your turn, 8 minutes (6 if behind). Click the timer (or press T).
+
+- Task 2 needs three chunks rerun in order: tokens, DFM, cloud. The usual mistake is rerunning only the cloud.
+- Task 3 matters: if the stopwords stay in, everything in Part II is about "the" and "to".
+- The word cloud prints warnings that some words could not be fitted on the page. Harmless.
+- Task 4: the notebook's own comment asks for "a ggplot that shows the difference in word count". A density, a histogram or a box plot are all fine.
+- Fast finishers: `topfeatures(nhs_dfm, 20)` gives the counts behind the cloud; `kwic(nhs_tokens, "told", window = 3)` shows a word in its context.
+:::
+
+## Answers A: the word cloud {.solution}
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="33%"}
+```{r}
+#| echo: false
+#| fig-width: 4
+#| fig-height: 4
+par(mar = c(0, 0, 0, 0))
+set.seed(1)
+textplot_wordcloud(nhs_dfm, max_words = 70, min_size = 1.1, max_size = 7)
+```
+
+[Stopwords removed]{style="display:block;text-align:center;font-size:0.55em;font-weight:700"}
+:::
+
+::: {.column width="33%"}
+::: {.fragment fragment-index=1}
+```{r}
+#| echo: false
+#| fig-width: 4
+#| fig-height: 4
+par(mar = c(0, 0, 0, 0))
+set.seed(1)
+textplot_wordcloud(dfm_trim(dfm_stop, min_termfreq = 12), max_words = 70, min_size = 1.1, max_size = 7)
+```
+
+[Stopwords left in]{style="display:block;text-align:center;font-size:0.55em;font-weight:700"}
+:::
+:::
+
+::: {.column width="34%"}
+::: {.card .compact}
+[What the reviews are about]{.ct}
+Getting an **appointment**, the **phone**, the **staff**, the **doctor**. Not medicine: access and service.
+:::
+
+::: {.fragment fragment-index=1}
+::: {.card .compact .line}
+[With stopwords]{.ct}
+*the* `r big(topfeatures(dfm_stop)[["the"]])`, *to* `r big(topfeatures(dfm_stop)[["to"]])`, *and* `r big(topfeatures(dfm_stop)[["and"]])` times. *appointment*: `r big(topfeatures(nhs_dfm)[["appointment"]])`. The topic drowns.
+:::
+:::
+
+::: {.fragment fragment-index=2}
+::: {.card .compact .dark}
+[A cloud shows frequency, only]{.ct}
+It cannot say which words go with **positive** reviews. That is Part II.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 2 minutes. Both clouds here show the 70 most frequent words so that they are readable from the back; the notebook's call draws more.
+
+- Left: the cloud everyone has. Size is how often the word is used. The biggest words name the subject of nearly every review: appointments, the surgery, the phone, staff.
+- Click: the same cloud with the stopwords left in. The largest words are now the, to, and, I. They would be the largest words in a cloud of any English text, which is exactly why they are removed.
+- Click: a limit worth saying out loud. "appointment" is the most frequent word, but is it a good word or a bad word? The cloud cannot say.
+:::
+
+## Answers A: who writes more? {.solution}
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="56%"}
+```r
+tibble(
+  ntoken = ntoken(nhs_tokens),
+  positive = docvars(nhs_tokens)$review_positive
+) |>
+  ggplot(aes(ntoken, fill = positive)) +
+  geom_density(alpha = 0.5)
+```
+
+```{r}
+#| echo: false
+#| fig-width: 6
+#| fig-height: 2.9
+length_plot()
+```
+:::
+
+::: {.column width="44%"}
+::: {.card .compact}
+[Reading the code]{.ct}
+`ntoken` on the x-axis; `fill = positive` draws one curve per label; `alpha = 0.5` makes them see-through.
+:::
+
+::: {.fragment}
+::: {.card .compact .line}
+[Negative reviews are longer]{.ct}
+Half of the negative reviews have more than `r len_med[["Negative"]]` tokens. For positive reviews: `r len_med[["Positive"]]`.
+:::
+:::
+
+::: {.fragment}
+::: {.card .compact .dark}
+[A complaint tells a story]{.ct}
+"I called at 8, I was told …, then …". Praise is short: "Friendly and helpful, thank you."
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 3 minutes.
+
+- The first argument inside `aes()` is the x-axis, so `aes(ntoken, …)` is the same as `aes(x = ntoken, …)`.
+- Click: the red curve sits further right and has a long tail. These are counts after the stopwords were removed, so the original reviews are roughly twice as long.
+- Click: ask why. Complaints narrate what happened, step by step. That narration has its own words (told, called, then, still, back), which is what Part II finds.
+- Length itself would be a usable feature for a model. Today's model only gets the words.
+:::
+
+# Which words tell them apart? {.divider background-color="#8C0014"}
+
+::: {.kicker}
+Part II
+:::
+
+Keyness · and pairs of words
+
+## Keyness: is a word where you would expect it?
+
+```{=html}
+<div class="tracker"><span class="done">Text as data</span><span class="done">I · Text to table</span><span class="on">II · Which words?</span><span>III · Predict, explain</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="56%"}
+::: {.r-stack}
+```{r}
+#| echo: false
+#| fig-width: 5.8
+#| fig-height: 4.2
+key_step(1)
+```
+
+::: {.fragment fragment-index=1}
+```{r}
+#| echo: false
+#| fig-width: 5.8
+#| fig-height: 4.2
+key_step(2)
+```
+:::
+
+::: {.fragment fragment-index=2}
+```{r}
+#| echo: false
+#| fig-width: 5.8
+#| fig-height: 4.2
+key_step(3)
+```
+:::
+
+::: {.fragment fragment-index=3}
+```{r}
+#| echo: false
+#| fig-width: 5.8
+#| fig-height: 4.2
+key_step(4)
+```
+:::
+:::
+:::
+
+::: {.column width="44%"}
+```{=html}
+<div class="calc sm">
+  <div><span class="cl">Expected</span><span class="cx">an even split <small>both sides hold about `r big(side_total[["pos"]] / 1000)`,000 words</small></span></div>
+  <div class="fragment" data-fragment-index="1"><span class="cl">Observed</span><span class="cx">where the uses really are</span></div>
+  <div class="fragment hl" data-fragment-index="3"><span class="cl">Keyness</span><span class="cx">how far apart the two are</span></div>
+</div>
+```
+
+::: {.fragment fragment-index=2}
+::: {.card .compact .line}
+[Three kinds of word]{.ct}
+*thank*, *friendly*: nearly all in positive reviews. *told*: mostly in negative ones. *surgery*, *gp*: half and half.
+:::
+:::
+
+::: {.fragment fragment-index=3}
+::: {.card .compact .dark}
+[One number per word]{.ct}
+A chi-squared test of the split. **Large** = far from even. The **sign** says which side: above 0 is typical of positive reviews.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 4 minutes. The word cloud said how often. Keyness says where.
+
+- The word "thank" is used `r round(kw("thank", "n_target") + kw("thank", "n_reference"))` times. If thanking had nothing to do with whether a review is positive, where would those uses be? Positive reviews are more numerous but shorter, and it happens to even out: both kinds of review contain about `r big(side_total[["pos"]] / 1000)`,000 words in total. So we would expect about half of the uses on each side.
+- Click: in fact `r round(kw("thank", "n_target"))` are in positive reviews and `r round(kw("thank", "n_reference"))` in negative ones.
+- Click: the same count for eight more words, sorted. Three kinds: words that sit almost entirely in positive reviews, words that sit mostly in negative ones, and words such as "surgery" and "gp" that split evenly. The even ones are this data set's "coffee".
+- Click: keyness turns the gap into one number per word. It is the chi-squared test from MY451 or any first statistics course, applied to a two-by-two table: this word or any other word, positive or negative review. quanteda adds a sign so that the direction is visible.
+- "appointment" is the most frequent word, and leans negative, but less than "told": a word can be frequent without being telling.
+:::
+
+## The keyness plot
+
+```{=html}
+<div class="tracker"><span class="done">Text as data</span><span class="done">I · Text to table</span><span class="on">II · Which words?</span><span>III · Predict, explain</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 166–185 <span>keyness, and the first classroom discussion</span><i>run together</i></p>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="56%"}
+```{r}
+#| echo: false
+#| fig-width: 6.2
+#| fig-height: 4.9
+textplot_keyness(tstat, n = 10, labelsize = 4.6, margin = 0.2) +
+  labs(x = "Chi-Square Test") + theme(legend.position = "bottom", text = element_text(size = 14))
+```
+:::
+
+::: {.column width="44%"}
+```r
+positive_lgl <-
+  docvars(nhs_dfm)$review_positive == "Positive"
+tstat <- textstat_keyness(nhs_dfm,
+                          target = positive_lgl)
+```
+
+::: {.ask style="font-size:0.72em"}
+What makes patients write a positive review? A negative one?
+:::
+
+::: {.fragment}
+::: {.card .compact .line}
+[Positive: people]{.ct}
+*thank*, *helpful*, *friendly*, *staff*, *excellent*, *professional*. How they were treated.
+:::
+:::
+
+::: {.fragment}
+::: {.card .compact .dark}
+[Negative: access]{.ct}
+*told*, *get*, *call*, *phone*, *appointment*, *trying*, *impossible*. Getting through, and being sent away.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 4 minutes. Run lines 170–179, then one minute with a neighbour on the question at line 181.
+
+- `positive_lgl` is a column of TRUE and FALSE, one per review (`lgl` for logical): TRUE where the review is positive. `target =` tells `textstat_keyness()` which reviews to compare against all the others. "target" in the legend means the positive reviews, "reference" the negative ones.
+- The notebook's plot shows the 20 words with the highest and the 20 with the lowest keyness. The slide shows 10 of each so that the labels can be read.
+- Click: positive reviews are about people and manner: thank, helpful, friendly, caring, professional. "jab" is in there too: the reviews are from 2021, and vaccination clinics were well organised.
+- Click: negative reviews are about access: told, get, call, phone, appointment, book, trying, hold, impossible. Hardly a word about the medical care itself. "rude" is the one word on this side about manner.
+- That is a finding you could report to a practice manager without any model: the complaints are about the telephone line.
+:::
+
+## Pairs of words: the bigram network
+
+```{=html}
+<div class="tracker"><span class="done">Text as data</span><span class="done">I · Text to table</span><span class="on">II · Which words?</span><span>III · Predict, explain</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 187–224 <span>the 60 most frequent pairs, drawn as a network</span><i>run together</i></p>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="60%"}
+```{r}
+#| echo: false
+#| fig-width: 6.6
+#| fig-height: 4.6
+bigram_plot()
+```
+:::
+
+::: {.column width="40%"}
+```{=html}
+<div class="calc sm">
+  <div><span class="cl">Bigram</span><span class="cx">two tokens in a row <small>"get appointment"</small></span></div>
+  <div><span class="cl">Arrow</span><span class="cx">first word → second word</span></div>
+  <div><span class="cl">Thick</span><span class="cx">a frequent pair</span></div>
+</div>
+```
+
+::: {.fragment}
+::: {.card .compact .line}
+[The hubs]{.ct}
+*appointment*: get, book, make, telephone (`r bg("get", "appointment")` × "get appointment"). And *staff*: reception, friendly, helpful.
+:::
+:::
+
+::: {.fragment}
+::: {.card .compact .dark}
+[Why "face → face"?]{.ct}
+"Face **to** face": *to* is a stopword and was removed first. `r bg("face", "face")` times.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 4 minutes (2 if behind: run it, name the two hubs, move on). Run lines 189–216. The layout is random: every screen shows the same network arranged differently.
+
+- A bag of words forgets the order. Counting pairs of neighbouring words gives a little of it back: "get appointment", "call back", "blood test".
+- The chunk in one sentence: make all pairs (`tokens_ngrams(n = 2)`), count them, keep the 60 most frequent, and hand the table to `ggraph`, which draws a dot per word and an arrow per pair.
+- Click: the discussion at line 220. The biggest cluster hangs on "appointment": get, book, make, telephone, face. A second one on "staff": reception, friendly, helpful. The same two themes as the keyness plot, access and people, now as phrases.
+- Click: the note at line 218 in one example. The pairs were made after the stopwords were removed, so "face to face" became "face face". The pairs are neighbours in the cleaned text, not always in the original.
+:::
+
+# Predict and explain {.divider background-color="#8C0014"}
+
+::: {.kicker}
+Part III
+:::
+
+TF-IDF · boosted trees · which words did the model use?
+
+## From counts to TF-IDF
+
+```{=html}
+<div class="tracker"><span class="done">Text as data</span><span class="done">I · Text to table</span><span class="done">II · Which words?</span><span class="on">III · Predict, explain</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="52%"}
+```{=html}
+<p class="quote">Café review 4: "The <b>coffee</b> was <b>cold</b> and the <b>staff</b> were <b>rude</b>."</p>
+```
+
+::: {.r-stack}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 3.3
+tfidf_step(1)
+```
+
+::: {.fragment fragment-index=1}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 3.3
+tfidf_step(2)
+```
+:::
+
+::: {.fragment fragment-index=2}
+```{r}
+#| echo: false
+#| fig-width: 5.4
+#| fig-height: 3.3
+tfidf_step(3)
+```
+:::
+:::
+:::
+
+::: {.column width="48%"}
+::: {.ask style="font-size:0.75em"}
+Four words, each used once. Which say most about **this** review?
+:::
+
+```{=html}
+<div class="calc sm" style="margin-top:0.4em">
+  <div><span class="cl">TF</span><span class="cx">count ÷ words in the review <small>term frequency</small></span></div>
+  <div class="fragment" data-fragment-index="1"><span class="cl">IDF</span><span class="cx">log(1 + reviews ÷ reviews with the word) <small>inverse document frequency</small></span></div>
+  <div class="fragment hl" data-fragment-index="2"><span class="cl">TF-IDF</span><span class="cx">TF × IDF</span></div>
+</div>
+```
+
+::: {.fragment fragment-index=2}
+::: {.card .compact .line}
+[Common everywhere = worth less]{.ct}
+*coffee* is in 5 of 6 reviews, *rude* in 2. Same count, but *rude* gets the larger number.
+:::
+:::
+
+::: {.fragment fragment-index=3}
+::: {.card .compact .dark}
+[IDF looks at all the reviews]{.ct}
+So it must be learned from the **training** reviews only: it goes **inside the recipe**, after the split.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 4 minutes. Back to the café for one slide.
+
+- In the count table this review has four 1s. But "coffee" told us nothing on the first slide, and "rude" told us everything. TF-IDF builds that into the numbers.
+- TF, term frequency: what share of the review is this word? Four words survive cleaning, each is one of four: 0.25. In a long review a single mention counts for less.
+- Click: IDF, inverse document frequency: how rare is the word across all reviews? "coffee" is in 5 of 6 reviews, "rude" in 2 of 6. The rarer, the larger. The log keeps very rare words from dominating. This is the formula `step_tfidf()` uses.
+- Click: multiply. "cold" and "rude" end up with `r f2(r4$tfidf[3])`, "coffee" with `r f2(r4$tfidf[1])`.
+- On the lab data: "appointment" is in `r doc_n[["appointment"]]` of `r big(nrow(nhs_train))` training reviews and gets a weight of `r f2(idf_w("appointment"))`; "thank" is in `r doc_n[["thank"]]` and gets `r f2(idf_w("thank"))`.
+- Click: the paragraph at line 226. IDF counts reviews. If it counted the test reviews too, the test set would shape the features the model is trained on: the same leak as normalising before splitting in Lab 5. Inside the recipe, the vocabulary and the weights come from the training reviews and are then applied to the test reviews.
+:::
+
+## Split first, then the recipe
+
+```{=html}
+<div class="tracker"><span class="done">Text as data</span><span class="done">I · Text to table</span><span class="done">II · Which words?</span><span class="on">III · Predict, explain</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 226–256 <span>the split chunk (239–243) is empty: type it · the recipe is given</span><i>code together</i></p>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="55%"}
+::: {.anatomy .one}
+```{=html}
+<p class="anat-code" style="font-size:0.5em">nhs_rec &lt;-
+  <span class="tok">recipe(positive ~ review_text, data = nhs_train)</span> |&gt;
+  <span class="tok">step_tokenize(review_text)</span> |&gt;
+  <span class="tok">step_stopwords(review_text, language = "en")</span> |&gt;
+  <span class="tok">step_tokenfilter(review_text, min_times = 10)</span> |&gt;
+  <span class="tok">step_tfidf(review_text)</span></p>
+```
+
+1. **Outcome ~ predictor**: one predictor, the raw text.
+2. **Cut into tokens**: `tokens()` in Part I.
+3. **Drop stopwords**: `tokens_remove()`.
+4. **Keep frequent words**: `dfm_trim()`.
+5. **Count and weight**: `dfm()`, then TF-IDF.
+:::
+:::
+
+::: {.column width="45%"}
+```r
+set.seed(123)
+nhs_split <- initial_split(nhs_model_data,
+               prop = 0.75, strata = positive)
+nhs_train <- training(nhs_split)  # 1,489 reviews
+nhs_test  <- testing(nhs_split)   #   497 reviews
+```
+
+::: {.fragment}
+::: {.card .compact .dark}
+[How many columns come out?]{.ct}
+**`r n_feat`**, not 1,000. `step_tokenfilter()` also has `max_tokens`, default 100: only the 100 most used words stay.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 5 minutes. Run lines 228–235, type the split together, run the recipe.
+
+- Lines 228–235 make a two-column table: the text and the label, as a factor. Classification in tidymodels needs a factor outcome (Lab 4).
+- The split is Lab 4 and 5: `initial_split()`, 75% for training, `strata = positive` keeps the share of positive reviews the same in both parts. The seed makes everyone's split the same; the workbook does not set one, so type it.
+- The recipe: `textrecipes` adds text steps to `recipes`. Each step names the column it works on. Read the four steps against Part I: they are the café slide again.
+- Why do it twice? Part I was for looking at the data. The recipe is for modelling: it guarantees that the test reviews play no part in choosing the vocabulary or the IDF weights.
+- Click: check with `nhs_rec |> prep() |> bake(new_data = NULL) |> ncol()`: `r n_feat + 1`, the outcome plus `r n_feat` words. The notebook's text says "about 1,000 features". `min_times = 10` would allow about that many, but `max_tokens = 100` cuts the list to the 100 most frequent first. The model still works well with 100 words; it is worth knowing what it sees.
+:::
+
+## The model: boosted trees, again
+
+```{=html}
+<div class="tracker"><span class="done">Text as data</span><span class="done">I · Text to table</span><span class="done">II · Which words?</span><span class="on">III · Predict, explain</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 258–287 <span>the model and the workflow: given, ready to run</span><i>run together</i></p>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="58%"}
+::: {.anatomy}
+```{=html}
+<p class="anat-code" style="font-size:0.5em">model &lt;-
+  <span class="tok">boost_tree(</span><span class="tok">mtry = 0.03</span>, <span class="tok">trees = 2000</span>,
+             <span class="tok">learn_rate = 0.01</span>) %&gt;%
+  <span class="tok">set_mode("classification")</span> %&gt;%
+  <span class="tok">set_engine("xgboost", counts = FALSE)</span>
+
+nhs_fit &lt;- workflow() %&gt;% add_recipe(nhs_rec) %&gt;%
+  add_model(model) %&gt;% fit(data = nhs_train)</p>
+```
+
+1. **Boosted trees**: Lab 5's relay.
+2. **Words offered** per split.
+3. **2,000 small trees** in a row.
+4. **Each adds 1%** of its fix.
+5. **Yes or no** outcome.
+6. **xgboost**; `mtry` is a share.
+:::
+:::
+
+::: {.column width="42%"}
+::: {.card .compact}
+[One tree asks about words]{.ct}
+"Is *thank* in the review? If not: is *told*?" Each answer leads to another question, then to a guess.
+:::
+
+::: {.card .compact .line}
+[Boosting]{.ct}
+Every new tree works on the reviews the trees so far get wrong. Small steps (`learn_rate`), so many trees.
+:::
+
+::: {.fragment}
+::: {.card .compact .dark}
+[`mtry = 0.03`]{.ct}
+3% of `r n_feat` words: each split may choose among **3** random words.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 3 minutes. Run lines 264–275 and 279–287. The fit takes a second or two.
+
+- Nothing here is new: `boost_tree()`, `set_mode()`, `set_engine()`, `workflow()`, `fit()` are Lab 5, with the same `%>%` pipe that chunk used. The only change is what the columns are: TF-IDF numbers for words.
+- A tree on text asks whether a word is in the review, or more exactly whether its TF-IDF is above some value. Boosting is the relay from Lab 5: 2,000 small trees, each correcting what is left over.
+- `learn_rate = 0.01` and `trees = 2000` go together: tiny steps need many of them.
+- `counts = FALSE` makes `mtry` a proportion. Click: the notebook reasons "the square root of 1,000 features, as a share, is about 0.03". With the `r n_feat` words the recipe really produces, 0.03 means 3 words on offer at each split. That is a strong restriction, and one reason the importance is spread over many words later.
+- No seed in the workbook before `fit()`, and the choice of words at each split is random: numbers on screens will differ slightly from the slides and from each other.
+:::
+
+## What did the model learn? One review
+
+```{=html}
+<div class="tracker"><span class="done">Text as data</span><span class="done">I · Text to table</span><span class="done">II · Which words?</span><span class="on">III · Predict, explain</span><span>Wrap-up</span></div>
+```
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="56%"}
+::: {.r-stack}
+```{r}
+#| echo: false
+#| fig-width: 5.8
+#| fig-height: 4.2
+shap_step(1)
+```
+
+::: {.fragment fragment-index=1}
+```{r}
+#| echo: false
+#| fig-width: 5.8
+#| fig-height: 4.2
+shap_step(2)
+```
+:::
+
+::: {.fragment fragment-index=2}
+```{r}
+#| echo: false
+#| fig-width: 5.8
+#| fig-height: 4.2
+shap_step(3)
+```
+:::
+
+::: {.fragment fragment-index=3}
+```{r}
+#| echo: false
+#| fig-width: 5.8
+#| fig-height: 4.2
+shap_step(4)
+```
+:::
+
+::: {.fragment fragment-index=4}
+```{r}
+#| echo: false
+#| fig-width: 5.8
+#| fig-height: 4.2
+shap_step(5)
+```
+:::
+:::
+:::
+
+::: {.column width="44%"}
+```{=html}
+<p class="quote">"<span class="fragment hlw pos" data-fragment-index="1">Friendly</span>, approachable, they listen instead of assuming, the only down side, it is <span class="fragment hlw pos" data-fragment-index="3">really</span> hard to <span class="fragment hlw neg" data-fragment-index="2">get</span> an <span class="fragment hlw neg" data-fragment-index="3">appointment</span>"</p>
+```
+
+::: {.ask style="font-size:0.72em"}
+Positive or negative? Which words pull which way?
+:::
+
+::: {.fragment fragment-index=1}
+::: {.card .compact .line}
+[A SHAP value is one push]{.ct}
+How far did **this word** move the prediction for **this review**? Left: towards positive. Right: towards negative.
+:::
+:::
+
+::: {.fragment fragment-index=4}
+::: {.card .compact .dark}
+[Start + pushes = prediction]{.ct}
+Exactly. SHAP explains the model one review at a time.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 4 minutes. A real review from the training data. Read it aloud and ask the question before the first click: the room will say "friendly" pulls one way and "hard to get an appointment" the other. Each click then boxes the word whose push appears (blue: towards positive, red: towards negative); the four boxed words are the only ones among the model's `r n_feat`.
+
+- A fitted model of 2,000 trees cannot be read like a regression table. SHAP (Shapley values) asks a simpler question for one review at a time: starting from what the model would say about any review, how does each word move the prediction?
+- The start: `r pct(plogis(base))` of the training reviews are negative. Before reading anything, that is the model's guess.
+- Click: "friendly" is in the review. The model has learned that reviews with "friendly" are rarely negative: a strong push to the left, `r f2(ex_push[["friendly"]])`.
+- Click: "get" is there too: "hard to get an appointment". A push back to the right, `r f2(ex_push[["get"]])`.
+- Click: "really" and "appointment" push a little. So do the `r n_feat - 4` words that are not in the review: no "told", no "still", no "phone" is mild evidence that this is not a complaint. Together `r f2(ex_rest)`.
+- Click: add everything to the start and you get the model's prediction for this review: `r pct(plogis(ex_end))` chance of negative, so it predicts positive. It is right: the patient gave a positive rating, with one reservation, and the pushes show both.
+- The numbers on the arrows are on the model's internal scale (log-odds, as in logistic regression, Lab 4). The axis is labelled in percentages so that it can be read; that is why equal pushes look longer in the middle than at the edge.
+- Direction: R sorts factor levels alphabetically, "Negative" comes first, and xgboost models the first level. So everything in this part is "towards negative". It comes back in the F1-score.
+:::
+
+## Class discussion: read one SHAP value
+
+```{=html}
+<div class="tracker"><span class="done">Text as data</span><span class="done">I · Text to table</span><span class="done">II · Which words?</span><span class="on">III · Predict, explain</span><span>Wrap-up</span></div>
+```
+
+```{=html}
+<p class="nbref"><b>Notebook</b> lines 304–335 <span>the SHAP chunk and its note</span><i>30 seconds with your neighbour</i></p>
+```
+
+::: {.ask}
+In one review, the word "thank" has a SHAP value of −2.3. What does that mean?
+:::
+
+```{=html}
+<div class="mcq">
+  <div class="opt"><b>A</b>The word "thank" appears 2.3 times less often in this review than on average</div>
+  <div class="opt right"><b>B</b>Having "thank" in this review moved the model's prediction a long way towards "positive"</div>
+  <div class="opt"><b>C</b>"thank" is an unimportant word, because its value is below zero</div>
+  <div class="opt"><b>D</b>Reviews that contain "thank" are 2.3% less likely to be negative</div>
+  <div class="fragment why"><b>B.</b> A SHAP value is a push on one prediction. The sign is the direction (below 0: away from "Negative"), the size is the strength. −2.3 is a large push: larger than "friendly" in the last example. Far from 0 in <b>either</b> direction means important.</div>
+</div>
+```
+
+::: {.notes}
+Timing: 1½ minutes. First item to skip if behind.
+
+- Thirty seconds in pairs, a show of hands, click.
+- C is the one to argue against: importance is distance from zero, not height. The bar chart in the notebook's SHAP plot is the average **absolute** SHAP value for exactly this reason.
+- D mixes up scales: the pushes are not percentage points. The percentages only appear after all pushes are added up.
+- In the training data, reviews that contain "thank" get a push of `r f2(mean(S[nhs_matrix[, words == "thank"] > 0, "thank"]))` from it on average.
+:::
+
+## Your turn B: explain and evaluate {.yourturn}
+
+```{=html}
+<div class="timer" data-minutes="9"></div>
+```
+
+:::: {.yt}
+
+::: {.tasks}
+[Part III · lines 289–388 · in pairs]{.lbl}
+
+1. **Lines 291–302:** finish the chunk: pipe the table into a bar chart of the 20 most important words.
+2. **Lines 306–331:** run the SHAP chunk. Find "thank" and "told": which side are their dots on?
+3. **Line 337:** which words matter most? Which make sense, which surprise you?
+4. **Lines 345–382:** run the confusion matrix and the F1 chunk. How many test reviews are wrong? Compare training and testing.
+5. **Line 384:** how well does the model do? Name another model you could try.
+:::
+
+::: {.cheat}
+[Syntax you need]{.lbl}
+
+```r
+nhs_fit |>
+  vi() |>                          # importance per word
+  slice_max(Importance, n = 20) |> # the top 20
+  mutate(
+    Variable = str_remove(Variable, "tfidf_review_text_"),
+    Variable = fct_reorder(Variable, Importance)
+  ) |>                             # add this pipe
+  ggplot(aes(x = ___, y = ___)) +
+  geom_col()                       # bars
+```
+
+::: {.hints}
+- `vi()` returns two columns: `Variable` and `Importance`
+- `fct_reorder()` sorts the bars by importance
+- SHAP plot: one dot per review; colour = how much of the word
+- Confusion matrix: rows are predictions, columns the truth
+:::
+
+::: {.stuck}
+**Stuck?**
+
+- `unexpected symbol`: the `|>` after `mutate( … )` is missing
+- Bars in alphabetical order: `Variable` goes on `y`, after the `mutate()`
+:::
+:::
+
+::::
+
+::: {.notes}
+Your turn, 9 minutes. Click the timer (or press T).
+
+- Task 1 is the only code to write: one pipe and two lines of ggplot.
+- Task 2: the SHAP chunk is given. In the plot, each row is a word and each dot is one training review. Yellow or light dots are reviews where the word has a high TF-IDF (it is there), dark dots where it is absent.
+- Note for tutors: as delivered, the SHAP chunk hands `shapviz()` a dense matrix, while the model was fitted on a sparse one. On this machine that made the notebook's plot rank "thank, friendly, face, called, feel" and put the dots of absent words far from zero. The slides use the corrected values (see the lesson plan for the two-line fix). If the room's plot looks different from the next slide, that is why.
+- Circulate with: "is F1 on the training reviews higher or lower than on the test reviews, and what does that tell you?"
+- Fast finishers: `nhs_fit |> augment(new_data = nhs_test) |> filter(.pred_class != positive)` lists the reviews the model gets wrong. Read three.
+:::
+
+## Answers B: which words matter? {.solution}
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="31%"}
+```r
+... |>
+  ggplot(aes(Importance, Variable)) +
+  geom_col()
+```
+
+```{r}
+#| echo: false
+#| fig-width: 3.6
+#| fig-height: 3.9
+vip_plot() + theme(axis.title.x = element_blank())
+```
+:::
+
+::: {.column width="36%"}
+```{r}
+#| echo: false
+#| fig-width: 4.2
+#| fig-height: 4.9
+shap_plot(12) + labs(title = "SHAP, as in lines 306–331") + theme(plot.title = element_text(size = 13, face = "bold"), legend.position = "none")
+```
+:::
+
+::: {.column width="33%"}
+::: {.card .compact}
+[The same words on top]{.ct}
+*`r paste(vi_tab$Variable[1:5], collapse = ", ")`*: Part II's words.
+:::
+
+::: {.fragment}
+::: {.card .compact .line}
+[SHAP adds direction]{.ct}
+*thank*, *helpful*: dots far **left**, towards positive. *get*, *told*: **right**.
+:::
+:::
+
+::: {.fragment}
+::: {.card .compact .dark}
+[Less obvious]{.ct}
+*`r odd_words[1]`*, *`r odd_words[2]`*: no topic, but part of how a complaint is told.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 4 minutes.
+
+- Left: the bar chart from task 1. `vi()` measures how much the splits on a word improved the trees, added up over all 2,000. It says how much a word is used by the model, not which way it points.
+- Middle: the notebook's SHAP plot, top 12 words. Bars: the average absolute push. Dots: one per training review; a dot's position is the push, its colour how much of the word the review has.
+- The two rankings agree on the leading words. They are also the words from the keyness plot: a model with 2,000 trees has mostly rediscovered what a count could show, which is reassuring.
+- Click: the direction. Reviews that contain "thank" (bright dots) sit far to the left: towards positive. Reviews that contain "told" or "get" sit to the right. Reviews without the word (dark dots) sit close to zero: absence is weak evidence.
+- Click: the discussion at line 337. Words that make sense: thank, helpful, friendly, told, phone. Words that surprise: small words such as "one", "just", "still", "never". They are not about anything, but they are how people narrate a bad experience: "still waiting", "just told", "no one". Whether to keep them is a cleaning choice.
+:::
+
+## Answers B: how good is it? {.solution}
+
+:::: {.columns style="align-items:start"}
+
+::: {.column width="56%"}
+```{r}
+#| echo: false
+#| fig-width: 6.4
+#| fig-height: 4.1
+(autoplot(cm, type = "heatmap") + theme(text = element_text(size = 14), legend.position = "none")) + f1_plot() + plot_layout(widths = c(1.15, 1))
+```
+
+::: {.source-note}
+`f_meas()` scores the **first** level, "Negative": how well does the model find the complaints? For "Positive" the test F1 is `r f2(f1_pos)`.
+:::
+:::
+
+::: {.column width="44%"}
+::: {.card .compact}
+[`r n_wrong` of `r nrow(nhs_test)` test reviews wrong]{.ct}
+`r cm$table[2, 1]` complaints called positive, `r cm$table[1, 2]` positive reviews called negative. From 100 words and no word order.
+:::
+
+::: {.fragment}
+::: {.card .compact .line}
+[`r f2(f1_of("Training"))` in training, `r f2(f1_of("Testing"))` in testing]{.ct}
+The gap is **overfitting**: 2,000 trees have partly memorised the training reviews. The test score is the honest one.
+:::
+:::
+
+::: {.fragment}
+::: {.card .compact .dark}
+[Another model?]{.ct}
+A lasso logistic regression (Lab 3 and 4) on the same recipe: F1 `r f2(f1_lasso)`. Nearly as good, and its coefficients can be read.
+:::
+:::
+:::
+
+::::
+
+::: {.notes}
+Timing: 4 minutes.
+
+- The confusion matrix (Lab 4): rows are what the model said, columns the truth. The diagonal is correct: `r cm$table[1, 1]` complaints found, `r cm$table[2, 2]` positive reviews recognised.
+- F1 (Labs 4 and 5) combines precision and recall for one class. Which class? tidymodels takes the first factor level, and that is "Negative". So `r f2(f1_of("Testing"))` is about finding complaints, which is probably what a practice would want the model for.
+- Click: the training score is far higher than the test score. The model has not seen the test reviews; it has seen the training reviews 2,000 times. Lab 5's point again: never report the training score. Tuning `trees`, `learn_rate` and tree depth with cross-validation would be the next step.
+- Click: the discussion at line 384. Good, not perfect: about one review in seven is wrong. Read a few of the errors: many are three-star reviews labelled positive that describe a problem, or sarcasm, or "not helpful" with the "not" removed.
+- Other models: lasso logistic regression is the natural rival for text: many columns, most of them irrelevant, and it gives a signed coefficient per word. It scores `r f2(f1_lasso)` here with a penalty that was not tuned. A random forest or naive Bayes are other common answers.
+:::
+
+## Summary
+
+```{=html}
+<div class="tracker"><span class="done">Text as data</span><span class="done">I · Text to table</span><span class="done">II · Which words?</span><span class="done">III · Predict, explain</span><span class="on">Wrap-up</span></div>
+```
+
+```{=html}
+<div class="checks" style="grid-template-columns:1fr">
+  <div><b>1</b><span><strong>Text becomes a table</strong> in four steps: corpus, tokens, cleaning, counts. One row per document, one column per word: a <strong>document-feature matrix</strong>. Word order is lost, and every cleaning step is a choice. In code: <code>corpus()</code>, <code>tokens()</code>, <code>tokens_remove(stopwords("en"))</code>, <code>dfm()</code>, <code>dfm_trim()</code></span></div>
+  <div><b>2</b><span><strong>Keyness</strong> compares where a word is used with an even split: which words are typical of one group? <strong>TF-IDF</strong> weights a count down when the word is in most documents. In code: <code>textstat_keyness()</code>, <code>step_tfidf()</code></span></div>
+  <div><b>3</b><span><strong>The model is Lab 5's</strong>: split, recipe, boosted trees, F1 on the test set. Text steps go <strong>inside the recipe</strong>. <strong>SHAP</strong> explains it one review at a time: a start, a push per word with a direction, and they add up to the prediction</span></div>
+</div>
+```
+
+**Question:** a new review says "Not helpful at all." What does the model see, and what will it probably predict? What would you change?
+
+::: {.notes}
+Wrap-up, 3 minutes.
+
+- Recap in three sentences.
+- Exit question: "not", "at" and "all" are stopwords, so the model sees one word, "helpful", which pushes strongly towards positive. It will probably call a complaint positive. Fixes, in order of effort: take "not" and "no" off the stopword list; add bigrams as features, so that "not helpful" is its own column (`step_ngram()`); or use a model that reads words in order, which is where next week goes.
+- What to take from today: the modelling was the easy part and nothing in it was new. The decisions that shaped the result were all in turning text into columns.
+:::
+
+## Further reading {.closing}
+
+- The completed notebook goes up after class.
+- [quanteda tutorials](https://tutorials.quanteda.io): corpus, tokens and DFM step by step, with the same functions as today.
+- [*Supervised Machine Learning for Text Analysis in R*](https://smltar.com) (Hvitfeldt and Silge): chapters 2–3 on tokens and stopwords, chapter 7 on classification with `textrecipes`. Free online.
+- [*Text Mining with R*](https://www.tidytextmining.com) (Silge and Robinson): chapter 3 on TF-IDF, chapter 4 on bigram networks. Free online.
+- [*Interpretable Machine Learning*](https://christophm.github.io/interpretable-ml-book/) (Molnar): the chapters on Shapley values and SHAP.
+
+::: {.notes}
+- Stemming and lemmatisation (treating "appointment" and "appointments" as one word) are mentioned in the notebook's teaching moment and not used. Mention them only if asked: `tokens_wordstem()` in quanteda, `step_stem()` in a recipe.
+:::
+
+## 30 seconds of feedback {.closing}
+
+:::: {.columns style="align-items:center"}
+
+::: {.column width="45%" style="text-align:center"}
+![](images/feedback-qr.svg){width="380" fig-alt="QR code linking to the feedback survey"}
+:::
+
+::: {.column width="55%"}
+::: {.card .dark}
+[How was today's lab?]{.ct}
+Scan the code, or open <a href="https://forms.gle/i3uobCAaGmkzf1ns7" style="color:#fff;text-decoration:underline">forms.gle/i3uobCAaGmkzf1ns7</a>. It takes 30 seconds and changes what next week looks like.
+:::
+:::
+
+::::
+
+::: {.notes}
+- Leave this slide up while people pack up. Ask them to fill it in before leaving.
+:::
