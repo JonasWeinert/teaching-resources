@@ -146,8 +146,21 @@ Part I (text to a table) takes about 50 minutes, Part II (which words tell revie
 - The sentence at line 54 will print "a data set of 6 reviews". It counts the columns; the data set has `r big(nrow(nhs_reviews))` reviews.
 :::
 
+::: {.callout-important title="Does textrecipes fail to load or install?"}
+If the chunk stops with `there is no package called 'textrecipes'`, and `install.packages("textrecipes")` answers `package 'textrecipes' is not available for this version of R`, nothing is wrong with your computer. The package was taken off CRAN, R's main package store, on 25 November 2026. Install it from its developers' own store by running this once in the console:
+
+```r
+install.packages(
+  "textrecipes",
+  repos = c("https://tidymodels.r-universe.dev", "https://cloud.r-project.org")
+)
+```
+
+`repos` tells R where to look: first the store of the tidymodels team, who write the package, then CRAN for anything else it needs. Then run the setup chunk again. If R asks whether to install "from sources the package which needs compilation", answer **no**.
+:::
+
 ::: {.callout-tip collapse="true" title="Working on your own computer?"}
-Run `install.packages(c("quanteda", "quanteda.textstats", "quanteda.textplots", "textrecipes", "vip", "shapviz", "igraph", "ggraph", "ggsci", "xgboost"))` once, and delete the `reticulate` line if that package is not installed. If `textrecipes` will not install, work on Nuvolos, where everything is set up. The file `NHS-reviews.csv` from Moodle must sit in a folder called `data` next to the notebook.
+Run `install.packages(c("quanteda", "quanteda.textstats", "quanteda.textplots", "vip", "shapviz", "igraph", "ggraph", "ggsci", "xgboost"))` once, then install `textrecipes` with the command in the box above. Delete the `reticulate` line if that package is not installed. The file `NHS-reviews.csv` from Moodle must sit in a folder called `data` next to the notebook.
 :::
 
 ### The idea: can a model read? {.step}

@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
 <meta name="author" content="Jonas Weinert">
-<meta name="dcterms.date" content="2026-11-25">
+<meta name="dcterms.date" content="2026-11-27">
 
 <title>Text as data: from words to predictions</title>
 <style>
@@ -4424,7 +4424,7 @@ window.onload = function() {
     <div>
     <div class="quarto-title-meta-heading">Published</div>
     <div class="quarto-title-meta-contents">
-      <p class="date">25 November 2026</p>
+      <p class="date">27 November 2026</p>
     </div>
   </div>
   
@@ -4558,8 +4558,26 @@ Three things in the notebook to ignore
 </ul>
 </div>
 </div>
+<div class="callout callout-style-default callout-important callout-titled" title="Does textrecipes fail to load or install?">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Does textrecipes fail to load or install?
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>If the chunk stops with <code>there is no package called &#39;textrecipes&#39;</code>, and <code>install.packages(&quot;textrecipes&quot;)</code> answers <code>package &#39;textrecipes&#39; is not available for this version of R</code>, nothing is wrong with your computer. The package was taken off CRAN, R’s main package store, on 25 November 2026. Install it from its developers’ own store by running this once in the console:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">install.packages</span>(</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="st">&quot;textrecipes&quot;</span>,</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">repos =</span> <span class="fu">c</span>(<span class="st">&quot;https://tidymodels.r-universe.dev&quot;</span>, <span class="st">&quot;https://cloud.r-project.org&quot;</span>)</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<p><code>repos</code> tells R where to look: first the store of the tidymodels team, who write the package, then CRAN for anything else it needs. Then run the setup chunk again. If R asks whether to install “from sources the package which needs compilation”, answer <strong>no</strong>.</p>
+</div>
+</div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Working on your own computer?">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-3-contents" aria-controls="callout-3" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-4-contents" aria-controls="callout-4" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -4568,9 +4586,9 @@ Working on your own computer?
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-3" class="callout-3-contents callout-collapse collapse">
+<div id="callout-4" class="callout-4-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>Run <code>install.packages(c(&quot;quanteda&quot;, &quot;quanteda.textstats&quot;, &quot;quanteda.textplots&quot;, &quot;textrecipes&quot;, &quot;vip&quot;, &quot;shapviz&quot;, &quot;igraph&quot;, &quot;ggraph&quot;, &quot;ggsci&quot;, &quot;xgboost&quot;))</code> once, and delete the <code>reticulate</code> line if that package is not installed. If <code>textrecipes</code> will not install, work on Nuvolos, where everything is set up. The file <code>NHS-reviews.csv</code> from Moodle must sit in a folder called <code>data</code> next to the notebook.</p>
+<p>Run <code>install.packages(c(&quot;quanteda&quot;, &quot;quanteda.textstats&quot;, &quot;quanteda.textplots&quot;, &quot;vip&quot;, &quot;shapviz&quot;, &quot;igraph&quot;, &quot;ggraph&quot;, &quot;ggsci&quot;, &quot;xgboost&quot;))</code> once, then install <code>textrecipes</code> with the command in the box above. Delete the <code>reticulate</code> line if that package is not installed. The file <code>NHS-reviews.csv</code> from Moodle must sit in a folder called <code>data</code> next to the notebook.</p>
 </div>
 </div>
 </div>
@@ -4581,7 +4599,7 @@ Working on your own computer?
  <div class="bw"><p class="bw-title">Six reviews of a café (made up)</p><div class="bw-row"><div class="bw-body">Great coffee, and the staff are so friendly!</div></div><div class="bw-row"><div class="bw-body">Friendly staff. The coffee was great.</div></div><div class="bw-row"><div class="bw-body">I love the cakes and the coffee here.</div></div><div class="bw-row"><div class="bw-body">The coffee was cold and the staff were rude.</div></div><div class="bw-row"><div class="bw-body">We had to wait 20 minutes for a cold coffee.</div></div><div class="bw-row"><div class="bw-body">Rude staff, and a long wait. Never again!</div></div></div> 
 <p><strong>Which customers were happy?</strong> Decide for each of the six. Then ask yourself: <strong>how did you know?</strong></p>
 <div class="callout callout-style-default callout-tip callout-titled" title="Compare with our answer">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-4-contents" aria-controls="callout-4" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-5-contents" aria-controls="callout-5" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -4590,7 +4608,7 @@ Compare with our answer
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-4" class="callout-4-contents callout-collapse collapse">
+<div id="callout-5" class="callout-5-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
  <div class="bw"><p class="bw-title">Six reviews of a café (made up)</p><div class="bw-row"><span class="bw-lab yes fragment" data-fragment-index="1">happy</span><div class="bw-body"><span class="fragment hlw pos" data-fragment-index="2">Great</span> <span class="fragment hlw neu" data-fragment-index="3">coffee</span>, and the staff are so <span class="fragment hlw pos" data-fragment-index="2">friendly</span>!</div></div><div class="bw-row"><span class="bw-lab yes fragment" data-fragment-index="1">happy</span><div class="bw-body"><span class="fragment hlw pos" data-fragment-index="2">Friendly</span> staff. The <span class="fragment hlw neu" data-fragment-index="3">coffee</span> was <span class="fragment hlw pos" data-fragment-index="2">great</span>.</div></div><div class="bw-row"><span class="bw-lab yes fragment" data-fragment-index="1">happy</span><div class="bw-body">I <span class="fragment hlw pos" data-fragment-index="2">love</span> the cakes and the <span class="fragment hlw neu" data-fragment-index="3">coffee</span> here.</div></div><div class="bw-row"><span class="bw-lab no fragment" data-fragment-index="1">unhappy</span><div class="bw-body">The <span class="fragment hlw neu" data-fragment-index="3">coffee</span> was <span class="fragment hlw neg" data-fragment-index="2">cold</span> and the staff were <span class="fragment hlw neg" data-fragment-index="2">rude</span>.</div></div><div class="bw-row"><span class="bw-lab no fragment" data-fragment-index="1">unhappy</span><div class="bw-body">We had to <span class="fragment hlw neg" data-fragment-index="2">wait</span> 20 minutes for a <span class="fragment hlw neg" data-fragment-index="2">cold</span> <span class="fragment hlw neu" data-fragment-index="3">coffee</span>.</div></div><div class="bw-row"><span class="bw-lab no fragment" data-fragment-index="1">unhappy</span><div class="bw-body"><span class="fragment hlw neg" data-fragment-index="2">Rude</span> staff, and a long <span class="fragment hlw neg" data-fragment-index="2">wait</span>. Never again!</div></div></div> 
 <p>The first three were happy, the last three were not. You probably did not need to think about it.</p>
@@ -4868,7 +4886,7 @@ Compare with our answer
 </table>
 </div> 
 <div class="callout callout-style-default callout-tip callout-titled" title="Compare with our answer">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-5-contents" aria-controls="callout-5" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-6-contents" aria-controls="callout-6" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -4877,7 +4895,7 @@ Compare with our answer
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-5" class="callout-5-contents callout-collapse collapse">
+<div id="callout-6" class="callout-6-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
  <div class="bw"><p class="bw-title">What is left of it: one word</p><div class="bw-row" style="border-bottom:none"><span class="bw-lab no">unhappy</span><div class="bw-body"><span class="tk drop">Not</span><span class="tk keep">friendly</span><span class="tk drop">at</span><span class="tk drop">all</span><span class="tk drop">.</span></div></div>
 <table class="bw-dfm caption-top table" data-quarto-postprocess="true">
@@ -5040,7 +5058,7 @@ Compare with our answer
 <p>The chunk at lines 50–52 is empty. Write code that reads <code>data/NHS-reviews.csv</code> into a tibble called <code>nhs_reviews</code> and drops the rows where <code>review_positive</code> is missing. Then print <code>nhs_reviews</code>.</p>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Show the code">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-6-contents" aria-controls="callout-6" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-7-contents" aria-controls="callout-7" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -5049,13 +5067,13 @@ Show the code
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-6" class="callout-6-contents callout-collapse collapse">
+<div id="callout-7" class="callout-7-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<div class="sourceCode" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>nhs_reviews <span class="ot">&lt;-</span></span>
-<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">read_csv</span>(<span class="st">&quot;data/NHS-reviews.csv&quot;</span>) <span class="sc">|&gt;</span></span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">drop_na</span>(review_positive)</span>
-<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>nhs_reviews</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>nhs_reviews <span class="ot">&lt;-</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">read_csv</span>(<span class="st">&quot;data/NHS-reviews.csv&quot;</span>) <span class="sc">|&gt;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">drop_na</span>(review_positive)</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>nhs_reviews</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <p><code>read_csv()</code> reads a CSV file into a tibble (Lab 1). The pipe <code>|&gt;</code> passes it on to <code>drop_na()</code>, which removes every row that has a missing value in the column you name. Here it removes nothing, because no review is missing its label; the notebook asks for it, so we type it.</p>
 </div>
 </div>
@@ -5087,7 +5105,7 @@ Show the code
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Compare with our answer">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-7-contents" aria-controls="callout-7" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-8-contents" aria-controls="callout-8" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -5096,7 +5114,7 @@ Compare with our answer
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-7" class="callout-7-contents callout-collapse collapse">
+<div id="callout-8" class="callout-8-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <div class="cell">
 <div class="cell-output-display">
@@ -5136,7 +5154,7 @@ Compare with our answer
 <p>Here is the third review, cut into tokens before any cleaning. <strong>Which of these tokens will survive?</strong></p>
  <div class="bw"><p class="bw-title">Review 3, cut into tokens</p><div class="bw-body"><span class="tk ">I</span><span class="tk ">have</span><span class="tk ">always</span><span class="tk ">had</span><span class="tk ">an</span><span class="tk ">extremely</span><span class="tk ">good</span><span class="tk ">experience</span><span class="tk ">with</span><span class="tk ">my</span><span class="tk ">surgery</span><span class="tk ">.</span><span class="tk ">The</span><span class="tk ">GP’s</span><span class="tk ">,</span><span class="tk ">Practice</span><span class="tk ">Manager</span><span class="tk ">,</span><span class="tk ">Nurses</span><span class="tk ">&amp;</span><span class="tk ">Receptionists</span><span class="tk ">are</span><span class="tk ">all</span><span class="tk ">helpful</span><span class="tk ">&amp;</span><span class="tk ">professional</span><span class="tk ">.</span></div></div> 
 <div class="callout callout-style-default callout-tip callout-titled" title="Compare with our answer">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-8-contents" aria-controls="callout-8" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-9-contents" aria-controls="callout-9" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -5145,7 +5163,7 @@ Compare with our answer
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-8" class="callout-8-contents callout-collapse collapse">
+<div id="callout-9" class="callout-9-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
  <div class="bw"><p class="bw-title">Review 3, cut into tokens</p><div class="bw-body"><span class="tk drop">I</span><span class="tk drop">have</span><span class="tk keep">always</span><span class="tk drop">had</span><span class="tk drop">an</span><span class="tk keep">extremely</span><span class="tk keep">good</span><span class="tk keep">experience</span><span class="tk drop">with</span><span class="tk drop">my</span><span class="tk keep">surgery</span><span class="tk drop">.</span><span class="tk drop">The</span><span class="tk keep">GP’s</span><span class="tk drop">,</span><span class="tk keep">Practice</span><span class="tk keep">Manager</span><span class="tk drop">,</span><span class="tk keep">Nurses</span><span class="tk drop">&amp;</span><span class="tk keep">Receptionists</span><span class="tk drop">are</span><span class="tk drop">all</span><span class="tk keep">helpful</span><span class="tk drop">&amp;</span><span class="tk keep">professional</span><span class="tk drop">.</span></div></div> 
 <p>What is struck out goes. What the model keeps is still readable: always extremely good experience surgery GP’s Practice Manager Nurses Receptionists helpful professional.</p>
@@ -5178,7 +5196,7 @@ text3 :
 </div>
 <p>Across all reviews, 182,450 tokens go in and 80,209 come out: more than half of everything written is punctuation or a stopword.</p>
 <div class="callout callout-style-default callout-tip callout-titled" title="What are the n-grams and stemming at line 94?">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-9-contents" aria-controls="callout-9" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-10-contents" aria-controls="callout-10" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -5187,7 +5205,7 @@ What are the n-grams and stemming at line 94?
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-9" class="callout-9-contents callout-collapse collapse">
+<div id="callout-10" class="callout-10-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>An <strong>n-gram</strong> is a run of n tokens in a row. Pairs of words (n = 2) come back in Part II. <strong>Stemming</strong> treats <em>appointment</em> and <em>appointments</em> as one word by cutting off endings. The lab does not do it, which is why you will see both forms in the plots.</p>
 </div>
@@ -5264,7 +5282,7 @@ more features ]</code></pre>
 </ol>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Stuck?">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-11-contents" aria-controls="callout-11" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-12-contents" aria-controls="callout-12" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -5273,7 +5291,7 @@ Stuck?
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-11" class="callout-11-contents callout-collapse collapse">
+<div id="callout-12" class="callout-12-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <ul>
 <li>The cloud did not change in task 2: you need to rerun three chunks in order, tokens, DFM, cloud.</li>
@@ -5283,7 +5301,7 @@ Stuck?
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Compare with our answer">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-12-contents" aria-controls="callout-12" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-13-contents" aria-controls="callout-13" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -5292,7 +5310,7 @@ Compare with our answer
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-12" class="callout-12-contents callout-collapse collapse">
+<div id="callout-13" class="callout-13-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <div>
 
@@ -5333,7 +5351,7 @@ Compare with our answer
 <p>The chunk makes a small table with two columns: <code>ntoken</code>, the number of tokens in each review, and <code>positive</code>, its label. Finish it: pipe the table into a plot that compares the number of tokens in positive and negative reviews. Which reviews are longer? Why might that be?</p>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Show the code">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-13-contents" aria-controls="callout-13" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-14-contents" aria-controls="callout-14" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -5342,14 +5360,14 @@ Show the code
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-13" class="callout-13-contents callout-collapse collapse">
+<div id="callout-14" class="callout-14-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<div class="sourceCode" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">tibble</span>(</span>
-<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">ntoken =</span> <span class="fu">ntoken</span>(nhs_tokens),</span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">positive =</span> <span class="fu">docvars</span>(nhs_tokens)<span class="sc">$</span>review_positive</span>
-<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>) <span class="sc">|&gt;</span></span>
-<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>(<span class="fu">aes</span>(ntoken, <span class="at">fill =</span> positive)) <span class="sc">+</span></span>
-<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_density</span>(<span class="at">alpha =</span> <span class="fl">0.5</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">tibble</span>(</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">ntoken =</span> <span class="fu">ntoken</span>(nhs_tokens),</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">positive =</span> <span class="fu">docvars</span>(nhs_tokens)<span class="sc">$</span>review_positive</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>) <span class="sc">|&gt;</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>(<span class="fu">aes</span>(ntoken, <span class="at">fill =</span> positive)) <span class="sc">+</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_density</span>(<span class="at">alpha =</span> <span class="fl">0.5</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <ul>
 <li><code>ntoken()</code> counts the tokens of every review. <code>docvars(nhs_tokens)$review_positive</code> fetches the label that travelled along with each document.</li>
 <li>The comment in the chunk is replaced by a pipe <code>|&gt;</code> at the end of the <code>)</code> line.</li>
@@ -5361,7 +5379,7 @@ Show the code
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Stuck?">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-14-contents" aria-controls="callout-14" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-15-contents" aria-controls="callout-15" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -5370,7 +5388,7 @@ Stuck?
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-14" class="callout-14-contents callout-collapse collapse">
+<div id="callout-15" class="callout-15-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <ul>
 <li><code>unexpected symbol</code> or nothing is drawn: the <code>|&gt;</code> must be at the <strong>end</strong> of the line with the closing bracket, not at the start of the next line.</li>
@@ -5391,7 +5409,7 @@ Stuck?
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Compare with our answer">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-15-contents" aria-controls="callout-15" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-16-contents" aria-controls="callout-16" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -5400,7 +5418,7 @@ Compare with our answer
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-15" class="callout-15-contents callout-collapse collapse">
+<div id="callout-16" class="callout-16-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><strong>Negative reviews are longer.</strong> Half of the negative reviews have more than 44 tokens; for positive reviews it is 25. (These are counts after cleaning, so the original reviews are roughly twice as long.)</p>
 <p><strong>Why?</strong> A complaint tells a story: “I called at 8, I was told …, then …”. Praise is short: “Friendly and helpful, thank you.” That story-telling has its own words (<em>told</em>, <em>called</em>, <em>still</em>, <em>back</em>), and Part II finds them.</p>
@@ -5465,7 +5483,7 @@ Compare with our answer
 <p><strong>Keyness</strong> asks of each word: is it where you would expect it? A value far from 0 means the word is typical of one group. The sign says which: above 0 is typical of positive reviews, below 0 of negative ones. A value near 0 means the word is used equally on both sides.</p>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Where does the number come from?">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-16-contents" aria-controls="callout-16" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-17-contents" aria-controls="callout-17" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -5474,7 +5492,7 @@ Where does the number come from?
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-16" class="callout-16-contents callout-collapse collapse">
+<div id="callout-17" class="callout-17-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>It is a chi-squared test, as in any first statistics course, on a two-by-two table: this word or any other word, positive or negative review. <code>quanteda</code> adds the sign so that the direction is visible.</p>
 </div>
@@ -5513,7 +5531,7 @@ Where does the number come from?
 </div>
 <p>This page shows 10 words on each side so that the labels can be read; your plot shows 20. In the legend, “target” means the positive reviews and “reference” the negative ones.</p>
 <div class="callout callout-style-default callout-tip callout-titled" title="Compare with our answer">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-17-contents" aria-controls="callout-17" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-18-contents" aria-controls="callout-18" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -5522,7 +5540,7 @@ Compare with our answer
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-17" class="callout-17-contents callout-collapse collapse">
+<div id="callout-18" class="callout-18-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <ul>
 <li><strong>Positive reviews are about people:</strong> <em>thank</em>, <em>helpful</em>, <em>friendly</em>, <em>staff</em>, <em>excellent</em>, <em>professional</em>. How patients were treated. (<em>jab</em> is there too: the reviews are from 2021, and vaccination clinics were well organised.)</li>
@@ -5577,7 +5595,7 @@ Compare with our answer
 </div>
 <p>How to read it: an arrow goes from the first word of a pair to the second, and a thick, dark arrow is a frequent pair. The layout is random, so your network has the same dots and arrows arranged differently.</p>
 <div class="callout callout-style-default callout-tip callout-titled" title="Compare with our answer">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-18-contents" aria-controls="callout-18" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-19-contents" aria-controls="callout-19" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -5586,7 +5604,7 @@ Compare with our answer
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-18" class="callout-18-contents callout-collapse collapse">
+<div id="callout-19" class="callout-19-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <ul>
 <li><strong>The largest cluster hangs on <em>appointment</em>:</strong> get, book, make, telephone. “get appointment” alone appears 185 times.</li>
@@ -5648,7 +5666,7 @@ Compare with our answer
 <p><strong>TF-IDF</strong> weights a word down when it is in most documents, and up when it is rare. And note what IDF needs: it counts across <strong>all</strong> the reviews it is given. So it must be learned from the <strong>training</strong> reviews only. That is why, in the next steps, the text steps go <strong>inside the recipe</strong>, after the split.</p>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Why would it matter if the test reviews were counted too?">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-19-contents" aria-controls="callout-19" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-20-contents" aria-controls="callout-20" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -5657,7 +5675,7 @@ Why would it matter if the test reviews were counted too?
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-19" class="callout-19-contents callout-collapse collapse">
+<div id="callout-20" class="callout-20-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>The test set stands in for reviews the model has never seen. If the test reviews helped to choose the vocabulary or the IDF weights, they would shape the columns the model is trained on, and the test score would look better than it deserves. It is the same leak as normalising before splitting in Lab 5. The notebook explains this at line 226.</p>
 </div>
@@ -5673,7 +5691,7 @@ Why would it matter if the test reviews were counted too?
 </ol>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Show the code">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-20-contents" aria-controls="callout-20" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-21-contents" aria-controls="callout-21" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -5682,12 +5700,12 @@ Show the code
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-20" class="callout-20-contents callout-collapse collapse">
+<div id="callout-21" class="callout-21-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<div class="sourceCode" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">123</span>)</span>
-<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>nhs_split <span class="ot">&lt;-</span> <span class="fu">initial_split</span>(nhs_model_data, <span class="at">prop =</span> <span class="fl">0.75</span>, <span class="at">strata =</span> positive)</span>
-<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>nhs_train <span class="ot">&lt;-</span> <span class="fu">training</span>(nhs_split)</span>
-<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>nhs_test  <span class="ot">&lt;-</span> <span class="fu">testing</span>(nhs_split)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">123</span>)</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>nhs_split <span class="ot">&lt;-</span> <span class="fu">initial_split</span>(nhs_model_data, <span class="at">prop =</span> <span class="fl">0.75</span>, <span class="at">strata =</span> positive)</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>nhs_train <span class="ot">&lt;-</span> <span class="fu">training</span>(nhs_split)</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>nhs_test  <span class="ot">&lt;-</span> <span class="fu">testing</span>(nhs_split)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <p>This is Labs 4 and 5. <code>initial_split()</code> decides at random which rows go where. <code>prop = 0.75</code> sends three quarters to training. <code>strata = positive</code> keeps the share of positive reviews the same in both parts. <code>set.seed(123)</code> fixes the random draw, so that your split is the one on this page.</p>
 </div>
 </div>
@@ -5719,9 +5737,9 @@ Testing reviews:  497 </code></pre>
 </div>
 <p><strong>Why do it twice?</strong> Part I was for looking at the data. The recipe is for modelling: it guarantees that the test reviews play no part in choosing the words or their IDF weights.</p>
 <p><strong>How many columns come out?</strong> Guess, then check by typing this into the console:</p>
-<div class="sourceCode" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>nhs_rec <span class="sc">|&gt;</span> <span class="fu">prep</span>() <span class="sc">|&gt;</span> <span class="fu">bake</span>(<span class="at">new_data =</span> <span class="cn">NULL</span>) <span class="sc">|&gt;</span> <span class="fu">ncol</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>nhs_rec <span class="sc">|&gt;</span> <span class="fu">prep</span>() <span class="sc">|&gt;</span> <span class="fu">bake</span>(<span class="at">new_data =</span> <span class="cn">NULL</span>) <span class="sc">|&gt;</span> <span class="fu">ncol</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Compare with our answer">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-21-contents" aria-controls="callout-21" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-22-contents" aria-controls="callout-22" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -5730,7 +5748,7 @@ Compare with our answer
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-21" class="callout-21-contents callout-collapse collapse">
+<div id="callout-22" class="callout-22-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>101: the outcome plus <strong>100 words</strong>. The notebook’s text speaks of “about 1,000 features”, and <code>min_times = 10</code> alone would allow about that many. But <code>step_tokenfilter()</code> has a second setting, <code>max_tokens</code>, which is 100 unless you change it: only the 100 most used words stay. The model works well with 100 words, as you are about to see. It is still worth knowing what it gets.</p>
 </div>
@@ -5772,7 +5790,7 @@ Your numbers may differ a little from this page
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="What does mtry = 0.03 amount to here?">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-23-contents" aria-controls="callout-23" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-24-contents" aria-controls="callout-24" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -5781,7 +5799,7 @@ What does mtry = 0.03 amount to here?
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-23" class="callout-23-contents callout-collapse collapse">
+<div id="callout-24" class="callout-24-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>The notebook reasons: the square root of 1,000 features, as a share, is about 0.03. With the 100 words the recipe really produces, 0.03 means each split may choose among <strong>3</strong> random words. That is a strong restriction, and one reason the importance in the next step is spread over many words.</p>
 </div>
@@ -5795,7 +5813,7 @@ What does mtry = 0.03 amount to here?
 </div>
 <p><code>vi()</code>, short for “variable importance”, returns two columns: <code>Variable</code>, the word, and <code>Importance</code>, how much the splits on that word improved the trees, added up over all 2,000. The <code>mutate()</code> in the chunk removes the prefix <code>tfidf_review_text_</code> from the names, and <code>fct_reorder()</code> sorts the words by importance so that the bars come out in order.</p>
 <div class="callout callout-style-default callout-tip callout-titled" title="Show the code">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-24-contents" aria-controls="callout-24" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-25-contents" aria-controls="callout-25" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -5804,23 +5822,23 @@ Show the code
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-24" class="callout-24-contents callout-collapse collapse">
+<div id="callout-25" class="callout-25-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<div class="sourceCode" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>nhs_fit <span class="sc">|&gt;</span></span>
-<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">vi</span>() <span class="sc">|&gt;</span></span>
-<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">slice_max</span>(Importance, <span class="at">n =</span> <span class="dv">20</span>) <span class="sc">|&gt;</span></span>
-<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
-<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">Variable =</span> <span class="fu">str_remove</span>(Variable, <span class="st">&quot;tfidf_review_text_&quot;</span>),</span>
-<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>    <span class="at">Variable =</span> <span class="fu">fct_reorder</span>(Variable, Importance)</span>
-<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
-<span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>(<span class="fu">aes</span>(Importance, Variable)) <span class="sc">+</span></span>
-<span id="cb9-9"><a href="#cb9-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_col</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>nhs_fit <span class="sc">|&gt;</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">vi</span>() <span class="sc">|&gt;</span></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">slice_max</span>(Importance, <span class="at">n =</span> <span class="dv">20</span>) <span class="sc">|&gt;</span></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">Variable =</span> <span class="fu">str_remove</span>(Variable, <span class="st">&quot;tfidf_review_text_&quot;</span>),</span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>    <span class="at">Variable =</span> <span class="fu">fct_reorder</span>(Variable, Importance)</span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>(<span class="fu">aes</span>(Importance, Variable)) <span class="sc">+</span></span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_col</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <p>Two things are added: the pipe <code>|&gt;</code> after the closing bracket of <code>mutate()</code>, and the two <code>ggplot</code> lines. <code>aes(Importance, Variable)</code> puts the importance on the x-axis and the words on the y-axis; <code>geom_col()</code> draws a bar of that length for each word.</p>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Stuck?">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-25-contents" aria-controls="callout-25" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-26-contents" aria-controls="callout-26" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -5829,7 +5847,7 @@ Stuck?
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-25" class="callout-25-contents callout-collapse collapse">
+<div id="callout-26" class="callout-26-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <ul>
 <li><code>unexpected symbol</code>: the <code>|&gt;</code> after <code>mutate( … )</code> is missing.</li>
@@ -5921,7 +5939,7 @@ Stuck?
 <p>A <strong>SHAP value</strong> is one push: how far did <strong>this word</strong> move the prediction for <strong>this review</strong>? The sign is the direction, the size is the strength, and the start plus all the pushes gives exactly the model’s prediction. In this lab, <strong>below 0 means towards positive</strong> and above 0 towards negative.</p>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Why is negative the direction of &#39;up&#39;?">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-26-contents" aria-controls="callout-26" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-27-contents" aria-controls="callout-27" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -5930,14 +5948,14 @@ Why is negative the direction of ‘up’?
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-26" class="callout-26-contents callout-collapse collapse">
+<div id="callout-27" class="callout-27-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>R sorts the categories of a factor alphabetically, so “Negative” comes before “Positive”, and the model predicts the chance of the first one. Everything in this part is therefore measured “towards negative”. It comes back in the F1-score below.</p>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="What scale are the pushes on?">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-27-contents" aria-controls="callout-27" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-28-contents" aria-controls="callout-28" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -5946,7 +5964,7 @@ What scale are the pushes on?
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-27" class="callout-27-contents callout-collapse collapse">
+<div id="callout-28" class="callout-28-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>The model’s internal scale, log-odds, as in logistic regression (Lab 4). The axis of the plots is labelled in percentages so that it can be read. That is why equal pushes look longer in the middle of the axis than at its edge.</p>
 </div>
@@ -5992,21 +6010,21 @@ Does your plot look different?
 </div>
 <div class="callout-body-container callout-body">
 <p>It probably does, and not because of anything you did. As delivered, the chunk hands <code>shapviz()</code> the baked table in a different form from the one the model was fitted on, and in that form the model treats a word that is absent differently. The words then come out in another order, and the reviews without a word no longer sit close to 0. To get the plot on this page, add one statement after the <code>nhs_matrix</code> lines and change the <code>X_pred</code> line:</p>
-<div class="sourceCode" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>nhs_sparse <span class="ot">&lt;-</span></span>
-<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>  nhs_fit <span class="sc">|&gt;</span></span>
-<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">extract_recipe</span>() <span class="sc">|&gt;</span></span>
-<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">bake</span>(<span class="at">new_data =</span> nhs_train, <span class="fu">all_predictors</span>(), <span class="at">composition =</span> <span class="st">&quot;dgCMatrix&quot;</span>)</span>
-<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>shap <span class="ot">&lt;-</span> <span class="fu">shapviz</span>(</span>
-<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>  nhs_fit_extracted,</span>
-<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">X_pred =</span> xgboost<span class="sc">::</span><span class="fu">xgb.DMatrix</span>(nhs_sparse),</span>
-<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">X =</span> <span class="fu">as.data.frame</span>(nhs_matrix)</span>
-<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>nhs_sparse <span class="ot">&lt;-</span></span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>  nhs_fit <span class="sc">|&gt;</span></span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">extract_recipe</span>() <span class="sc">|&gt;</span></span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">bake</span>(<span class="at">new_data =</span> nhs_train, <span class="fu">all_predictors</span>(), <span class="at">composition =</span> <span class="st">&quot;dgCMatrix&quot;</span>)</span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a>shap <span class="ot">&lt;-</span> <span class="fu">shapviz</span>(</span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a>  nhs_fit_extracted,</span>
+<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">X_pred =</span> xgboost<span class="sc">::</span><span class="fu">xgb.DMatrix</span>(nhs_sparse),</span>
+<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">X =</span> <span class="fu">as.data.frame</span>(nhs_matrix)</span>
+<span id="cb11-10"><a href="#cb11-10" aria-hidden="true" tabindex="-1"></a>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <p>You do not need to understand these lines. If you leave the chunk as it is, read the answers below against the plot on this page.</p>
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Compare with our answer">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-29-contents" aria-controls="callout-29" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-30-contents" aria-controls="callout-30" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -6015,7 +6033,7 @@ Compare with our answer
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-29" class="callout-29-contents callout-collapse collapse">
+<div id="callout-30" class="callout-30-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <ul>
 <li><strong>The same words on top</strong> as in the bar chart of the last step, and as in the keyness plot.</li>
@@ -6077,7 +6095,7 @@ Compare with our answer
 </div>
 <p>In the confusion matrix, the rows are what the model said and the columns are the truth. The two cells on the diagonal are correct: 157 negative reviews found and 272 positive reviews recognised.</p>
 <div class="callout callout-style-default callout-tip callout-titled" title="Compare with our answer">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-30-contents" aria-controls="callout-30" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-31-contents" aria-controls="callout-31" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -6086,7 +6104,7 @@ Compare with our answer
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-30" class="callout-30-contents callout-collapse collapse">
+<div id="callout-31" class="callout-31-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <ul>
 <li><strong>68 of 497 test reviews are wrong</strong>, about one in 7: 32 complaints called positive and 36 positive reviews called negative. That is from 100 words and no word order.</li>
@@ -6099,7 +6117,7 @@ Compare with our answer
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Go further: read the reviews the model gets wrong">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-31-contents" aria-controls="callout-31" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-32-contents" aria-controls="callout-32" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -6108,12 +6126,12 @@ Go further: read the reviews the model gets wrong
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-31" class="callout-31-contents callout-collapse collapse">
+<div id="callout-32" class="callout-32-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<div class="sourceCode" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>nhs_fit <span class="sc">|&gt;</span></span>
-<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">augment</span>(<span class="at">new_data =</span> nhs_test) <span class="sc">|&gt;</span></span>
-<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(.pred_class <span class="sc">!=</span> positive) <span class="sc">|&gt;</span></span>
-<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(positive, .pred_class, review_text)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>nhs_fit <span class="sc">|&gt;</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">augment</span>(<span class="at">new_data =</span> nhs_test) <span class="sc">|&gt;</span></span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(.pred_class <span class="sc">!=</span> positive) <span class="sc">|&gt;</span></span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(positive, .pred_class, review_text)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <p><code>filter()</code> keeps the rows where the prediction differs from the truth. Read three of them and ask why the model was fooled.</p>
 </div>
 </div>
@@ -6141,7 +6159,7 @@ Go further: read the reviews the model gets wrong
 <p>The modelling was the easy part, and nothing in it was new. The decisions that shaped the result were all in turning text into columns.</p>
 <p><strong>One question to take away:</strong> a new review says “Not helpful at all.” What does the model see, and what will it probably predict? What would you change?</p>
 <div class="callout callout-style-default callout-tip callout-titled" title="Compare with our answer">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-32-contents" aria-controls="callout-32" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-33-contents" aria-controls="callout-33" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -6150,7 +6168,7 @@ Compare with our answer
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-32" class="callout-32-contents callout-collapse collapse">
+<div id="callout-33" class="callout-33-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><em>not</em>, <em>at</em> and <em>all</em> are stopwords, so the model sees one word, <em>helpful</em>, which pushes strongly towards positive. It will probably call a complaint positive. It is the café’s seventh review again.</p>
 <p>What you could change, in order of effort: take <em>not</em> and <em>no</em> off the stopword list; add pairs of words as columns, so that “not helpful” gets a column of its own (<code>step_ngram()</code> in a recipe); or use a model that reads words in order.</p>
